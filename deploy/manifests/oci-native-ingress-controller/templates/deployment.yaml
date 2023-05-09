@@ -1,0 +1,80 @@
+---
+# Source: oci-native-ingress-controller/templates/deployment.yaml
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: native-ingress-controller-system
+---
+# Source: oci-native-ingress-controller/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-native-ingress-controller
+  namespace: native-ingress-controller-system
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oci-native-ingress-controller
+      app.kubernetes.io/instance: oci-native-ingress-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oci-native-ingress-controller
+        app.kubernetes.io/instance: oci-native-ingress-controller
+    spec:
+      serviceAccountName: oci-native-ingress-controller
+      automountServiceAccountToken: true
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: oci-native-ingress-controller-tls
+      securityContext:
+        {}
+      containers:
+        - name: oci-native-ingress-controller
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          image: "iad.ocir.io/axoxdievda5j/oke-public-oci-native-ingress-controller:0.1.22"
+          imagePullPolicy: Always
+          args: 
+          - --lease-lock-name=oci-native-ingress-controller
+          - --lease-lock-namespace=native-ingress-controller-system
+          - --authType=instance
+          - --auth-secret-name=oci-config
+          - --controller-class=oci.oraclecloud.com/native-ingress-controller
+          - --compartment-id=
+          - --subnet-id=
+          - --v=4
+          env:
+            - name: OCI_RESOURCE_PRINCIPAL_VERSION
+              value: "2.2"
+            - name: OCI_RESOURCE_PRINCIPAL_REGION
+              value: "us-ashburn-1"
+          ports:
+            - name: webhook-server
+              containerPort: 9443
+              protocol: TCP
+          resources:
+            {}
+          volumeMounts:
+          - mountPath: /tmp/k8s-webhook-server/serving-certs
+            name: cert
+            readOnly: true
+      priorityClassName: "system-cluster-critical"

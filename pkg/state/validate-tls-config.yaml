@@ -1,0 +1,50 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-one
+  namespace: default
+spec:
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: secret_name_one
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/TLSPath"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 943
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-two
+  namespace: default
+spec:
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: secret_name_two
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Exact
+        path: "/TLSPath"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 943

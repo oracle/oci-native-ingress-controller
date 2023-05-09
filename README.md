@@ -1,44 +1,27 @@
-*This repository acts as a template for all of Oracle’s GitHub repositories. It contains information about the guidelines for those repositories. All files and sections contained in this template are mandatory, and a GitHub app ensures alignment with these guidelines. To get started with a new repository, replace the italic paragraphs with the respective text for your project.*
+# Native Ingress Controller
+This project provides a native ingress controller which can be deployed on OCI. The ingress module leverages
+on the existing OCI load balancer features to act as an ingress controller for cluster services.
 
-# Project name
-
-*Describe your project's features, functionality and target audience*
-
-## Installation
-
-*Provide detailed step-by-step installation instructions*
-
-## Documentation
-
-*Developer-oriented documentation can be published on GitHub, but all product documentation must be published on <https://docs.oracle.com>*
-
-## Examples
-
-*Describe any included examples or provide a link to a demo/tutorial*
-
-## Help
-
-*Inform users on where to get help or how to receive official support from Oracle (if applicable)*
+## Getting Started
+Please have a look at [Getting Started](./GettingStarted.md)
 
 ## Contributing
 
-*If your project has specific contribution requirements, update the CONTRIBUTING.md file to ensure those requirements are clearly explained*
+This project welcomes contributions from the community. Before submitting a pull
+request, please [review our contribution guide](./CONTRIBUTING.md).
 
-This project welcomes contributions from the community. Before submitting a pull request, please [review our contribution guide](./CONTRIBUTING.md)
+## Help
+
+Project Developers: 
+- Niranjan Pai ([@nirpai](https://github.com/nirpai))
+- Inbaraj S ([@Inbaraj-S](https://github.com/Inbaraj-S))
 
 ## Security
 
-Please consult the [security guide](./SECURITY.md) for our responsible security vulnerability disclosure process
+Please consult the [security guide](./SECURITY.md) for our responsible security
+vulnerability disclosure process.
 
 ## License
 
-*The correct copyright notice format for both documentation and software is*
-    "Copyright (c) [year,] year Oracle and/or its affiliates."
-*You must include the year the content was first released (on any platform) and the most recent year in which it was revised*
-
 Copyright (c) 2023 Oracle and/or its affiliates.
-
-*Replace this statement if your project is not licensed under the UPL*
-
-Released under the Universal Permissive License v1.0 as shown at
-<https://oss.oracle.com/licenses/upl/>.
+Released under the Universal Permissive License v1.0 as shown at <https://oss.oracle.com/licenses/upl/>.

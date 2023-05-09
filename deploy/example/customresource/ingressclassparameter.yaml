@@ -1,0 +1,17 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: "ingress.oraclecloud.com/v1beta1"
+kind: IngressClassParameters
+metadata:
+  name: ingressparms-cr-test
+spec:
+  compartmentID: "ocid1.compartment.oc1..aaaaaaaauckenasusv5odnc4bqspi77hgnjeo6ydq33hidzadpkxyyyzzzz"
+  subnetID: "ocid1.subnet.oc1.iad.aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5xyyyzzzz"
+  loadBalancerName: "native-ic-lb"
+  isPrivate: false
+  maxBandwidthMbps: 400
+  minBandwidthMbps: 100

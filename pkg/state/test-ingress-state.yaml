@@ -1,0 +1,78 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-state
+  namespace: default
+spec:
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: secret_name
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/PrefixEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 80
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/ExactEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 70
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-state-new
+  namespace: default
+spec:
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: secret_name
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/PrefixEcho1/aa"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 80
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/ExactEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 90
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/PrefixEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 100

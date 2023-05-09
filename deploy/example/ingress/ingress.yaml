@@ -1,0 +1,57 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testecho
+  labels:
+    app: testecho
+spec:
+  selector:
+    matchLabels:
+      app: testecho
+  template:
+    metadata:
+      labels:
+        app: testecho
+    spec:
+      containers:
+        - name: testecho
+          image: registry.k8s.io/echoserver:1.4
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testecho
+spec:
+  selector:
+    app: testecho
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-readiness
+spec:
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho"
+            backend:
+              service:
+                name: testecho
+                port:
+                  number: 80

@@ -1,0 +1,29 @@
+---
+# Source: oci-native-ingress-controller/templates/service.yaml
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-native-ingress-controller
+  namespace: native-ingress-controller-system
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: webhook-server
+      port: 443
+      protocol: TCP
+      targetPort: webhook-server
+  selector:
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller

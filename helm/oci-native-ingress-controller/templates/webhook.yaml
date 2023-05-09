@@ -1,0 +1,81 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oci-native-ingress-controller-webhook-serving-cert
+  namespace: {{ .Values.deploymentNamespace }}
+spec:
+  dnsNames:
+  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}
+  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc
+  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: oci-native-ingress-controller-ca
+  secretName: oci-native-ingress-controller-tls
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: oci-native-ingress-controller-ca
+  namespace: {{ .Values.deploymentNamespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "oci-native-ingress-controller.fullname" . }}-webhook
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Values.deploymentNamespace }}/oci-native-ingress-controller-webhook-serving-cert
+webhooks:
+- clientConfig:
+    service:
+      name: {{ include "oci-native-ingress-controller.fullname" . }}
+      namespace: {{ .Values.deploymentNamespace }}
+      path: /mutate-v1-pod
+  failurePolicy: Fail
+  name: podreadiness.ingress.oraclecloud.com
+  admissionReviewVersions:
+  - v1beta1
+  namespaceSelector:
+    matchExpressions:
+    {{ if .Values.webhookNamespaceSelector }}
+    {{ toYaml .Values.webhookNamespaceSelectors | nindent 4 }}
+    {{ else }}
+    - key: podreadiness.ingress.oraclecloud.com/pod-readiness-gate-inject
+      operator: In
+      values:
+      - enabled
+    {{ end }}
+  objectSelector:
+    matchExpressions:
+    - key: app.kubernetes.io/name
+      operator: NotIn
+      values:
+      - {{ include "oci-native-ingress-controller.name" . }}
+    {{- if .Values.objectSelector.matchExpressions }}
+    {{- toYaml .Values.objectSelector.matchExpressions | nindent 4 }}
+    {{- end }}
+    {{- if .Values.objectSelector.matchLabels }}
+    matchLabels:
+    {{- toYaml .Values.objectSelector.matchLabels | nindent 6 }}
+    {{- end }}
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+

@@ -1,0 +1,86 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-role
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: ["", "networking.k8s.io"]
+  resources: [services, ingresses, ingresses/status, ingressclasses]
+  verbs: [get, list, patch, update, watch]
+- apiGroups: ["", "ingress.oraclecloud.com"]
+  resources: [ingressclassparameters]
+  verbs: [get, list, patch, update, watch]
+- apiGroups: [""]
+  resources: [nodes, namespaces, endpoints]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [get, list, watch]
+- apiGroups: ["discovery.k8s.io"]
+  resources: [endpointslices]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods/status]
+  verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-rolebinding
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-role
+subjects:
+- kind: ServiceAccount
+  name: {{ template "oci-native-ingress-controller.serviceAccountName" . }}
+  namespace: {{ .Values.deploymentNamespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-leader-election-role
+  namespace: {{ .Values.deploymentNamespace }}
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: [leases]
+  verbs: [create]
+- apiGroups: ["coordination.k8s.io"]
+  resources: [leases]
+  resourceNames: [{{ .Values.lease_lock_name }}]
+  verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-leader-election-rolebinding
+  namespace: {{ .Values.deploymentNamespace }}
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ template "oci-native-ingress-controller.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ template "oci-native-ingress-controller.serviceAccountName" . }}
+  namespace: {{ .Values.deploymentNamespace }}
+{{- end }}

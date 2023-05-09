@@ -1,0 +1,60 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-health-checker-annotation-one
+  namespace: default
+  annotations:
+    lb.ingress.oraclecloud.com/healthcheck-protocol: "HTTP"
+    lb.ingress.oraclecloud.com/healthcheck-port: "8080"
+    lb.ingress.oraclecloud.com/healthcheck-interval-milliseconds: "10000"
+    lb.ingress.oraclecloud.com/healthcheck-timeout-milliseconds: "3000"
+    lb.ingress.oraclecloud.com/healthcheck-retries: "3"
+    lb.ingress.oraclecloud.com/healthcheck-return-code: "200"
+    lb.ingress.oraclecloud.com/healthcheck-response-regex: "*"
+    lb.ingress.oraclecloud.com/healthcheck-path: "/health"
+    lb.ingress.oraclecloud.com/healthcheck-force-plaintext: "true"
+spec:
+  rules:
+  - http:
+      paths:
+      - pathType: Exact
+        path: "/HCPath"
+        backend:
+          service:
+            name: test-health-checker-annotation
+            port:
+              number: 800
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-health-checker-annotation-two
+  namespace: default
+  annotations:
+    lb.ingress.oraclecloud.com/healthcheck-protocol: "HTTP"
+    lb.ingress.oraclecloud.com/healthcheck-port: "8080"
+    lb.ingress.oraclecloud.com/healthcheck-interval-milliseconds: "10000"
+    lb.ingress.oraclecloud.com/healthcheck-timeout-milliseconds: "3000"
+    lb.ingress.oraclecloud.com/healthcheck-retries: "3"
+    lb.ingress.oraclecloud.com/healthcheck-return-code: "200"
+    lb.ingress.oraclecloud.com/healthcheck-response-regex: "*"
+    lb.ingress.oraclecloud.com/healthcheck-path: "/health"
+    lb.ingress.oraclecloud.com/healthcheck-force-plaintext: "true"
+spec:
+  rules:
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/HCPathPrefix"
+        backend:
+          service:
+            name: test-health-checker-annotation
+            port:
+              number: 800
