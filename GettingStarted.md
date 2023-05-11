@@ -252,7 +252,7 @@ kubectl get pods --namespace native-ingress-controller-system --selector='app.ku
 Note: Use the correct namespace
 
 ### Getting Started with Ingress
-We can create the ingressclass using the sample ingressClass-file which will help setup the ingressClassParameter and ingressClass. 
+We can create the IngressClass using the sample IngressClass file which will help set up the IngressClassParameter and IngressClass. 
 We need to update the subnetId and compartmentId(Only if overriding values from Values.yaml) before executing the yaml.
 ```
 apiVersion: "ingress.oraclecloud.com/v1beta1"
@@ -507,6 +507,9 @@ lb.ingress.oraclecloud.com/healthcheck-return-code
 lb.ingress.oraclecloud.com/healthcheck-response-regex
 lb.ingress.oraclecloud.com/healthcheck-force-plaintext
 ```
+References:
+- Policy - https://docs.oracle.com/en-us/iaas/Content/Balance/Reference/lbpolicies.htm
+- Healthchecker - https://docs.oracle.com/en-us/iaas/api/#/en/loadbalancer/20170115/HealthChecker/
 
 ### Dependency management
 Module [vendoring](https://go.dev/ref/mod#vendoring) is used to manage 3d-party modules in the project.
@@ -524,8 +527,8 @@ All changes to those modules should be reflected in the remote VCS repository.
 
 ### Known Issues
 1. The loadbalancer has a limitation of 16 backend sets per load balancer. We create a backend set for every unique service and port combination. So if a customer has more such services they need to have new load balancers.
-2. Each service port is mapped to a load balancer listener. For SSL configuration customer can specify only one key pair per listener. Any conflicting declarations across ingress resources for same lister will throw a validation error.
-3. Any conflicting declarations for same backend set health checker and routing policy across ingress resources will throw a validation error.
+2. Each service port is mapped to a load balancer listener. For SSL configuration customer can specify only one key pair per listener which would be used for SSL termination. All the backend sets that are mapped to the listener will use the same issuer(CA Bundle) as the issuer of listener certificate. Any conflicting declarations across ingress resources for same listener will throw a validation error which will be logged in controller logs.
+3. Any conflicting declarations for same backend set health checker and routing policy across ingress resources will throw a validation error which will be logged in controller logs.
 4. For supporting ssl through kubernetes secrets, we generate respective certificates and ca bundles in certificate service. If we delete ingress resource, currently we only delete the load balancer resources.
 The certificates need to be cleared by the customer.
 

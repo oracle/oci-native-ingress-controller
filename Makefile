@@ -8,7 +8,7 @@
 IMAGE_REPO_NAME=oci-native-ingress-controller
 
 ifeq "$(REGISTRY)" ""
-	REGISTRY  ?= ghcr.io/oracle-samples
+	REGISTRY  ?= ghcr.io/oracle
 else
 	REGISTRY	?= ${REGISTRY}
 endif

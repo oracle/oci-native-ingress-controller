@@ -9,8 +9,8 @@ kind: IngressClassParameters
 metadata:
   name: ingressparms-cr-test
 spec:
-  compartmentID: "ocid1.compartment.oc1..aaaaaaaauckenasusv5odnc4bqspi77hgnjeo6ydq33hidzadpkxyyyzzzz"
-  subnetID: "ocid1.subnet.oc1.iad.aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5xyyyzzzz"
+  compartmentId: "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
+  subnetId: "ocid1.subnet.oc1.iad.aaaaaaaauckenasusv5odnc4bqspi77hgnjeo6ydq33hidzadpkjvce7vkpa"
   loadBalancerName: "native-ic-lb"
   isPrivate: false
   maxBandwidthMbps: 400
