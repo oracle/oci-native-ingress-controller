@@ -1,0 +1,12 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+auth:
+  region: us-ashburn-1
+  passphrase: pass
+  user: ocid1.user.oc1..aaaaaaaa_example
+  fingerprint: 67:d9:74:4b:21:example
+  tenancy: ocid1.tenancy.oc1..aaaaaaaa_example

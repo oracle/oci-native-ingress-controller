@@ -1,0 +1,40 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+name: Release
+
+on:
+  push:
+    # Build and publish artifacts for a release
+    tags:
+      - "v*.*.*"
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_REGISTRY: ghcr.io/oracle
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log into GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${GITHUB_ACTOR,,} --password-stdin
+
+      - name: Build Image
+        run: REGISTRY="${{ env.IMAGE_REGISTRY }}" VERSION="${{ github.ref_name }}" make image
+
+      - name: Push Image
+        run: REGISTRY="${{ env.IMAGE_REGISTRY }}" VERSION="${{ github.ref_name }}" make push

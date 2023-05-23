@@ -1,0 +1,108 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+
+# Default values for oci-native-ingress-controller.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+controller_class: oci.oraclecloud.com/native-ingress-controller
+lease_lock_name: oci-native-ingress-controller
+compartment_id: ""
+subnet_id: ""
+
+deploymentNamespace : native-ingress-controller-system
+replicaCount: 1
+
+image:
+  repository: iad.ocir.io/axoxdievda5j/oke-public-oci-native-ingress-controller
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "0.1.29"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: 
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  runAsUser: 1000
+
+rbac:
+  create: true
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# priorityClassName specifies the PriorityClass to indicate the importance of controller pods
+# ref: https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass
+priorityClassName: system-cluster-critical
+
+updateStrategy: {}
+  # type: RollingUpdate
+  # rollingUpdate:
+  #   maxSurge: 1
+  #   maxUnavailable: 1
+
+# topologySpreadConstraints is a stable feature of k8s v1.19 which provides the ability to
+# control how Pods are spread across your cluster among failure-domains such as regions, zones,
+# nodes, and other user-defined topology domains.
+#
+# more details here: https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
+topologySpreadConstraints: {}
+
+# podDisruptionBudget specifies the disruption budget for the controller pods.
+# Disruption budget will be configured only when the replicaCount is greater than 1
+podDisruptionBudget: {}
+#  maxUnavailable: 1
+
+# The TCP port the Webhook server binds to. (default 9443)
+webhookBindPort: 9443
+
+# Supported auths - instance(default), user
+authType: instance
+authSecretName: oci-config
+
+# objectSelector for webhook
+objectSelector:
+  matchExpressions:
+  # - key: <key>
+  #   operator: <operator>
+  #   values:
+  #   - <value>
+  matchLabels:
+  #   key: value

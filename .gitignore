@@ -1,0 +1,13 @@
+/bin
+/.idea
+/.go
+/.push-*
+/.container-*
+/.dockerfile-*
+/.licenses
+/.buildx-initialized
+.DS_Store
+coverage.out
+
+# Ignore builds
+dist/

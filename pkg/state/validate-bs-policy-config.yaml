@@ -1,0 +1,44 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-policy-annotation-one
+  namespace: default
+  annotations:
+    oci-native-ingress.oraclecloud.com/policy: "ROUND_ROBIN"
+spec:
+  rules:
+  - http:
+      paths:
+      - pathType: Exact
+        path: "/PolicyPath"
+        backend:
+          service:
+            name: test-policy-annotation
+            port:
+              number: 900
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-policy-annotation-two
+  namespace: default
+  annotations:
+    oci-native-ingress.oraclecloud.com/policy: "ROUND_ROBIN"
+spec:
+  rules:
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/PolicyPathPrefix"
+        backend:
+          service:
+            name: test-policy-annotation
+            port:
+              number: 900

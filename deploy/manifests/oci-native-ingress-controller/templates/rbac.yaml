@@ -1,0 +1,105 @@
+---
+# Source: oci-native-ingress-controller/templates/rbac.yaml
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oci-native-ingress-controller-role
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: ["", "networking.k8s.io"]
+  resources: [services, ingresses, ingresses/status, ingressclasses]
+  verbs: [get, list, patch, update, watch]
+- apiGroups: ["", "ingress.oraclecloud.com"]
+  resources: [ingressclassparameters]
+  verbs: [get, list, patch, update, watch]
+- apiGroups: [""]
+  resources: [nodes, namespaces, endpoints]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [get, list, watch]
+- apiGroups: ["discovery.k8s.io"]
+  resources: [endpointslices]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods/status]
+  verbs: [patch]
+---
+# Source: oci-native-ingress-controller/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oci-native-ingress-controller-rolebinding
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: oci-native-ingress-controller-role
+subjects:
+- kind: ServiceAccount
+  name: oci-native-ingress-controller
+  namespace: native-ingress-controller-system
+---
+# Source: oci-native-ingress-controller/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oci-native-ingress-controller-leader-election-role
+  namespace: native-ingress-controller-system
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: [leases]
+  verbs: [create]
+- apiGroups: ["coordination.k8s.io"]
+  resources: [leases]
+  resourceNames: [oci-native-ingress-controller]
+  verbs: [get, patch, update]
+---
+# Source: oci-native-ingress-controller/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oci-native-ingress-controller-leader-election-rolebinding
+  namespace: native-ingress-controller-system
+  labels:
+    helm.sh/chart: oci-native-ingress-controller-1.0.0
+    app.kubernetes.io/name: oci-native-ingress-controller
+    app.kubernetes.io/instance: oci-native-ingress-controller
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oci-native-ingress-controller-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: oci-native-ingress-controller
+  namespace: native-ingress-controller-system
