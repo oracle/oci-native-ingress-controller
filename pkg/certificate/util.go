@@ -72,7 +72,7 @@ func CreateInternalCaTypeCertificate(issuerCertificateAuthorityId *string, subje
 		Subject:                      certificateSubject,
 		SubjectAlternativeNames:      subjectAlternativeNames,
 		CertificateProfileType:       certificatesmanagement.CertificateProfileTypeTlsServerOrClient,
-		KeyAlgorithm:                 certificatesmanagement.KeyAlgorithmRsa2048,
+		KeyAlgorithm:                 certificatesmanagement.KeyAlgorithmRsa4096,
 		SignatureAlgorithm:           certificatesmanagement.SignatureAlgorithmSha256WithRsa,
 	}
 
