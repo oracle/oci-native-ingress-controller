@@ -25,7 +25,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/types"
+	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 )
 
 const httpClientTimeout = 20 * time.Second

@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
 	"github.com/oracle/oci-go-sdk/v65/certificates"
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/klog/v2"
 )
 

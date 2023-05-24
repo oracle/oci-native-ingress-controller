@@ -21,10 +21,10 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/certificate"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/loadbalancer"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/state"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
+	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/state"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

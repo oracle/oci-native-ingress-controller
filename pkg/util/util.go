@@ -27,7 +27,7 @@ import (
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/api/v1beta1"
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 )
 
 const (

@@ -21,14 +21,14 @@ import (
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	clientset "k8s.io/client-go/kubernetes"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/auth"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/certificate"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/controllers/backend"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/controllers/ingress"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/controllers/ingressclass"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/controllers/routingpolicy"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/loadbalancer"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/types"
+	"github.com/oracle/oci-native-ingress-controller/pkg/auth"
+	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/backend"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingress"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/routingpolicy"
+	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 
 	v1 "k8s.io/client-go/informers/core/v1"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
@@ -36,7 +36,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/podreadiness"
+	"github.com/oracle/oci-native-ingress-controller/pkg/podreadiness"
 )
 
 func BuildConfig(kubeconfig string) (*rest.Config, error) {
