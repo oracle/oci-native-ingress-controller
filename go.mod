@@ -3,7 +3,7 @@
 // Copyright (c) 2023 Oracle America, Inc. and its affiliates.
 // Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
 //
-module bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller
+module github.com/oracle/oci-native-ingress-controller
 
 go 1.19
 

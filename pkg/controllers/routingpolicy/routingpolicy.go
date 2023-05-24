@@ -19,8 +19,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/loadbalancer"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"

@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/controllers/ingressclass"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
 
 	"k8s.io/klog/v2"
 
@@ -39,8 +39,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/loadbalancer"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
 var errIngressClassNotReady = errors.New("ingress class not ready")

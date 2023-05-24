@@ -35,9 +35,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/api/v1beta1"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/loadbalancer"
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"

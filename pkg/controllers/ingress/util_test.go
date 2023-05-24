@@ -11,10 +11,10 @@ package ingress
 import (
 	"testing"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
 func TestCompareSameTcpHealthCheckers(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"

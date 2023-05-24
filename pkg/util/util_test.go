@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/api/v1beta1"
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

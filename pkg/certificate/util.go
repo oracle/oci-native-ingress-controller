@@ -17,7 +17,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"k8s.io/klog/v2"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
 func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, compartmentId string,
@@ -72,7 +72,7 @@ func CreateInternalCaTypeCertificate(issuerCertificateAuthorityId *string, subje
 		Subject:                      certificateSubject,
 		SubjectAlternativeNames:      subjectAlternativeNames,
 		CertificateProfileType:       certificatesmanagement.CertificateProfileTypeTlsServerOrClient,
-		KeyAlgorithm:                 certificatesmanagement.KeyAlgorithmRsa2048,
+		KeyAlgorithm:                 certificatesmanagement.KeyAlgorithmRsa4096,
 		SignatureAlgorithm:           certificatesmanagement.SignatureAlgorithmSha256WithRsa,
 	}
 

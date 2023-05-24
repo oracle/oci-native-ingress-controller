@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )

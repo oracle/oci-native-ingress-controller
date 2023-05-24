@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"testing"
 
-	"bitbucket.oci.oraclecorp.com/oke/oci-native-ingress-controller/pkg/util"
 	. "github.com/onsi/gomega"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/klog/v2"
 )
