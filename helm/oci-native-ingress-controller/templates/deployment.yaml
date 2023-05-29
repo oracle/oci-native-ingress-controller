@@ -61,6 +61,8 @@ spec:
           - --controller-class={{ .Values.controller_class }}
           - --compartment-id={{ .Values.compartment_id }}
           - --subnet-id={{ .Values.subnet_id }}
+          - --metrics-backend={{.Values.metrics.backend}}
+          - --metrics-port={{.Values.metrics.port}}
           - --v=4
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
@@ -73,6 +75,8 @@ spec:
             - name: webhook-server
               containerPort: {{.Values.webhookBindPort}}
               protocol: TCP
+            - name: metrics-server
+              containerPort: 2223
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

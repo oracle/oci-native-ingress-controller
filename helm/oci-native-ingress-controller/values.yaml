@@ -106,3 +106,7 @@ objectSelector:
   #   - <value>
   matchLabels:
   #   key: value
+
+metrics:
+  backend: prometheus
+  port: 2223

@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"reflect"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
@@ -60,18 +62,14 @@ type Controller struct {
 
 	lbClient           *loadbalancer.LoadBalancerClient
 	certificatesClient *certificate.CertificatesClient
+	metricsCollector   *metric.IngressCollector
 }
 
 // NewController creates a new Controller.
-func NewController(
-	controllerClass string,
-	defaultCompartmentId string,
-	ingressClassInformer networkinginformers.IngressClassInformer,
-	ingressInformer networkinginformers.IngressInformer,
-	client kubernetes.Interface,
-	lbClient *loadbalancer.LoadBalancerClient,
-	certificatesClient *certificate.CertificatesClient,
-) *Controller {
+func NewController(controllerClass string, defaultCompartmentId string,
+	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
+	client kubernetes.Interface, lbClient *loadbalancer.LoadBalancerClient, certificatesClient *certificate.CertificatesClient,
+	reg *prometheus.Registry) *Controller {
 
 	c := &Controller{
 		controllerClass:      controllerClass,
@@ -84,6 +82,7 @@ func NewController(
 		lbClient:           lbClient,
 		certificatesClient: certificatesClient,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		metricsCollector:   metric.NewIngressCollector(controllerClass, reg),
 	}
 
 	ingressInformer.Informer().AddEventHandler(
@@ -103,17 +102,18 @@ func (c *Controller) enqueueIngress(ingress *networkingv1.Ingress) {
 		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", ingress, err))
 		return
 	}
-
 	c.queue.Add(key)
 }
 
 func (c *Controller) ingressAdd(obj interface{}) {
+	c.metricsCollector.IncrementIngressAddOperation()
 	ic := obj.(*networkingv1.Ingress)
 	klog.V(4).InfoS("Adding ingress", "ingress", klog.KObj(ic))
 	c.enqueueIngress(ic)
 }
 
 func (c *Controller) ingressUpdate(old, new interface{}) {
+	c.metricsCollector.IncrementIngressUpdateOperation()
 	oldIngress := old.(*networkingv1.Ingress)
 	newIngress := new.(*networkingv1.Ingress)
 
@@ -122,6 +122,7 @@ func (c *Controller) ingressUpdate(old, new interface{}) {
 }
 
 func (c *Controller) ingressDelete(obj interface{}) {
+	c.metricsCollector.IncrementIngressDeleteOperation()
 	ic, ok := obj.(*networkingv1.Ingress)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
@@ -151,8 +152,14 @@ func (c *Controller) processNextItem() bool {
 	// parallel.
 	defer c.queue.Done(key)
 
+	// ingress_sync_time
+	startBuildTime := util.GetCurrentTimeInUnixMillis()
+
 	// Invoke the method containing the business logic
 	err := c.sync(key.(string))
+
+	endBuildTime := util.GetCurrentTimeInUnixMillis()
+	c.metricsCollector.AddIngressSyncTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
 
 	// Handle the error if something went wrong during the execution of the business logic
 	c.handleErr(err, key)
@@ -161,6 +168,7 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
+	c.metricsCollector.IncrementSyncCount()
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
@@ -285,7 +293,7 @@ func (c *Controller) ensureLoadBalancerIP(lbID string, ingress *networkingv1.Ing
 func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass) error {
 
 	klog.Infof("Processing ingress %s/%s", ingressClass.Name, ingress.Name)
-	stateStore := state.NewStateStore(c.ingressClassLister, c.ingressLister, c.serviceLister)
+	stateStore := state.NewStateStore(c.ingressClassLister, c.ingressLister, c.serviceLister, c.metricsCollector)
 	ingressConfigError := stateStore.BuildState(ingressClass)
 
 	if ingressConfigError != nil {
@@ -316,6 +324,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 	backendSetsToCreate := desiredBackendSets.Difference(actualBackendSets)
 
 	for _, bsName := range backendSetsToCreate.List() {
+		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
 		backendSetSslConfig, err := getSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c)
@@ -329,6 +338,8 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		if err != nil {
 			return err
 		}
+		endBuildTime := util.GetCurrentTimeInUnixMillis()
+		c.metricsCollector.AddBackendCreationTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
 	}
 
 	// Determine listeners... This is based off path ports.
@@ -380,7 +391,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 }
 
 func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass) error {
-	stateStore := state.NewStateStore(c.ingressClassLister, c.ingressLister, c.serviceLister)
+	stateStore := state.NewStateStore(c.ingressClassLister, c.ingressLister, c.serviceLister, c.metricsCollector)
 	ingressConfigError := stateStore.BuildState(ingressClass)
 
 	if ingressConfigError != nil {
@@ -577,6 +588,7 @@ func getSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 }
 
 func syncListener(namespace string, stateStore *state.StateStore, lbId *string, listenerName string, c *Controller) error {
+	startTime := util.GetCurrentTimeInUnixMillis()
 	lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), *lbId)
 	if err != nil {
 		return err
@@ -617,10 +629,14 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 			return err
 		}
 	}
+	endTime := util.GetCurrentTimeInUnixMillis()
+	c.metricsCollector.AddIngressListenerSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
 	return nil
 }
 
 func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName string, stateStore *state.StateStore, c *Controller) error {
+
+	startTime := util.GetCurrentTimeInUnixMillis()
 	lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return err
@@ -665,6 +681,8 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 		}
 	}
 
+	endTime := util.GetCurrentTimeInUnixMillis()
+	c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
 	return nil
 }
 

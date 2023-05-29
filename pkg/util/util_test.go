@@ -547,3 +547,9 @@ func getIngressClassResource(name string, isDefault bool, controller string) *ne
 		},
 	}
 }
+
+func TestGetTimeDifferenceInSeconds(t *testing.T) {
+	RegisterTestingT(t)
+	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009000)).Should(Equal(float64(3)))
+	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009600)).Should(Equal(3.6))
+}
