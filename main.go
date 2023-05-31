@@ -11,11 +11,13 @@ package main
 import (
 	"context"
 	"flag"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/server"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 	"k8s.io/klog/v2"
@@ -51,6 +53,8 @@ func main() {
 	flag.StringVar(&opts.ControllerClass, "controller-class", "oci.oraclecloud.com/native-ingress-controller", "the controller class name")
 	flag.StringVar(&opts.AuthType, "authType", "instance", "The auth type to be used - supported values : user, instance(Default).")
 	flag.StringVar(&opts.AuthSecretName, "auth-secret-name", "", "Secret name used for auth, cannot be empty if authType is user principal")
+	flag.StringVar(&opts.MetricsBackend, "metrics-backend", "prometheus", "Backend used for metrics")
+	flag.IntVar(&opts.MetricsPort, "metrics-port", 2223, "Metrics port for metrics backend")
 	flag.Parse()
 
 	if opts.LeaseLockName == "" {
@@ -157,9 +161,12 @@ func main() {
 	}
 
 	server.SetupWebhookServer(ingressInformer, serviceInformer, client, ctx)
+	mux := http.NewServeMux()
+	reg, err := server.SetupMetricsServer(opts.MetricsBackend, opts.MetricsPort, mux, ctx)
 
-	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, endpointInformer, podInformer, c)
+	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, endpointInformer, podInformer, c, reg)
 
+	metric.ServeMetrics(opts.MetricsPort, mux)
 	// we use the Lease lock type since edits to Leases are less common
 	// and fewer objects in the cluster watch "all Leases".
 	lock := &resourcelock.LeaseLock{

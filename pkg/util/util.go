@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -377,4 +378,13 @@ func IsIngressDeleting(i *networkingv1.Ingress) bool {
 func PrettyPrint(i interface{}) string {
 	s, _ := json.MarshalIndent(i, "", " ")
 	return string(s)
+}
+
+func GetCurrentTimeInUnixMillis() int64 {
+	return time.Now().UnixMilli()
+}
+
+// GetTimeDifferenceInSeconds returns time difference in seconds of two timestamp values passed in Milliseconds
+func GetTimeDifferenceInSeconds(startTime, endTime int64) float64 {
+	return float64(endTime-startTime) / 1000
 }

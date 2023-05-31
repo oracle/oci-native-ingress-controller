@@ -88,7 +88,7 @@ func TestListenerWithDifferentSecrets(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(BeNil())
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(PortConflictMessage, 943)))
@@ -110,7 +110,7 @@ func TestListenerWithSameSecrets(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 	bsName := util.GenerateBackendSetName("default", "tls-test", 943)
@@ -141,7 +141,7 @@ func TestListenerWithSecretAndCertificate(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	fmt.Printf("FATAL: %+v\n", err)
 	Expect(err).NotTo(BeNil())
@@ -165,7 +165,7 @@ func TestListenerWithDifferentCertificates(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(BeNil())
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(PortConflictMessage, 943)))
@@ -190,7 +190,7 @@ func TestListenerWithSameCertificate(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
@@ -216,7 +216,7 @@ func TestIngressState(t *testing.T) {
 	testService := getServiceResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
@@ -263,7 +263,7 @@ func TestValidateHealthCheckerConfig(t *testing.T) {
 	testService := getServiceResource("default", "test-health-checker-annotation", 800)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
@@ -301,7 +301,7 @@ func TestValidateHealthCheckerConfigWithConflict(t *testing.T) {
 	testService := getServiceResource("default", "test-health-checker-annotation", 800)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).Should(HaveOccurred())
 
@@ -320,7 +320,7 @@ func TestValidatePolicyConfig(t *testing.T) {
 	testService := getServiceResource("default", "test-policy-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
@@ -345,7 +345,7 @@ func TestValidatePolicyConfigWithConflict(t *testing.T) {
 	testService := getServiceResource("default", "test-policy-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).Should(HaveOccurred())
 
@@ -364,7 +364,7 @@ func TestValidateProtocolConfig(t *testing.T) {
 	testService := getServiceResource("default", "test-protocol-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
@@ -385,7 +385,7 @@ func TestValidateProtocolConfigWithConflict(t *testing.T) {
 	testService := getServiceResource("default", "test-protocol-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
-	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).Should(HaveOccurred())
 

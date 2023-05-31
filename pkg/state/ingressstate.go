@@ -11,9 +11,8 @@ package state
 
 import (
 	"fmt"
-	"reflect"
-
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"github.com/pkg/errors"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -22,6 +21,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/klog/v2"
+	"reflect"
 )
 
 const (
@@ -46,6 +46,7 @@ type StateStore struct {
 	ServiceLister      corelisters.ServiceLister
 	IngressGroupState  IngressClassState
 	IngressState       map[string]IngressState
+	metricsCollector   *metric.IngressCollector
 }
 
 type IngressClassState struct {
@@ -66,18 +67,20 @@ type IngressState struct {
 
 func NewStateStore(ingressClassLister networkinglisters.IngressClassLister,
 	ingressLister networkinglisters.IngressLister,
-	serviceLister corelisters.ServiceLister) *StateStore {
+	serviceLister corelisters.ServiceLister, collector *metric.IngressCollector) *StateStore {
 	return &StateStore{
 		IngressClassLister: ingressClassLister,
 		IngressLister:      ingressLister,
 		ServiceLister:      serviceLister,
 		IngressGroupState:  IngressClassState{},
 		IngressState:       map[string]IngressState{},
+		metricsCollector:   collector,
 	}
 }
 
 func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
+	startBuildTime := util.GetCurrentTimeInUnixMillis()
 	klog.Infof("Starting to build state for ingress class %s", ingressClass.Name)
 	ingressList, err := s.IngressLister.List(labels.Everything())
 	if err != nil {
@@ -204,6 +207,11 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 	klog.Infof("Ingress Group state %s, Ingress state %s", util.PrettyPrint(s.IngressGroupState), util.PrettyPrint(s.IngressState))
 	klog.Infof("State build complete..")
+
+	endBuildTime := util.GetCurrentTimeInUnixMillis()
+	if s.metricsCollector != nil {
+		s.metricsCollector.AddStateBuildTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+	}
 	return nil
 }
 

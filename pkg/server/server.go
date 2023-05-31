@@ -11,6 +11,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"os"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -28,7 +29,9 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/routingpolicy"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
+	"github.com/prometheus/client_golang/prometheus"
 
 	v1 "k8s.io/client-go/informers/core/v1"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
@@ -55,7 +58,10 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 	return cfg, nil
 }
 
-func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, client *clientset.Clientset, serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache) func(ctx context.Context) {
+func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
+	ingressInformer networkinginformers.IngressInformer, client *clientset.Clientset,
+	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache,
+	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
@@ -91,6 +97,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			client,
 			lbClient,
 			certificatesClient,
+			reg,
 		)
 
 		routingPolicyController := routingpolicy.NewController(
@@ -144,4 +151,16 @@ func SetupWebhookServer(ingressInformer networkinginformers.IngressInformer, ser
 			os.Exit(1)
 		}
 	}()
+}
+
+func SetupMetricsServer(metricsBackend string, metricsPort int, mux *http.ServeMux, ctx context.Context) (*prometheus.Registry, error) {
+	// initialize metrics exporter before creating measurements
+	reg, err := metric.InitMetricsExporter(metricsBackend)
+	if err != nil {
+		klog.Error("failed to initialize metrics exporter: %s", err.Error())
+		return nil, err
+	}
+	metric.RegisterMetrics(reg, mux)
+
+	return reg, nil
 }
