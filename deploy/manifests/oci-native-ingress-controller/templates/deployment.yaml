@@ -51,7 +51,7 @@ spec:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 1000
-          image: "iad.ocir.io/axoxdievda5j/oke-public-oci-native-ingress-controller:0.1.29"
+          image: "ghcr.io/oracle/oci-native-ingress-controller:v1.0.0"
           imagePullPolicy: Always
           args: 
           - --lease-lock-name=oci-native-ingress-controller
@@ -61,6 +61,8 @@ spec:
           - --controller-class=oci.oraclecloud.com/native-ingress-controller
           - --compartment-id=
           - --subnet-id=
+          - --metrics-backend=prometheus
+          - --metrics-port=2223
           - --v=4
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
@@ -73,6 +75,8 @@ spec:
             - name: webhook-server
               containerPort: 9443
               protocol: TCP
+            - name: metrics-server
+              containerPort: 2223
           resources:
             {}
           volumeMounts:
