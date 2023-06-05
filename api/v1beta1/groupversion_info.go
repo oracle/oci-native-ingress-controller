@@ -14,7 +14,7 @@ package v1beta1
 
 import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
-	
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 

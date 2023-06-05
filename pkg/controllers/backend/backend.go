@@ -56,7 +56,7 @@ type Controller struct {
 
 	queue workqueue.RateLimitingInterface
 
-	client kubernetes.Interface
+	clientset kubernetes.Interface
 
 	lbClient *loadbalancer.LoadBalancerClient
 }
@@ -79,7 +79,7 @@ func NewController(
 		serviceLister:      serviceLister,
 		endpointLister:     endpointLister,
 		podLister:          podLister,
-		client:             client,
+		clientset:          client,
 		lbClient:           lbClient,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -373,12 +373,12 @@ func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate 
 
 	klog.InfoS("updating pod readiness gate from pod", "pod", klog.KObj(pod), "gate", readinessGate)
 
-	patchBytes, err := buildPodConditionPatch(pod, updatedCondition)
+	patchBytes, err := BuildPodConditionPatch(pod, updatedCondition)
 	if err != nil {
 		return fmt.Errorf("unable to build pod condition for %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
 
-	_, err = c.client.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+	_, err = c.clientset.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if err != nil {
 		return fmt.Errorf("unable to remove readiness gate %s from pod %s/%s: %w", readinessGate, pod.Namespace, pod.Name, err)
 	}
@@ -388,7 +388,7 @@ func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate 
 	return nil
 }
 
-func buildPodConditionPatch(pod *corev1.Pod, condition corev1.PodCondition) ([]byte, error) {
+func BuildPodConditionPatch(pod *corev1.Pod, condition corev1.PodCondition) ([]byte, error) {
 	oldData, err := json.Marshal(corev1.Pod{
 		Status: corev1.PodStatus{
 			Conditions: nil,

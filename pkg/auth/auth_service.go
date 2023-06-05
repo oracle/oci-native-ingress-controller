@@ -31,7 +31,7 @@ import (
 const httpClientTimeout = 20 * time.Second
 
 func GetConfigurationProvider(ctx context.Context, opts types.IngressOpts) (common.ConfigurationProvider, error) {
-	auth, err := retrieveAuthConfig(ctx, opts, opts.LeaseLockNamespace)
+	auth, err := RetrieveAuthConfig(ctx, opts, opts.LeaseLockNamespace)
 	if err != nil {
 		klog.Fatalf("Unable to handle authentication parameters", err)
 		return nil, err
@@ -71,7 +71,7 @@ func setHTTPClientTimeout(
 	}
 }
 
-func retrieveAuthConfig(ctx context.Context, opts types.IngressOpts, namespace string) (*types.Auth, error) {
+func RetrieveAuthConfig(ctx context.Context, opts types.IngressOpts, namespace string) (*types.Auth, error) {
 	authType := opts.AuthType
 	principalType, err := types.MapToPrincipalType(authType)
 	if err != nil {
@@ -98,7 +98,7 @@ func retrieveAuthConfig(ctx context.Context, opts types.IngressOpts, namespace s
 			klog.Fatalf("Empty Configuration is found in the secret %s", authConfigSecretName)
 			return nil, fmt.Errorf("auth config data is empty: %v", authConfigSecretName)
 		}
-		authCfg, err := parseAuthConfig(secret, authConfigSecretName)
+		authCfg, err := ParseAuthConfig(secret, authConfigSecretName)
 		if err != nil {
 			klog.Fatalf("Missing auth config data: %s", authConfigSecretName)
 			return nil, fmt.Errorf("missing auth config data: %v", err)
@@ -114,7 +114,7 @@ func retrieveAuthConfig(ctx context.Context, opts types.IngressOpts, namespace s
 	return auth, nil
 }
 
-func parseAuthConfig(secret *v1.Secret, authConfigSecretName string) (*types.AuthConfig, error) {
+func ParseAuthConfig(secret *v1.Secret, authConfigSecretName string) (*types.AuthConfig, error) {
 	authYaml := &types.AuthConfigYaml{}
 	err := yaml.Unmarshal(secret.Data["config"], &authYaml)
 	if err != nil {
