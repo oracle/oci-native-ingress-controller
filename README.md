@@ -5,7 +5,7 @@ on the existing OCI load balancer features to act as an ingress controller for c
 [![Go Report Card](https://goreportcard.com/badge/github.com/oracle/oci-native-ingress-controller)](https://goreportcard.com/report/github.com/oracle/oci-native-ingress-controller)
 [![License](http://img.shields.io/badge/license-UPL%201.0-blue.svg)](https://oss.oracle.com/licenses/upl/)
 [![Release](https://img.shields.io/github/v/release/oracle/oci-native-ingress-controller)](https://img.shields.io/github/v/release/oracle/oci-native-ingress-controller)
-[![Coverage Status](https://coveralls.io/repos/github/oracle/oci-native-ingress-controller/badge.svg?branch=master)](https://coveralls.io/github/oracle/oci-native-ingress-controller?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/oracle/oci-native-ingress-controller/badge.svg?branch=main)](https://coveralls.io/github/oracle/oci-native-ingress-controller?branch=main)
 
 ## Getting Started
 Please have a look at [Getting Started](./GettingStarted.md)
