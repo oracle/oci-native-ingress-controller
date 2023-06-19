@@ -17,6 +17,8 @@ import (
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"k8s.io/client-go/kubernetes"
+
 	"github.com/oracle/oci-go-sdk/v65/certificates"
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -30,6 +32,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/routingpolicy"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
+	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -59,13 +62,13 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 }
 
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
-	ingressInformer networkinginformers.IngressInformer, client *clientset.Clientset,
+	ingressInformer networkinginformers.IngressInformer, client kubernetes.Interface,
 	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache,
 	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
-		configProvider, err := auth.GetConfigurationProvider(ctx, opts)
+		configProvider, err := auth.GetConfigurationProvider(ctx, opts, client)
 		if err != nil {
 			klog.Fatalf("failed to load authentication configuration provider: %v", err)
 		}
@@ -87,13 +90,14 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 
 		lbClient := loadbalancer.New(&ociLBClient)
 
-		certificatesClient := certificate.New(&ociCertificatesMgmtClient, &ociCertificatesClient)
+		certificatesClient := certificate.New(&ociCertificatesMgmtClient, NewCertificateClient(&ociCertificatesClient))
 
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
 			opts.CompartmentId,
 			ingressClassInformer,
 			ingressInformer,
+			serviceInformer.Lister(),
 			client,
 			lbClient,
 			certificatesClient,

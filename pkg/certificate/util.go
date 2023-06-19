@@ -11,10 +11,16 @@ package certificate
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/certificates"
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
+	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/state"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -48,59 +54,12 @@ func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificat
 	return createCertificate, nil
 }
 
-func CreateInternalCaTypeCertificate(issuerCertificateAuthorityId *string, subject *string,
-	subjectAlternativeNameMap map[string]string, certificateName string, compartmentId string,
-	certificatesClient *CertificatesClient) (*certificatesmanagement.Certificate, error) {
-
-	certificateSubject := &certificatesmanagement.CertificateSubject{
-		CommonName: subject,
-	}
-
-	var subjectAlternativeNames []certificatesmanagement.CertificateSubjectAlternativeName
-	for san := range subjectAlternativeNameMap {
-		sanType := subjectAlternativeNameMap[san]
-		sanValue := san
-		sanInstance := certificatesmanagement.CertificateSubjectAlternativeName{
-			Type:  certificatesmanagement.CertificateSubjectAlternativeNameTypeEnum(sanType),
-			Value: &sanValue,
-		}
-		subjectAlternativeNames = append(subjectAlternativeNames, sanInstance)
-	}
-
-	configDetails := certificatesmanagement.CreateCertificateIssuedByInternalCaConfigDetails{
-		IssuerCertificateAuthorityId: issuerCertificateAuthorityId,
-		Subject:                      certificateSubject,
-		SubjectAlternativeNames:      subjectAlternativeNames,
-		CertificateProfileType:       certificatesmanagement.CertificateProfileTypeTlsServerOrClient,
-		KeyAlgorithm:                 certificatesmanagement.KeyAlgorithmRsa4096,
-		SignatureAlgorithm:           certificatesmanagement.SignatureAlgorithmSha256WithRsa,
-	}
-
-	certificateDetails := certificatesmanagement.CreateCertificateDetails{
-		Name:              &certificateName,
-		CertificateConfig: configDetails,
-		CompartmentId:     &compartmentId,
-	}
-	createCertificateRequest := certificatesmanagement.CreateCertificateRequest{
-		CreateCertificateDetails: certificateDetails,
-		OpcRetryToken:            &certificateName,
-	}
-
-	createCertificate, err := certificatesClient.CreateCertificate(context.TODO(), createCertificateRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	klog.Infof("Created a certificate with ocid %s", *createCertificate.Id)
-	return createCertificate, nil
-}
-
 func GetCertificate(certificateId *string, certificatesClient *CertificatesClient) (*certificatesmanagement.Certificate, error) {
 	certCacheObj := certificatesClient.getFromCertCache(*certificateId)
 	if certCacheObj != nil {
 		now := time.Now()
-		if now.Sub(certCacheObj.age).Minutes() < util.CertificateCacheMaxAgeInMinutes {
-			return certCacheObj.cert, nil
+		if now.Sub(certCacheObj.Age).Minutes() < util.CertificateCacheMaxAgeInMinutes {
+			return certCacheObj.Cert, nil
 		}
 		klog.Infof("Refreshing certificate %s", *certificateId)
 	}
@@ -168,7 +127,7 @@ func FindCaBundleWithName(certificateName string, compartmentId string,
 func GetCaBundle(caBundleId string, certificatesClient *CertificatesClient) (*certificatesmanagement.CaBundle, error) {
 	caBundleCacheObj := certificatesClient.getFromCaBundleCache(caBundleId)
 	if caBundleCacheObj != nil {
-		return caBundleCacheObj.caBundle, nil
+		return caBundleCacheObj.CaBundle, nil
 	}
 
 	klog.Infof("Getting ca bundle for id %s.", caBundleId)
@@ -204,66 +163,203 @@ func CreateCaBundle(certificateName string, compartmentId string, certificatesCl
 	return createCaBundle, nil
 }
 
-func ScheduleCertificatesForDeletionWithNamePrefix(prefix string, compartmentId string, certificatesClient *CertificatesClient) []error {
-	listRequest := certificatesmanagement.ListCertificatesRequest{
-		CompartmentId:  &compartmentId,
-		LifecycleState: certificatesmanagement.ListCertificatesLifecycleStateActive,
+func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, certificatesClient *CertificatesClient, client kubernetes.Interface) (*string, error) {
+	certificateName := getCertificateNameFromSecret(secretName)
+	certificateId, err := FindCertificateWithName(certificateName, compartmentId, certificatesClient)
+	if err != nil {
+		return nil, err
 	}
 
-	var errorList []error
-	for {
-		certificates, nextPage, err := certificatesClient.ListCertificates(context.TODO(), listRequest)
+	if certificateId == nil {
+		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client)
 		if err != nil {
-			return append(errorList, err)
-		}
-		for i := range certificates.Items {
-			cert := certificates.Items[i]
-			if strings.HasPrefix(*cert.Name, prefix) {
-				klog.Infof("Found a certificate %s with prefix %s. This will be scheduled for deletion.", *cert.Name, prefix)
-				deleteRequest := certificatesmanagement.ScheduleCertificateDeletionRequest{
-					CertificateId: cert.Id,
-				}
-				klog.Infof("Delete certificate request %s", util.PrettyPrint(deleteRequest))
-				err := certificatesClient.ScheduleCertificateDeletion(context.TODO(), deleteRequest)
-				if err != nil {
-					klog.Error("Error deleting certificate %s, %s", *cert.Name, err.Error())
-					errorList = append(errorList, err)
-				}
-			}
+			return nil, err
 		}
 
-		if nextPage == nil {
-			break
+		createCertificate, err := CreateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
+			tlsSecretData.PrivateKey, certificateName, compartmentId, certificatesClient)
+		if err != nil {
+			return nil, err
 		}
 
-		listRequest.Page = nextPage
+		certificateId = createCertificate.Id
 	}
-	return errorList
+	return certificateId, nil
 }
 
-func DeleteCaBundlesWithNamePrefix(prefix string, compartmentId string, certificatesClient *CertificatesClient) error {
-	listRequest := certificatesmanagement.ListCaBundlesRequest{
-		CompartmentId:  &compartmentId,
-		LifecycleState: certificatesmanagement.ListCaBundlesLifecycleStateActive,
+func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compartmentId string, certificatesClient *CertificatesClient, client kubernetes.Interface) (*string, error) {
+	certificateName := getCertificateNameFromSecret(secretName)
+	caBundleId, err := FindCaBundleWithName(certificateName, compartmentId, certificatesClient)
+	if err != nil {
+		return nil, err
 	}
 
-	caBundles, err := certificatesClient.ListCaBundles(context.TODO(), listRequest)
-	if err != nil {
-		return err
+	if caBundleId == nil {
+		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client)
+		if err != nil {
+			return nil, err
+		}
+		createCaBundle, err := CreateCaBundle(certificateName, compartmentId, certificatesClient, tlsSecretData.CaCertificateChain)
+		if err != nil {
+			return nil, err
+		}
+		caBundleId = createCaBundle.Id
 	}
-	for i := range caBundles.Items {
-		bundle := caBundles.Items[i]
-		if strings.HasPrefix(*bundle.Name, prefix) {
-			klog.Infof("Found a ca bundle %s with prefix %s. This will be deleted..", *bundle.Name, prefix)
-			deleteRequest := certificatesmanagement.DeleteCaBundleRequest{
-				CaBundleId: bundle.Id,
-			}
-			_, err := certificatesClient.DeleteCaBundle(context.TODO(), deleteRequest)
+	return caBundleId, nil
+}
+
+type TLSSecretData struct {
+	// This would hold server certificate and any chain of trust.
+	CaCertificateChain *string
+	ServerCertificate  *string
+	PrivateKey         *string
+}
+
+func getTlsSecretContent(namespace string, secretName string, client kubernetes.Interface) (*TLSSecretData, error) {
+	secret, err := client.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	caCertificateChain := string(secret.Data["ca.crt"])
+	serverCertificate := string(secret.Data["tls.crt"])
+	privateKey := string(secret.Data["tls.key"])
+	return &TLSSecretData{CaCertificateChain: &caCertificateChain, ServerCertificate: &serverCertificate, PrivateKey: &privateKey}, nil
+}
+
+func getCertificateNameFromSecret(secretName string) string {
+	if secretName == "" {
+		return ""
+	}
+	return fmt.Sprintf("ic-%s", secretName)
+}
+
+func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, certificatesClient *CertificatesClient, client kubernetes.Interface) (*ociloadbalancer.SslConfigurationDetails, error) {
+	var backendSetSslConfig *ociloadbalancer.SslConfigurationDetails
+	createCaBundle := false
+	var caBundleId *string
+
+	bs, ok := lb.BackendSets[bsName]
+
+	if artifactType == state.ArtifactTypeSecret && artifact != "" {
+		klog.Infof("Secret name for backend set %s is %s", bsName, artifact)
+		if ok && bs.SslConfiguration != nil && isTrustAuthorityCaBundle(bs.SslConfiguration.TrustedCertificateAuthorityIds[0]) {
+			newCertificateName := getCertificateNameFromSecret(artifact)
+			caBundle, err := GetCaBundle(bs.SslConfiguration.TrustedCertificateAuthorityIds[0], certificatesClient)
 			if err != nil {
-				klog.Error("Error deleting ca bundle %s, %s", *bundle.Name, err.Error())
-				return err
+				return nil, err
+			}
+
+			klog.Infof("Ca bundle name is %s, new certificate name is %s", *caBundle.Name, newCertificateName)
+			if *caBundle.Name != newCertificateName {
+				klog.Infof("Ca bundle for backend set %s needs update. Old name %s, New name %s", *bs.Name, *caBundle.Name, newCertificateName)
+				createCaBundle = true
+			}
+		} else {
+			createCaBundle = true
+		}
+
+		if createCaBundle {
+			cId, err := CreateOrGetCaBundleForBackendSet(namespace, artifact, compartmentId, certificatesClient, client)
+			if err != nil {
+				return nil, err
+			}
+			caBundleId = cId
+		}
+
+		if caBundleId != nil {
+			caBundleIds := []string{*caBundleId}
+			backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caBundleIds}
+		}
+	}
+
+	if artifactType == state.ArtifactTypeCertificate && artifact != "" {
+		cert, err := GetCertificate(&artifact, certificatesClient)
+		if err != nil {
+			return nil, err
+		}
+
+		klog.Infof("Found a certificate %s with type %s and id %s", *cert.Name, cert.ConfigType, *cert.Id)
+		if cert.ConfigType == certificatesmanagement.CertificateConfigTypeIssuedByInternalCa ||
+			cert.ConfigType == certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa {
+			caAuthorityIds := []string{*cert.IssuerCertificateAuthorityId}
+			backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caAuthorityIds}
+		}
+
+		if cert.ConfigType == certificatesmanagement.CertificateConfigTypeImported {
+			caBundleId, _ := FindCaBundleWithName(*cert.Name, compartmentId, certificatesClient)
+			if caBundleId == nil {
+				versionNumber := cert.CurrentVersion.VersionNumber
+				getCertificateBundleRequest := certificates.GetCertificateBundleRequest{
+					CertificateId: &artifact,
+					VersionNumber: versionNumber,
+				}
+
+				certificateBundle, err := certificatesClient.GetCertificateBundle(context.TODO(), getCertificateBundleRequest)
+				if err != nil {
+					return nil, err
+				}
+
+				createCaBundle, err := CreateCaBundle(*cert.Name, compartmentId, certificatesClient, certificateBundle.GetCertChainPem())
+				if err != nil {
+					return nil, err
+				}
+				caBundleId = createCaBundle.Id
+			}
+
+			if caBundleId != nil {
+				caBundleIds := []string{*caBundleId}
+				backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caBundleIds}
 			}
 		}
 	}
-	return nil
+	return backendSetSslConfig, nil
+}
+
+func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, compartmentId string, certificatesClient *CertificatesClient, client kubernetes.Interface) (*ociloadbalancer.SslConfigurationDetails, error) {
+	var currentCertificateId string
+	var newCertificateId string
+	createCertificate := false
+
+	var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
+
+	if listener != nil && listener.SslConfiguration != nil {
+		currentCertificateId = listener.SslConfiguration.CertificateIds[0]
+		if state.ArtifactTypeCertificate == artifactType && currentCertificateId != artifact {
+			newCertificateId = artifact
+		} else if state.ArtifactTypeSecret == artifactType {
+			cert, err := GetCertificate(&currentCertificateId, certificatesClient)
+			if err != nil {
+				return nil, err
+			}
+			certificateName := getCertificateNameFromSecret(artifact)
+			if certificateName != "" && *cert.Name != certificateName {
+				createCertificate = true
+			}
+		}
+	} else {
+		if state.ArtifactTypeSecret == artifactType {
+			createCertificate = true
+		}
+		if state.ArtifactTypeCertificate == artifactType {
+			newCertificateId = artifact
+		}
+	}
+
+	if createCertificate {
+		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, certificatesClient, client)
+		if err != nil {
+			return nil, err
+		}
+		newCertificateId = *cId
+	}
+
+	if newCertificateId != "" {
+		certificateIds := []string{newCertificateId}
+		listenerSslConfig = &ociloadbalancer.SslConfigurationDetails{CertificateIds: certificateIds}
+	}
+	return listenerSslConfig, nil
+}
+
+func isTrustAuthorityCaBundle(id string) bool {
+	return strings.Contains(id, "cabundle")
 }

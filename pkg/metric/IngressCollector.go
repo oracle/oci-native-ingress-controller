@@ -32,6 +32,9 @@ type IngressCollector struct {
 }
 
 func NewIngressCollector(controllerClass string, reg *prometheus.Registry) *IngressCollector {
+	if reg == nil {
+		return nil
+	}
 	constLabels := prometheus.Labels{
 		"controller_class": controllerClass,
 	}

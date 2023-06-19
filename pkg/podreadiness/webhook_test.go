@@ -175,7 +175,7 @@ func TestHandle(t *testing.T) {
 							Image: "echoserver",
 						},
 					},
-					ReadinessGates: getPodReadinessGates(),
+					ReadinessGates: util.GetPodReadinessGates("ingress-readiness", "foo.bar.com"),
 				},
 			},
 			op:            admissionv1.Create,
@@ -204,31 +204,6 @@ func TestHandle(t *testing.T) {
 			}
 		})
 	}
-}
-
-func getPodReadinessGates() []v1.PodReadinessGate {
-	var gates []v1.PodReadinessGate
-
-	cond := util.GetPodReadinessCondition("ingress-readiness", "foo.bar.com", getHTTPPath())
-	gates = append(gates, corev1.PodReadinessGate{
-		ConditionType: cond,
-	})
-	return gates
-}
-
-func getHTTPPath() networkingv1.HTTPIngressPath {
-	pathType := networkingv1.PathType("Exact")
-	return networkingv1.HTTPIngressPath{
-		Path:     "/testecho1",
-		PathType: &pathType,
-		Backend: networkingv1.IngressBackend{
-			Service: &networkingv1.IngressServiceBackend{
-				Name: "testecho1",
-				Port: networkingv1.ServiceBackendPort{},
-			},
-		},
-	}
-
 }
 
 func getRawBytes(bytes []byte) runtime.RawExtension {

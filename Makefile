@@ -68,7 +68,6 @@ push:
 	docker push ${IMAGE_PATH}
 
 build-push: image push
-	docker push ${IMAGE_PATH}
 
 .PHONY: coverage
 coverage: test

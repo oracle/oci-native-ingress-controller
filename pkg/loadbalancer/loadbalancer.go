@@ -18,51 +18,52 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )
 
-type lbCacheObj struct {
+type LbCacheObj struct {
 	LB   *loadbalancer.LoadBalancer
 	Age  time.Time
 	ETag string
 }
 
 type LoadBalancerClient struct {
-	lbClient *loadbalancer.LoadBalancerClient
+	LbClient client.LoadBalancerInterface
 
-	mu    sync.Mutex
-	cache map[string]*lbCacheObj
+	Mu    sync.Mutex
+	Cache map[string]*LbCacheObj
 }
 
 func New(lbClient *loadbalancer.LoadBalancerClient) *LoadBalancerClient {
 	return &LoadBalancerClient{
-		lbClient: lbClient,
-		cache:    map[string]*lbCacheObj{},
+		LbClient: client.NewLoadBalancerClient(lbClient),
+		Cache:    map[string]*LbCacheObj{},
 	}
 }
 
 func (lbc *LoadBalancerClient) setCache(lb *loadbalancer.LoadBalancer, etag string) {
-	lbc.mu.Lock()
-	lbc.cache[*lb.Id] = &lbCacheObj{lb, time.Now(), etag}
-	lbc.mu.Unlock()
+	lbc.Mu.Lock()
+	lbc.Cache[*lb.Id] = &LbCacheObj{lb, time.Now(), etag}
+	lbc.Mu.Unlock()
 }
 
-func (lbc *LoadBalancerClient) getFromCache(lbID string) *lbCacheObj {
-	lbc.mu.Lock()
-	defer lbc.mu.Unlock()
-	return lbc.cache[lbID]
+func (lbc *LoadBalancerClient) getFromCache(lbID string) *LbCacheObj {
+	lbc.Mu.Lock()
+	defer lbc.Mu.Unlock()
+	return lbc.Cache[lbID]
 }
 
-func (lbc *LoadBalancerClient) removeFromCache(lbID string) *lbCacheObj {
-	lbc.mu.Lock()
-	defer lbc.mu.Unlock()
-	return lbc.cache[lbID]
+func (lbc *LoadBalancerClient) removeFromCache(lbID string) *LbCacheObj {
+	lbc.Mu.Lock()
+	defer lbc.Mu.Unlock()
+	return lbc.Cache[lbID]
 }
 
 func (lbc *LoadBalancerClient) getLoadBalancerBustCache(ctx context.Context, lbID string) (*loadbalancer.LoadBalancer, string, error) {
-	resp, err := lbc.lbClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
+	resp, err := lbc.LbClient.GetLoadBalancer(ctx, loadbalancer.GetLoadBalancerRequest{
 		LoadBalancerId: common.String(lbID),
 	})
 	if err != nil {
@@ -74,7 +75,7 @@ func (lbc *LoadBalancerClient) getLoadBalancerBustCache(ctx context.Context, lbI
 }
 
 func (lbc *LoadBalancerClient) GetBackendSetHealth(ctx context.Context, lbID string, backendSetName string) (*loadbalancer.BackendSetHealth, error) {
-	resp, err := lbc.lbClient.GetBackendSetHealth(ctx, loadbalancer.GetBackendSetHealthRequest{
+	resp, err := lbc.LbClient.GetBackendSetHealth(ctx, loadbalancer.GetBackendSetHealthRequest{
 		LoadBalancerId: common.String(lbID),
 		BackendSetName: common.String(backendSetName),
 	})
@@ -86,7 +87,7 @@ func (lbc *LoadBalancerClient) GetBackendSetHealth(ctx context.Context, lbID str
 }
 
 func (lbc *LoadBalancerClient) CreateLoadBalancer(ctx context.Context, req loadbalancer.CreateLoadBalancerRequest) (*loadbalancer.LoadBalancer, error) {
-	resp, err := lbc.lbClient.CreateLoadBalancer(ctx, req)
+	resp, err := lbc.LbClient.CreateLoadBalancer(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +123,7 @@ func (lbc *LoadBalancerClient) DeleteLoadBalancer(ctx context.Context, lbID stri
 	}
 
 	klog.Infof("Deleting load balancer with request %s", util.PrettyPrint(deleteLoadBalancerRequest))
-	resp, err := lbc.lbClient.DeleteLoadBalancer(ctx, deleteLoadBalancerRequest)
+	resp, err := lbc.LbClient.DeleteLoadBalancer(ctx, deleteLoadBalancerRequest)
 	svcErr, ok := common.IsServiceError(err)
 	if ok && (svcErr.GetHTTPStatusCode() == 409 || svcErr.GetHTTPStatusCode() == 404) {
 		lbc.removeFromCache(lbID)
@@ -169,7 +170,7 @@ func (lbc *LoadBalancerClient) createRoutingPolicy(
 	}
 
 	klog.Infof("Creating routing policy with request: %s", util.PrettyPrint(createPolicyRequest))
-	resp, err := lbc.lbClient.CreateRoutingPolicy(ctx, createPolicyRequest)
+	resp, err := lbc.LbClient.CreateRoutingPolicy(ctx, createPolicyRequest)
 
 	if isServiceError(err, 409) {
 		klog.Infof("Create routing policy operation returned code %d for load balancer %s. Routing policy %s may be already present.", 409, lbID, policyName)
@@ -196,7 +197,7 @@ func (lbc *LoadBalancerClient) DeleteRoutingPolicy(
 	}
 
 	klog.Infof("Delete routing policy with request %s ", util.PrettyPrint(deleteRoutingPolicyRequest))
-	resp, err := lbc.lbClient.DeleteRoutingPolicy(ctx, deleteRoutingPolicyRequest)
+	resp, err := lbc.LbClient.DeleteRoutingPolicy(ctx, deleteRoutingPolicyRequest)
 
 	if isServiceError(err, 404) {
 		klog.Infof("Delete routing policy operation returned code %d for load balancer %s. Routing policy %s may be already deleted.", 404, lbID, policyName)
@@ -232,7 +233,7 @@ func (lbc *LoadBalancerClient) DeleteBackendSet(ctx context.Context, lbID string
 	}
 
 	klog.Infof("Deleting backend set with request %s", util.PrettyPrint(backendSetDeleteRequest))
-	resp, err := lbc.lbClient.DeleteBackendSet(ctx, backendSetDeleteRequest)
+	resp, err := lbc.LbClient.DeleteBackendSet(ctx, backendSetDeleteRequest)
 	if isServiceError(err, 404) {
 		// it was already deleted so nothing to do.
 		klog.Infof("Delete backend set operation returned code %d for load balancer %s. Backend set %s may be already deleted.", 404, lbID, backendSetName)
@@ -268,7 +269,7 @@ func (lbc *LoadBalancerClient) DeleteListener(ctx context.Context, lbID string, 
 	}
 
 	klog.Infof("Deleting listener with request %s", util.PrettyPrint(deleteListenerRequest))
-	resp, err := lbc.lbClient.DeleteListener(ctx, deleteListenerRequest)
+	resp, err := lbc.LbClient.DeleteListener(ctx, deleteListenerRequest)
 	if isServiceError(err, 404) {
 		// it was already deleted so nothing to do.
 		klog.Infof("Delete listener operation returned code %d for load balancer %s. Listener %s may be already deleted.", 404, lbID, listenerName)
@@ -314,7 +315,7 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	}
 
 	klog.Infof("Creating backend set with request: %s", util.PrettyPrint(createBackendSetRequest))
-	resp, err := lbc.lbClient.CreateBackendSet(ctx, createBackendSetRequest)
+	resp, err := lbc.LbClient.CreateBackendSet(ctx, createBackendSetRequest)
 
 	if isServiceError(err, 409) {
 		klog.Infof("Create backend set operation returned code %d for load balancer %s. Backend set %s may be already present.", 409, lbID, backendSetName)
@@ -410,7 +411,7 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 	}
 
 	klog.Infof("Updating routing policy with request: %s", util.PrettyPrint(updateRoutingPolicyRequest))
-	resp, err := lbc.lbClient.UpdateRoutingPolicy(ctx, updateRoutingPolicyRequest)
+	resp, err := lbc.LbClient.UpdateRoutingPolicy(ctx, updateRoutingPolicyRequest)
 	if err != nil {
 		return err
 	}
@@ -503,7 +504,7 @@ func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID *strin
 	}
 
 	klog.Infof("Updating backend set with request: %s", util.PrettyPrint(updateBackendSetRequest))
-	resp, err := lbc.lbClient.UpdateBackendSet(ctx, updateBackendSetRequest)
+	resp, err := lbc.LbClient.UpdateBackendSet(ctx, updateBackendSetRequest)
 	if err != nil {
 		return err
 	}
@@ -578,7 +579,7 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 	}
 
 	klog.Infof("Updating listener with request: %s", util.PrettyPrint(updateListenerRequest))
-	resp, err := lbc.lbClient.UpdateListener(ctx, updateListenerRequest)
+	resp, err := lbc.LbClient.UpdateListener(ctx, updateListenerRequest)
 	if err != nil {
 		return err
 	}
@@ -620,7 +621,7 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 	}
 
 	klog.Infof("Creating listener with request %s", util.PrettyPrint(createListenerRequest))
-	resp, err := lbc.lbClient.CreateListener(ctx, createListenerRequest)
+	resp, err := lbc.LbClient.CreateListener(ctx, createListenerRequest)
 
 	if isServiceError(err, 409) {
 		klog.Infof("Create listener operation returned code %d for load balancer %s. Listener %s may be already present.", 409, lbID, listenerName)
@@ -641,7 +642,7 @@ func (lbc *LoadBalancerClient) waitForWorkRequest(ctx context.Context, workReque
 	defer cancel()
 
 	for {
-		resp, err := lbc.lbClient.GetWorkRequest(ctx, loadbalancer.GetWorkRequestRequest{
+		resp, err := lbc.LbClient.GetWorkRequest(ctx, loadbalancer.GetWorkRequestRequest{
 			WorkRequestId: common.String(workRequestID),
 		})
 		if err != nil {

@@ -1,0 +1,38 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-readiness-1
+  namespace: default
+spec:
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho1"
+            backend:
+              service:
+                name: testecho1
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-readiness-2
+  namespace: default
+  finalizers:
+    - oci.oraclecloud.com/ingress-controller-protection
+spec:
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho1"
+            backend:
+              service:
+                name: testecho1
+                port:
+                  number: 80
