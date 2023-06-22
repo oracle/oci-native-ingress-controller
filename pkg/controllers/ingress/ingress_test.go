@@ -167,6 +167,19 @@ func TestIngressDelete(t *testing.T) {
 	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
 }
 
+func TestProcessNextItem(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithFinalizer)
+	c := inits(ctx, ingressClassList, ingressList)
+
+	c.queue.Add("default-ingress-class")
+	res := c.processNextItem()
+	Expect(res).Should(BeTrue())
+}
+
 func GetCertManageClient() CertificateManagementInterface {
 	return &MockCertificateManagerClient{}
 }
@@ -175,43 +188,35 @@ type MockCertificateManagerClient struct {
 }
 
 func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.CreateCertificateResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.GetCertificateResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) ListCertificates(ctx context.Context, request certificatesmanagement.ListCertificatesRequest) (certificatesmanagement.ListCertificatesResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.ListCertificatesResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) ScheduleCertificateDeletion(ctx context.Context, request certificatesmanagement.ScheduleCertificateDeletionRequest) (certificatesmanagement.ScheduleCertificateDeletionResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.ScheduleCertificateDeletionResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) CreateCaBundle(ctx context.Context, request certificatesmanagement.CreateCaBundleRequest) (certificatesmanagement.CreateCaBundleResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.CreateCaBundleResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) GetCaBundle(ctx context.Context, request certificatesmanagement.GetCaBundleRequest) (certificatesmanagement.GetCaBundleResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.GetCaBundleResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) ListCaBundles(ctx context.Context, request certificatesmanagement.ListCaBundlesRequest) (certificatesmanagement.ListCaBundlesResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.ListCaBundlesResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) DeleteCaBundle(ctx context.Context, request certificatesmanagement.DeleteCaBundleRequest) (certificatesmanagement.DeleteCaBundleResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificatesmanagement.DeleteCaBundleResponse{}, nil
 }
 
 func GetCertClient() CertificateInterface {
@@ -222,68 +227,55 @@ type MockCertificateClient struct {
 }
 
 func (m MockCertificateClient) SetCertCache(cert *certificatesmanagement.Certificate) {
-	//TODO implement me
-	panic("implement me")
+
 }
 
 func (m MockCertificateClient) GetFromCertCache(certId string) *CertCacheObj {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
-	//TODO implement me
-	panic("implement me")
+
 }
 
 func (m MockCertificateClient) GetFromCaBundleCache(id string) *CaBundleCacheObj {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) CreateCertificate(ctx context.Context, req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.Certificate{}, nil
 }
 
 func (m MockCertificateClient) CreateCaBundle(ctx context.Context, req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.CaBundle{}, nil
 }
 
 func (m MockCertificateClient) GetCertificate(ctx context.Context, req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.Certificate{}, nil
 }
 
 func (m MockCertificateClient) ListCertificates(ctx context.Context, req certificatesmanagement.ListCertificatesRequest) (*certificatesmanagement.CertificateCollection, *string, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.CertificateCollection{}, nil, nil
 }
 
 func (m MockCertificateClient) ScheduleCertificateDeletion(ctx context.Context, req certificatesmanagement.ScheduleCertificateDeletionRequest) error {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) GetCaBundle(ctx context.Context, req certificatesmanagement.GetCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.CaBundle{}, nil
 }
 
 func (m MockCertificateClient) ListCaBundles(ctx context.Context, req certificatesmanagement.ListCaBundlesRequest) (*certificatesmanagement.CaBundleCollection, error) {
-	//TODO implement me
-	panic("implement me")
+	return &certificatesmanagement.CaBundleCollection{}, nil
 }
 
 func (m MockCertificateClient) DeleteCaBundle(ctx context.Context, req certificatesmanagement.DeleteCaBundleRequest) (*http.Response, error) {
-	//TODO implement me
-	panic("implement me")
+	return &http.Response{}, nil
 }
 
 func (m MockCertificateClient) GetCertificateBundle(ctx context.Context, request certificates.GetCertificateBundleRequest) (certificates.GetCertificateBundleResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return certificates.GetCertificateBundleResponse{}, nil
 }
 
 func GetLoadBalancerClient() LoadBalancerInterface {
@@ -299,8 +291,7 @@ func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request oci
 }
 
 func (m MockLoadBalancerClient) CreateLoadBalancer(ctx context.Context, request ociloadbalancer.CreateLoadBalancerRequest) (ociloadbalancer.CreateLoadBalancerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.CreateLoadBalancerResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteLoadBalancer(ctx context.Context, request ociloadbalancer.DeleteLoadBalancerRequest) (ociloadbalancer.DeleteLoadBalancerResponse, error) {
@@ -345,28 +336,23 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 }
 
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteBackendSetResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) GetBackendSetHealth(ctx context.Context, request ociloadbalancer.GetBackendSetHealthRequest) (ociloadbalancer.GetBackendSetHealthResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.GetBackendSetHealthResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) CreateRoutingPolicy(ctx context.Context, request ociloadbalancer.CreateRoutingPolicyRequest) (ociloadbalancer.CreateRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.CreateRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) UpdateRoutingPolicy(ctx context.Context, request ociloadbalancer.UpdateRoutingPolicyRequest) (ociloadbalancer.UpdateRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.UpdateRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteRoutingPolicy(ctx context.Context, request ociloadbalancer.DeleteRoutingPolicyRequest) (ociloadbalancer.DeleteRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) CreateListener(ctx context.Context, request ociloadbalancer.CreateListenerRequest) (ociloadbalancer.CreateListenerResponse, error) {
@@ -380,11 +366,9 @@ func (m MockLoadBalancerClient) CreateListener(ctx context.Context, request ocil
 }
 
 func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.UpdateListenerResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteListenerResponse{}, nil
 }

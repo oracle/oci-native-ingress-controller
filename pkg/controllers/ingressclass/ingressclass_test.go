@@ -194,8 +194,7 @@ func (m MockLoadBalancerClient) GetWorkRequest(ctx context.Context, request ocil
 }
 
 func (m MockLoadBalancerClient) CreateBackendSet(ctx context.Context, request ociloadbalancer.CreateBackendSetRequest) (ociloadbalancer.CreateBackendSetResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.CreateBackendSetResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request ociloadbalancer.UpdateBackendSetRequest) (ociloadbalancer.UpdateBackendSetResponse, error) {
@@ -209,8 +208,7 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 }
 
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteBackendSetResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) GetBackendSetHealth(ctx context.Context, request ociloadbalancer.GetBackendSetHealthRequest) (ociloadbalancer.GetBackendSetHealthResponse, error) {
@@ -230,31 +228,25 @@ func (m MockLoadBalancerClient) GetBackendSetHealth(ctx context.Context, request
 }
 
 func (m MockLoadBalancerClient) CreateRoutingPolicy(ctx context.Context, request ociloadbalancer.CreateRoutingPolicyRequest) (ociloadbalancer.CreateRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.CreateRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) UpdateRoutingPolicy(ctx context.Context, request ociloadbalancer.UpdateRoutingPolicyRequest) (ociloadbalancer.UpdateRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.UpdateRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteRoutingPolicy(ctx context.Context, request ociloadbalancer.DeleteRoutingPolicyRequest) (ociloadbalancer.DeleteRoutingPolicyResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteRoutingPolicyResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) CreateListener(ctx context.Context, request ociloadbalancer.CreateListenerRequest) (ociloadbalancer.CreateListenerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.CreateListenerResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.UpdateListenerResponse{}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.DeleteListenerResponse{}, nil
 }
