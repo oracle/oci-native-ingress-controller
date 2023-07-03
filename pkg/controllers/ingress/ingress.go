@@ -13,12 +13,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
 	"reflect"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/certificates"
-	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
@@ -68,6 +67,7 @@ type Controller struct {
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
+	serviceLister corelisters.ServiceLister,
 	client kubernetes.Interface, lbClient *loadbalancer.LoadBalancerClient, certificatesClient *certificate.CertificatesClient,
 	reg *prometheus.Registry) *Controller {
 
@@ -77,12 +77,12 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		ingressClassLister:   ingressClassInformer.Lister(),
 		ingressLister:        ingressInformer.Lister(),
 		informer:             ingressInformer,
-
-		client:             client,
-		lbClient:           lbClient,
-		certificatesClient: certificatesClient,
-		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
-		metricsCollector:   metric.NewIngressCollector(controllerClass, reg),
+		serviceLister:        serviceLister,
+		client:               client,
+		lbClient:             lbClient,
+		certificatesClient:   certificatesClient,
+		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		metricsCollector:     metric.NewIngressCollector(controllerClass, reg),
 	}
 
 	ingressInformer.Informer().AddEventHandler(
@@ -106,14 +106,18 @@ func (c *Controller) enqueueIngress(ingress *networkingv1.Ingress) {
 }
 
 func (c *Controller) ingressAdd(obj interface{}) {
-	c.metricsCollector.IncrementIngressAddOperation()
+	if c.metricsCollector != nil {
+		c.metricsCollector.IncrementIngressAddOperation()
+	}
 	ic := obj.(*networkingv1.Ingress)
 	klog.V(4).InfoS("Adding ingress", "ingress", klog.KObj(ic))
 	c.enqueueIngress(ic)
 }
 
 func (c *Controller) ingressUpdate(old, new interface{}) {
-	c.metricsCollector.IncrementIngressUpdateOperation()
+	if c.metricsCollector != nil {
+		c.metricsCollector.IncrementIngressUpdateOperation()
+	}
 	oldIngress := old.(*networkingv1.Ingress)
 	newIngress := new.(*networkingv1.Ingress)
 
@@ -122,7 +126,9 @@ func (c *Controller) ingressUpdate(old, new interface{}) {
 }
 
 func (c *Controller) ingressDelete(obj interface{}) {
-	c.metricsCollector.IncrementIngressDeleteOperation()
+	if c.metricsCollector != nil {
+		c.metricsCollector.IncrementIngressDeleteOperation()
+	}
 	ic, ok := obj.(*networkingv1.Ingress)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
@@ -159,7 +165,9 @@ func (c *Controller) processNextItem() bool {
 	err := c.sync(key.(string))
 
 	endBuildTime := util.GetCurrentTimeInUnixMillis()
-	c.metricsCollector.AddIngressSyncTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+	if c.metricsCollector != nil {
+		c.metricsCollector.AddIngressSyncTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+	}
 
 	// Handle the error if something went wrong during the execution of the business logic
 	c.handleErr(err, key)
@@ -168,7 +176,9 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
-	c.metricsCollector.IncrementSyncCount()
+	if c.metricsCollector != nil {
+		c.metricsCollector.IncrementSyncCount()
+	}
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
@@ -327,7 +337,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := getSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c)
+		backendSetSslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.certificatesClient, c.client)
 		if err != nil {
 			return err
 		}
@@ -339,7 +349,9 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 			return err
 		}
 		endBuildTime := util.GetCurrentTimeInUnixMillis()
-		c.metricsCollector.AddBackendCreationTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+		if c.metricsCollector != nil {
+			c.metricsCollector.AddBackendCreationTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+		}
 	}
 
 	// Determine listeners... This is based off path ports.
@@ -360,7 +372,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := getSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c)
+		listenerSslConfig, err := certificate.GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.certificatesClient, c.client)
 		if err != nil {
 			return err
 		}
@@ -460,133 +472,6 @@ func deleteListeners(actualListeners sets.Int32, desiredListeners sets.Int32, lb
 	return nil
 }
 
-func getSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, c *Controller) (*ociloadbalancer.SslConfigurationDetails, error) {
-	var backendSetSslConfig *ociloadbalancer.SslConfigurationDetails
-	createCaBundle := false
-	var caBundleId *string
-
-	bs, ok := lb.BackendSets[bsName]
-
-	if artifactType == state.ArtifactTypeSecret && artifact != "" {
-		klog.Infof("Secret name for backend set %s is %s", bsName, artifact)
-		if ok && bs.SslConfiguration != nil && isTrustAuthorityCaBundle(bs.SslConfiguration.TrustedCertificateAuthorityIds[0]) {
-			newCertificateName := getCertificateNameFromSecret(artifact)
-			caBundle, err := certificate.GetCaBundle(bs.SslConfiguration.TrustedCertificateAuthorityIds[0], c.certificatesClient)
-			if err != nil {
-				return nil, err
-			}
-
-			klog.Infof("Ca bundle name is %s, new certificate name is %s", *caBundle.Name, newCertificateName)
-			if *caBundle.Name != newCertificateName {
-				klog.Infof("Ca bundle for backend set %s needs update. Old name %s, New name %s", *bs.Name, *caBundle.Name, newCertificateName)
-				createCaBundle = true
-			}
-		} else {
-			createCaBundle = true
-		}
-
-		if createCaBundle {
-			cId, err := createOrGetCaBundleForBackendSet(namespace, artifact, c)
-			if err != nil {
-				return nil, err
-			}
-			caBundleId = cId
-		}
-
-		if caBundleId != nil {
-			caBundleIds := []string{*caBundleId}
-			backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caBundleIds}
-		}
-	}
-
-	if artifactType == state.ArtifactTypeCertificate && artifact != "" {
-		cert, err := certificate.GetCertificate(&artifact, c.certificatesClient)
-		if err != nil {
-			return nil, err
-		}
-
-		klog.Infof("Found a certificate %s with type %s and id %s", *cert.Name, cert.ConfigType, *cert.Id)
-		if cert.ConfigType == certificatesmanagement.CertificateConfigTypeIssuedByInternalCa ||
-			cert.ConfigType == certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa {
-			caAuthorityIds := []string{*cert.IssuerCertificateAuthorityId}
-			backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caAuthorityIds}
-		}
-
-		if cert.ConfigType == certificatesmanagement.CertificateConfigTypeImported {
-			caBundleId, _ := certificate.FindCaBundleWithName(*cert.Name, c.defaultCompartmentId, c.certificatesClient)
-			if caBundleId == nil {
-				versionNumber := cert.CurrentVersion.VersionNumber
-				getCertificateBundleRequest := certificates.GetCertificateBundleRequest{
-					CertificateId: &artifact,
-					VersionNumber: versionNumber,
-				}
-
-				certificateBundle, err := c.certificatesClient.GetCertificateBundle(context.TODO(), getCertificateBundleRequest)
-				if err != nil {
-					return nil, err
-				}
-
-				createCaBundle, err := certificate.CreateCaBundle(*cert.Name, c.defaultCompartmentId, c.certificatesClient, certificateBundle.GetCertChainPem())
-				if err != nil {
-					return nil, err
-				}
-				caBundleId = createCaBundle.Id
-			}
-
-			if caBundleId != nil {
-				caBundleIds := []string{*caBundleId}
-				backendSetSslConfig = &ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: caBundleIds}
-			}
-		}
-	}
-	return backendSetSslConfig, nil
-}
-
-func getSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, c *Controller) (*ociloadbalancer.SslConfigurationDetails, error) {
-	var currentCertificateId string
-	var newCertificateId string
-	createCertificate := false
-
-	var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
-
-	if listener != nil && listener.SslConfiguration != nil {
-		currentCertificateId = listener.SslConfiguration.CertificateIds[0]
-		if state.ArtifactTypeCertificate == artifactType && currentCertificateId != artifact {
-			newCertificateId = artifact
-		} else if state.ArtifactTypeSecret == artifactType {
-			cert, err := certificate.GetCertificate(&currentCertificateId, c.certificatesClient)
-			if err != nil {
-				return nil, err
-			}
-			certificateName := getCertificateNameFromSecret(artifact)
-			if certificateName != "" && *cert.Name != certificateName {
-				createCertificate = true
-			}
-		}
-	} else {
-		if state.ArtifactTypeSecret == artifactType {
-			createCertificate = true
-		}
-		if state.ArtifactTypeCertificate == artifactType {
-			newCertificateId = artifact
-		}
-	}
-
-	if createCertificate {
-		cId, err := createOrGetCertificateForListener(namespace, artifact, c)
-		if err != nil {
-			return nil, err
-		}
-		newCertificateId = *cId
-	}
-
-	if newCertificateId != "" {
-		certificateIds := []string{newCertificateId}
-		listenerSslConfig = &ociloadbalancer.SslConfigurationDetails{CertificateIds: certificateIds}
-	}
-	return listenerSslConfig, nil
-}
-
 func syncListener(namespace string, stateStore *state.StateStore, lbId *string, listenerName string, c *Controller) error {
 	startTime := util.GetCurrentTimeInUnixMillis()
 	lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), *lbId)
@@ -603,7 +488,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = getSSLConfigForListener(namespace, &listener, artifactType, artifact, c)
+		sslConfig, err = certificate.GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.certificatesClient, c.client)
 		if err != nil {
 			return err
 		}
@@ -630,7 +515,9 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 		}
 	}
 	endTime := util.GetCurrentTimeInUnixMillis()
-	c.metricsCollector.AddIngressListenerSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+	if c.metricsCollector != nil {
+		c.metricsCollector.AddIngressListenerSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+	}
 	return nil
 }
 
@@ -649,7 +536,7 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := getSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c)
+	sslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.certificatesClient, c.client)
 	if err != nil {
 		return err
 	}
@@ -682,53 +569,10 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 	}
 
 	endTime := util.GetCurrentTimeInUnixMillis()
-	c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+	if c.metricsCollector != nil {
+		c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+	}
 	return nil
-}
-
-func createOrGetCertificateForListener(namespace string, secretName string, c *Controller) (*string, error) {
-	certificateName := getCertificateNameFromSecret(secretName)
-	certificateId, err := certificate.FindCertificateWithName(certificateName, c.defaultCompartmentId, c.certificatesClient)
-	if err != nil {
-		return nil, err
-	}
-
-	if certificateId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, c.client)
-		if err != nil {
-			return nil, err
-		}
-
-		createCertificate, err := certificate.CreateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
-			tlsSecretData.PrivateKey, certificateName, c.defaultCompartmentId, c.certificatesClient)
-		if err != nil {
-			return nil, err
-		}
-
-		certificateId = createCertificate.Id
-	}
-	return certificateId, nil
-}
-
-func createOrGetCaBundleForBackendSet(namespace string, secretName string, c *Controller) (*string, error) {
-	certificateName := getCertificateNameFromSecret(secretName)
-	caBundleId, err := certificate.FindCaBundleWithName(certificateName, c.defaultCompartmentId, c.certificatesClient)
-	if err != nil {
-		return nil, err
-	}
-
-	if caBundleId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, c.client)
-		if err != nil {
-			return nil, err
-		}
-		createCaBundle, err := certificate.CreateCaBundle(certificateName, c.defaultCompartmentId, c.certificatesClient, tlsSecretData.CaCertificateChain)
-		if err != nil {
-			return nil, err
-		}
-		caBundleId = createCaBundle.Id
-	}
-	return caBundleId, nil
 }
 
 func (c *Controller) deleteIngress(i *networkingv1.Ingress) error {

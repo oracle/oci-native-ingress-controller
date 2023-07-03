@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/klog/v2"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -208,7 +209,7 @@ func (c *Controller) sync(key string) error {
 func (c *Controller) getLoadBalancer(ic *networkingv1.IngressClass) (*ociloadbalancer.LoadBalancer, error) {
 	lbID := util.GetIngressClassLoadBalancerId(ic)
 	if lbID == "" {
-		return nil, &notFoundServiceError{}
+		return nil, &exception.NotFoundServiceError{}
 	}
 
 	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
@@ -471,35 +472,4 @@ OUTER:
 		result = append(result, item)
 	}
 	return
-}
-
-// helper struct since the oci go sdk doesn't let you create errors directly
-// since the struct is private...
-type notFoundServiceError struct {
-	common.ServiceError
-}
-
-func (e *notFoundServiceError) GetHTTPStatusCode() int {
-	return 404
-}
-
-// The human-readable error string as sent by the service
-func (e *notFoundServiceError) GetMessage() string {
-	return "NotFound"
-}
-
-// A short error code that defines the error, meant for programmatic parsing.
-// See https://docs.cloud.oracle.com/Content/API/References/apierrors.htm
-func (e *notFoundServiceError) GetCode() string {
-	return "NotFound"
-}
-
-// Unique Oracle-assigned identifier for the request.
-// If you need to contact Oracle about a particular request, please provide the request ID.
-func (e *notFoundServiceError) GetOpcRequestID() string {
-	return "fakeopcrequestid"
-}
-
-func (e *notFoundServiceError) Error() string {
-	return "NotFound"
 }
