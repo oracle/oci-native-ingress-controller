@@ -1,0 +1,17 @@
+{{- if .Values.ingress_params}}
+---
+apiVersion: "ingress.oraclecloud.com/v1beta1"
+kind: IngressClassParameters
+metadata:
+  name: {{ include "oci-native-ingress-controller.fullname" . }}-params
+  namespace: {{ .Values.deploymentNamespace }}
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+spec:
+  compartmentId: "{{ .Values.compartment_id }}"
+  subnetId: "{{ .Values.subnet_id }}"
+  loadBalancerName: "{{ include "oci-native-ingress-controller.fullname" . }}"
+  isPrivate: {{ .Values.ingress_params.is_private | default false }}
+  minBandwidthMbps: {{ .Values.ingress_params.min_bandwidth_mbps | default 10 }}
+  maxBandwidthMbps: {{ .Values.ingress_params.max_bandwidth_mbps | default 10 }}
+{{- end }}
