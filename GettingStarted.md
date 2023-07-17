@@ -46,7 +46,6 @@ Kubernetes Cluster with Native Pod Networking setup.
 Currently supported kubernetes versions are:
 - v1.25.4
 - v1.26.2
-- v1.27.2
   
 We set up the cluster with native pod networking and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
