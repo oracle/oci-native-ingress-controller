@@ -36,6 +36,7 @@ Common labels
 */}}
 {{- define "oci-native-ingress-controller.labels" -}}
 helm.sh/chart: {{ include "oci-native-ingress-controller.chart" . }}
+helm.sh/release-name: {{ .Release.Name }}
 {{ include "oci-native-ingress-controller.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}

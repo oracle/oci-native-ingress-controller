@@ -9,13 +9,25 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+installCRDs: true
+
 controller_class: oci.oraclecloud.com/native-ingress-controller
 lease_lock_name: oci-native-ingress-controller
 compartment_id: ""
 subnet_id: ""
 
-deploymentNamespace : native-ingress-controller-system
+# namespaceOverride: ""
+
 replicaCount: 1
+
+ingressParams:
+  isPrivate: false
+  minBandwidthMbps: 10
+  maxBandwidthMbps: 100
+
+ingressClass:
+  name: native-ic-ingress-class
+  default: true
 
 image:
   repository: ghcr.io/oracle/oci-native-ingress-controller

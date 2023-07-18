@@ -1,0 +1,26 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+{{- if .Values.ingressClass }}
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: {{ .Values.ingressClass.name }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: {{ .Values.ingressClass.default | quote }}
+spec:
+  controller: oci.oraclecloud.com/native-ingress-controller
+  parameters:
+    scope: Namespace
+    namespace: {{ .Values.deploymentNamespace }}
+    apiGroup: ingress.oraclecloud.com
+    kind: ingressclassparameters
+    name: {{ include "oci-native-ingress-controller.fullname" . }}-params
+{{- end }}
