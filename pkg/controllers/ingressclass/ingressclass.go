@@ -256,6 +256,7 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 					},
 				},
 			},
+			FreeformTags: map[string]string{"oci-native-ingress-controller-resource": "loadbalancer"},
 		}
 
 		if icp.Spec.ReservedPublicAddressId != "" {
