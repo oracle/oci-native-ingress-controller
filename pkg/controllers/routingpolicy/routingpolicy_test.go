@@ -2,6 +2,7 @@ package routingpolicy
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"testing"
 
@@ -116,6 +117,14 @@ func TestProcessRoutingPolicy(t *testing.T) {
 	err := processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies)
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(listenerPaths)).Should(Equal(3))
+	var pathss = sets.NewString()
+	for _, paths := range listenerPaths {
+		sort.Sort(ByPath(paths))
+		for _, path := range paths {
+			pathss.Insert(path.Path.Path)
+		}
+	}
+	Expect(len(pathss)).Should(Equal(3))
 	Expect(len(desiredRoutingPolicies)).Should(Equal(3))
 }
 
