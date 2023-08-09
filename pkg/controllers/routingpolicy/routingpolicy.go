@@ -6,7 +6,6 @@
  * * Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
  *
  */
-
 package routingpolicy
 
 import (
@@ -162,24 +161,9 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 	listenerPaths := map[string][]*listenerPath{}
 	desiredRoutingPolicies := sets.NewString()
 
-	for _, ingress := range ingresses {
-		for _, rule := range ingress.Spec.Rules {
-			for _, path := range rule.HTTP.Paths {
-				serviceName, servicePort, err := util.PathToServiceAndPort(ingress.Namespace, path, c.serviceLister)
-				if err != nil {
-					return err
-				}
-
-				listenerName := util.GenerateListenerName(servicePort)
-				listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
-					IngressName:    ingress.Name,
-					Host:           rule.Host,
-					Path:           &path,
-					BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
-				})
-				desiredRoutingPolicies.Insert(listenerName)
-			}
-		}
+	err = processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies)
+	if err != nil {
+		return err
 	}
 
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
@@ -261,13 +245,6 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 	}
 
 	return nil
-}
-
-type listenerPath struct {
-	IngressName    string
-	Host           string
-	BackendSetName string
-	Path           *networkingv1.HTTPIngressPath
 }
 
 // handleErr checks if an error happened and makes sure we will retry later.

@@ -39,6 +39,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	"github.com/oracle/oci-native-ingress-controller/pkg/waf"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -60,20 +61,12 @@ type Controller struct {
 	client   kubernetes.Interface
 	cache    ctrcache.Cache
 
-	lbClient *loadbalancer.LoadBalancerClient
+	lbClient  *loadbalancer.LoadBalancerClient
+	wafClient *waf.Client
 }
 
 // NewController creates a new Controller.
-func NewController(
-	defaultCompartmentId string,
-	defaultSubnetId string,
-	controllerClass string,
-	informer networkinginformers.IngressClassInformer,
-	client kubernetes.Interface,
-	lbClient *loadbalancer.LoadBalancerClient,
-	ctrcache ctrcache.Cache,
-
-) *Controller {
+func NewController(defaultCompartmentId string, defaultSubnetId string, controllerClass string, informer networkinginformers.IngressClassInformer, client kubernetes.Interface, lbClient *loadbalancer.LoadBalancerClient, wafClient *waf.Client, ctrcache ctrcache.Cache) *Controller {
 
 	c := &Controller{
 		defaultCompartmentId: defaultCompartmentId,
@@ -83,6 +76,7 @@ func NewController(
 		lister:               informer.Lister(),
 		client:               client,
 		lbClient:             lbClient,
+		wafClient:            wafClient,
 		cache:                ctrcache,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -239,11 +233,13 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 		}
 	}
 
+	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
+
 	if lb == nil {
 		klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
 
 		createDetails := ociloadbalancer.CreateLoadBalancerDetails{
-			CompartmentId: common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId)),
+			CompartmentId: compartmentId,
 			DisplayName:   common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
 			ShapeName:     common.String("flexible"),
 			SubnetIds:     []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
@@ -283,25 +279,36 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
 		klog.InfoS("Adding load balancer id to ingress class", "lbId", *lb.Id, "ingressClass", klog.KObj(ic))
-
-		patchBytes := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":"%s"}}}`, util.IngressClassLoadBalancerIdAnnotation, *lb.Id))
-
-		err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-			_, err := c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
-			return err
-		})
-
-		if apierrors.IsConflict(err) {
-			return errors.Wrapf(err, "updateMaxRetries(%d) limit was reached while attempting to add load balancer id annotation", retry.DefaultBackoff.Steps)
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client, ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
+		if done {
+			return patchError
 		}
+	}
 
+	// Add Web Application Firewall to LB
+	if c.wafClient != nil {
+		err = c.setupWebApplicationFirewall(ic, compartmentId, lb.Id)
 		if err != nil {
 			return err
 		}
 	}
 
 	klog.V(4).InfoS("checking if updates are required for load balancer", "ingressClass", klog.KObj(ic))
+	return nil
+}
 
+func (c *Controller) setupWebApplicationFirewall(ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
+	firewall, err, err2, done := c.wafClient.GetFireWallId(c.client, ic, compartmentId, lbId)
+	if done {
+		return err2
+	}
+	// update to ingressclass
+	if err == nil && firewall.GetId() != nil {
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client, ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
+		if done {
+			return patchError
+		}
+	}
 	return nil
 }
 

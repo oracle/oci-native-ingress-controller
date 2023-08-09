@@ -40,6 +40,14 @@ func TestLoadBalancerClient_CreateLoadBalancer(t *testing.T) {
 	Expect(err).To(Not(BeNil()))
 }
 
+func TestLoadBalancerClient_GetBackendSetHealth(t *testing.T) {
+	RegisterTestingT(t)
+	loadBalancerClient := setupLBClient()
+	id := "id"
+	_, err := loadBalancerClient.GetBackendSetHealth(context.TODO(), id, "k8s_adb5485972")
+	Expect(err).To(BeNil())
+}
+
 func TestLoadBalancerClient_EnsureRoutingPolicy(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
@@ -272,8 +280,18 @@ func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request oc
 }
 
 func (m MockLoadBalancerClient) GetBackendSetHealth(ctx context.Context, request ociloadbalancer.GetBackendSetHealthRequest) (ociloadbalancer.GetBackendSetHealthResponse, error) {
-	//TODO implement me
-	panic("implement me")
+	return ociloadbalancer.GetBackendSetHealthResponse{
+		RawResponse: nil,
+		BackendSetHealth: ociloadbalancer.BackendSetHealth{
+			Status:                    ociloadbalancer.BackendSetHealthStatusOk,
+			WarningStateBackendNames:  nil,
+			CriticalStateBackendNames: nil,
+			UnknownStateBackendNames:  nil,
+			TotalBackendCount:         nil,
+		},
+		OpcRequestId: nil,
+		ETag:         nil,
+	}, nil
 }
 
 func (m MockLoadBalancerClient) CreateRoutingPolicy(ctx context.Context, request ociloadbalancer.CreateRoutingPolicyRequest) (ociloadbalancer.CreateRoutingPolicyResponse, error) {

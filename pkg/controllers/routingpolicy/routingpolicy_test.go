@@ -12,6 +12,8 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -29,6 +31,92 @@ func TestEnsureRoutingRules(t *testing.T) {
 
 	err := c.ensureRoutingRules(&ingressClassList.Items[0])
 	Expect(err == nil).Should(Equal(true))
+}
+func TestProcessRoutingPolicy(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList, "routePath.yaml")
+
+	listenerPaths := map[string][]*listenerPath{}
+	desiredRoutingPolicies := sets.NewString()
+
+	var ingresses []*networkingv1.Ingress
+
+	var rules []networkingv1.IngressRule
+
+	var httpIngressPath []networkingv1.HTTPIngressPath
+	prefix := networkingv1.PathTypePrefix
+	backend1 := networkingv1.IngressServiceBackend{
+		Name: "nsacs-healthcheck-ui",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 8000,
+		},
+	}
+	backend2 := networkingv1.IngressServiceBackend{
+		Name: "nsacs-auth-service",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 3005,
+		},
+	}
+	backend3 := networkingv1.IngressServiceBackend{
+		Name: "nsacs-healthcheck-data",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 3010,
+		},
+	}
+	path1 := networkingv1.HTTPIngressPath{
+		Path:     "/ui",
+		PathType: &prefix,
+		Backend: networkingv1.IngressBackend{
+			Service:  &backend1,
+			Resource: nil,
+		},
+	}
+	path2 := networkingv1.HTTPIngressPath{
+		Path:     "/auth",
+		PathType: &prefix,
+		Backend: networkingv1.IngressBackend{
+			Service:  &backend2,
+			Resource: nil,
+		},
+	}
+	path3 := networkingv1.HTTPIngressPath{
+		Path:     "/data",
+		PathType: &prefix,
+		Backend: networkingv1.IngressBackend{
+			Service:  &backend3,
+			Resource: nil,
+		},
+	}
+	httpIngressPath = append(httpIngressPath, path1)
+	httpIngressPath = append(httpIngressPath, path2)
+	httpIngressPath = append(httpIngressPath, path3)
+	rule := networkingv1.IngressRule{
+		Host: "",
+		IngressRuleValue: networkingv1.IngressRuleValue{
+			HTTP: &networkingv1.HTTPIngressRuleValue{
+				Paths: httpIngressPath,
+			},
+		},
+	}
+	rules = append(rules, rule)
+
+	ingress := networkingv1.Ingress{
+		TypeMeta:   metav1.TypeMeta{},
+		ObjectMeta: metav1.ObjectMeta{},
+		Spec: networkingv1.IngressSpec{
+			Rules: rules,
+		},
+		Status: networkingv1.IngressStatus{},
+	}
+	ingresses = append(ingresses, &ingress)
+
+	err := processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies)
+	Expect(err == nil).Should(Equal(true))
+	Expect(len(listenerPaths)).Should(Equal(3))
+	Expect(len(desiredRoutingPolicies)).Should(Equal(3))
 }
 
 func TestRunPusher(t *testing.T) {

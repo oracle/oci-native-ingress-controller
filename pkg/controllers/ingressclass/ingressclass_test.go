@@ -9,9 +9,11 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-go-sdk/v65/waf"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	WAF "github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -93,6 +95,32 @@ func TestEnsureFinalizer(t *testing.T) {
 	Expect(err).Should(BeNil())
 }
 
+func TestSetupWebApplicationFirewall_WithPolicySet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := "id"
+	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
+	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
+	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	c := inits(ctx, ingressClassList)
+	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	Expect(err).Should(BeNil())
+}
+
+func TestSetupWebApplicationFirewall_NoPolicySet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := "id"
+	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
+
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList)
+	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	Expect(err).Should(BeNil())
+}
+
 func TestDeleteFinalizer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,6 +149,7 @@ func TestDeleteFinalizer(t *testing.T) {
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList) *Controller {
 
 	lbClient := getLoadBalancerClient()
+	wafClient := getWafClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
 		LbClient: lbClient,
@@ -128,9 +157,14 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
+	firewallClient := &WAF.Client{
+		WafClient: wafClient,
+		Mu:        sync.Mutex{},
+		Cache:     map[string]*WAF.CacheObj{},
+	}
+
 	ingressClassInformer, client := setUp(ctx, ingressClassList)
-	c := NewController("", "",
-		"oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, loadBalancerClient, nil)
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, loadBalancerClient, firewallClient, nil)
 	return c
 }
 
@@ -152,6 +186,32 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 
 func getLoadBalancerClient() client.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
+}
+
+func getWafClient() client.WafInterface {
+	return &MockWafClient{}
+}
+
+type MockWafClient struct {
+}
+
+func (m MockWafClient) GetWebAppFirewall(ctx context.Context, request waf.GetWebAppFirewallRequest) (waf.GetWebAppFirewallResponse, error) {
+	return waf.GetWebAppFirewallResponse{}, nil
+}
+
+func (m MockWafClient) CreateWebAppFirewall(ctx context.Context, request waf.CreateWebAppFirewallRequest) (waf.CreateWebAppFirewallResponse, error) {
+
+	return waf.CreateWebAppFirewallResponse{
+		RawResponse: nil,
+		WebAppFirewall: waf.WebAppFirewallLoadBalancer{
+			Id: common.String("fireWallId"),
+		},
+		OpcRequestId: common.String("id"),
+	}, nil
+}
+
+func (m MockWafClient) DeleteWebAppFirewall(ctx context.Context, request waf.DeleteWebAppFirewallRequest) (waf.DeleteWebAppFirewallResponse, error) {
+	return waf.DeleteWebAppFirewallResponse{}, nil
 }
 
 type MockLoadBalancerClient struct {

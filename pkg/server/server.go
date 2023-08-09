@@ -17,6 +17,7 @@ import (
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	ociwaf "github.com/oracle/oci-go-sdk/v65/waf"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/oracle/oci-go-sdk/v65/certificates"
@@ -34,6 +35,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
+	w "github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	"github.com/prometheus/client_golang/prometheus"
 
 	v1 "k8s.io/client-go/informers/core/v1"
@@ -88,9 +90,16 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			klog.Fatalf("unable to construct oci certificate management client: %v", err)
 		}
 
+		ociWafClient, err := ociwaf.NewWafClientWithConfigurationProvider(configProvider)
+		if err != nil {
+			klog.Fatalf("unable to construct oci web application firewall client: %v", err)
+		}
+
 		lbClient := loadbalancer.New(&ociLBClient)
 
 		certificatesClient := certificate.New(&ociCertificatesMgmtClient, NewCertificateClient(&ociCertificatesClient))
+
+		wafClient := w.New(&ociWafClient)
 
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
@@ -131,6 +140,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			ingressClassInformer,
 			client,
 			lbClient,
+			wafClient,
 			c,
 		)
 
