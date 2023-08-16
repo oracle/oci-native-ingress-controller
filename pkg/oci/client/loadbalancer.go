@@ -9,6 +9,8 @@ import (
 type LoadBalancerInterface interface {
 	GetLoadBalancer(ctx context.Context, request loadbalancer.GetLoadBalancerRequest) (loadbalancer.GetLoadBalancerResponse, error)
 	CreateLoadBalancer(ctx context.Context, request loadbalancer.CreateLoadBalancerRequest) (loadbalancer.CreateLoadBalancerResponse, error)
+	UpdateLoadBalancer(ctx context.Context, request loadbalancer.UpdateLoadBalancerRequest) (response loadbalancer.UpdateLoadBalancerResponse, err error)
+	UpdateLoadBalancerShape(ctx context.Context, request loadbalancer.UpdateLoadBalancerShapeRequest) (response loadbalancer.UpdateLoadBalancerShapeResponse, err error)
 	DeleteLoadBalancer(ctx context.Context, request loadbalancer.DeleteLoadBalancerRequest) (loadbalancer.DeleteLoadBalancerResponse, error)
 
 	GetWorkRequest(ctx context.Context, request loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error)
@@ -46,6 +48,14 @@ func (client LBClient) GetLoadBalancer(ctx context.Context,
 func (client LBClient) CreateLoadBalancer(ctx context.Context,
 	request loadbalancer.CreateLoadBalancerRequest) (loadbalancer.CreateLoadBalancerResponse, error) {
 	return client.lbClient.CreateLoadBalancer(ctx, request)
+}
+
+func (client LBClient) UpdateLoadBalancerShape(ctx context.Context, request loadbalancer.UpdateLoadBalancerShapeRequest) (response loadbalancer.UpdateLoadBalancerShapeResponse, err error) {
+	return client.lbClient.UpdateLoadBalancerShape(ctx, request)
+}
+
+func (client LBClient) UpdateLoadBalancer(ctx context.Context, request loadbalancer.UpdateLoadBalancerRequest) (response loadbalancer.UpdateLoadBalancerResponse, err error) {
+	return client.lbClient.UpdateLoadBalancer(ctx, request)
 }
 
 func (client LBClient) DeleteLoadBalancer(ctx context.Context,
