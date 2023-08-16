@@ -350,43 +350,35 @@ type MockCertificateBundle struct {
 }
 
 func (m MockCertificateBundle) GetCertificateId() *string {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetCertificateName() *string {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetVersionNumber() *int64 {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetSerialNumber() *string {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetTimeCreated() *common.SDKTime {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetValidity() *certificates.Validity {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetStages() []certificates.VersionStageEnum {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetCertificatePem() *string {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetCertChainPem() *string {
@@ -395,18 +387,15 @@ func (m MockCertificateBundle) GetCertChainPem() *string {
 }
 
 func (m MockCertificateBundle) GetVersionName() *string {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateBundle) GetRevocationStatus() *certificates.RevocationStatus {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) SetCertCache(cert *certificatesmanagement.Certificate) {
-	//TODO implement me
-	panic("implement me")
+
 }
 
 func (m MockCertificateClient) GetFromCertCache(certId string) *CertCacheObj {
@@ -425,23 +414,19 @@ func (m MockCertificateClient) GetFromCertCache(certId string) *CertCacheObj {
 }
 
 func (m MockCertificateClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
-	//TODO implement me
-	panic("implement me")
+
 }
 
 func (m MockCertificateClient) GetFromCaBundleCache(id string) *CaBundleCacheObj {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) CreateCertificate(ctx context.Context, req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (m MockCertificateClient) CreateCaBundle(ctx context.Context, req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (m MockCertificateClient) GetCertificate(ctx context.Context, req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, error) {
@@ -452,26 +437,21 @@ func (m MockCertificateClient) GetCertificate(ctx context.Context, req certifica
 }
 
 func (m MockCertificateClient) ListCertificates(ctx context.Context, req certificatesmanagement.ListCertificatesRequest) (*certificatesmanagement.CertificateCollection, *string, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil, nil
 }
 
 func (m MockCertificateClient) ScheduleCertificateDeletion(ctx context.Context, req certificatesmanagement.ScheduleCertificateDeletionRequest) error {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (m MockCertificateClient) GetCaBundle(ctx context.Context, req certificatesmanagement.GetCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (m MockCertificateClient) ListCaBundles(ctx context.Context, req certificatesmanagement.ListCaBundlesRequest) (*certificatesmanagement.CaBundleCollection, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (m MockCertificateClient) DeleteCaBundle(ctx context.Context, req certificatesmanagement.DeleteCaBundleRequest) (*http.Response, error) {
-	//TODO implement me
-	panic("implement me")
+	return nil, nil
 }
