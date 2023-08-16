@@ -34,9 +34,9 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/routingpolicy"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
-	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
-	w "github.com/oracle/oci-native-ingress-controller/pkg/waf"
+	"github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	"github.com/prometheus/client_golang/prometheus"
 
 	v1 "k8s.io/client-go/informers/core/v1"
@@ -117,7 +117,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 	}
 }
 
-func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset.Interface) *client.Client {
+func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset.Interface) *client.ClientProvider {
 	configProvider, err := auth.GetConfigurationProvider(ctx, opts, k8client)
 	if err != nil {
 		klog.Fatalf("failed to load authentication configuration provider: %v", err)
@@ -145,9 +145,9 @@ func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset
 
 	lbClient := loadbalancer.New(&ociLBClient)
 
-	certificatesClient := certificate.New(&ociCertificatesMgmtClient, NewCertificateClient(&ociCertificatesClient))
+	certificatesClient := certificate.New(&ociCertificatesMgmtClient, ociclient.NewCertificateClient(&ociCertificatesClient))
 
-	wafClient := w.New(&ociWafClient)
+	wafClient := waf.New(&ociWafClient)
 
 	return client.NewWrapperClient(k8client, wafClient, lbClient, certificatesClient)
 }

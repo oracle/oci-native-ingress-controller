@@ -51,7 +51,7 @@ func (W Client) CreateFirewall(lbId *string, compartmentID *string, policyId *st
 	return r, err
 }
 
-func (W Client) GetFireWallId(kubeClient kubernetes.Interface, ic *networkingv1.IngressClass, compartmentId *string, lbId *string) (waf.CreateWebAppFirewallResponse, error, error, bool) {
+func (W Client) GetFireWallId(kubeClient kubernetes.Interface, ic *networkingv1.IngressClass, compartmentId *string, lbId *string) (response waf.CreateWebAppFirewallResponse, conflictError error, throwableError error, updateRequired bool) {
 	policyId := util.GetIngressClassWafPolicy(ic)
 	fireWallId := util.GetIngressClassFireWallId(ic)
 	if policyId == "" {
@@ -61,13 +61,13 @@ func (W Client) GetFireWallId(kubeClient kubernetes.Interface, ic *networkingv1.
 			util.PatchIngressClassWithAnnotation(kubeClient, ic, util.IngressClassFireWallIdAnnotation, "")
 			klog.Infof("Web Firewall cleaned up %s", fireWallId)
 		}
-		return waf.CreateWebAppFirewallResponse{}, nil, nil, true
+		return waf.CreateWebAppFirewallResponse{}, nil, nil, false
 	}
 	if fireWallId != "" {
 		// check policy ocid for the existing firewall == policy in ingressclass
 		firewallPolicyId, err := W.GetWebAppFirewallWithId(fireWallId)
 		if err == nil && firewallPolicyId == policyId {
-			return waf.CreateWebAppFirewallResponse{}, nil, nil, true
+			return waf.CreateWebAppFirewallResponse{}, nil, nil, false
 		}
 
 	}
@@ -75,9 +75,9 @@ func (W Client) GetFireWallId(kubeClient kubernetes.Interface, ic *networkingv1.
 	firewall, err := W.CreateFirewall(lbId, compartmentId, common.String(policyId), ic.Name)
 	if err != nil && !apierrors.IsConflict(err) {
 		klog.Error("Unable to create web app firewall", err)
-		return waf.CreateWebAppFirewallResponse{}, nil, err, true
+		return waf.CreateWebAppFirewallResponse{}, nil, err, false
 	}
-	return firewall, err, nil, false
+	return firewall, err, nil, true
 }
 
 func (W Client) GetWebAppFirewall(ctx context.Context, request waf.GetWebAppFirewallRequest) (response waf.GetWebAppFirewallResponse, err error) {

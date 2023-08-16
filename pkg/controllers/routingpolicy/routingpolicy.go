@@ -46,7 +46,7 @@ type Controller struct {
 	serviceLister      corelisters.ServiceLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
-	client             *client.Client
+	client             *client.ClientProvider
 }
 
 // NewController creates a new Controller.
@@ -55,7 +55,7 @@ func NewController(
 	ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer,
 	serviceLister corelisters.ServiceLister,
-	client *client.Client,
+	client *client.ClientProvider,
 ) *Controller {
 
 	c := &Controller{

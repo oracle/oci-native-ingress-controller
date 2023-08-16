@@ -57,7 +57,7 @@ type Controller struct {
 	serviceLister      corelisters.ServiceLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
-	client             *client.Client
+	client             *client.ClientProvider
 	metricsCollector   *metric.IngressCollector
 }
 
@@ -65,7 +65,7 @@ type Controller struct {
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	serviceLister corelisters.ServiceLister,
-	client *client.Client,
+	client *client.ClientProvider,
 	reg *prometheus.Registry) *Controller {
 
 	c := &Controller{

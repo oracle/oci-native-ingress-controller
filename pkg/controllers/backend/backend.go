@@ -53,7 +53,7 @@ type Controller struct {
 	endpointLister     corelisters.EndpointsLister
 
 	queue  workqueue.RateLimitingInterface
-	client *client.Client
+	client *client.ClientProvider
 }
 
 func NewController(
@@ -63,7 +63,7 @@ func NewController(
 	serviceLister corelisters.ServiceLister,
 	endpointLister corelisters.EndpointsLister,
 	podLister corelisters.PodLister,
-	client *client.Client,
+	client *client.ClientProvider,
 ) *Controller {
 
 	c := &Controller{

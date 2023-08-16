@@ -7,29 +7,29 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type Client struct {
+type ClientProvider struct {
 	kubernetesClient   kubernetes.Interface
 	wafClient          *waf.Client
 	lbClient           *loadbalancer.LoadBalancerClient
 	certificatesClient *certificate.CertificatesClient
 }
 
-func NewWrapperClient(kubernetesClient kubernetes.Interface, wafClient *waf.Client, lbClient *loadbalancer.LoadBalancerClient, certificatesClient *certificate.CertificatesClient) *Client {
-	return &Client{kubernetesClient: kubernetesClient, wafClient: wafClient, lbClient: lbClient, certificatesClient: certificatesClient}
+func NewWrapperClient(kubernetesClient kubernetes.Interface, wafClient *waf.Client, lbClient *loadbalancer.LoadBalancerClient, certificatesClient *certificate.CertificatesClient) *ClientProvider {
+	return &ClientProvider{kubernetesClient: kubernetesClient, wafClient: wafClient, lbClient: lbClient, certificatesClient: certificatesClient}
 }
 
-func (c Client) GetK8Client() kubernetes.Interface {
+func (c ClientProvider) GetK8Client() kubernetes.Interface {
 	return c.kubernetesClient
 }
 
-func (c Client) GetWafClient() *waf.Client {
+func (c ClientProvider) GetWafClient() *waf.Client {
 	return c.wafClient
 }
 
-func (c Client) GetLbClient() *loadbalancer.LoadBalancerClient {
+func (c ClientProvider) GetLbClient() *loadbalancer.LoadBalancerClient {
 	return c.lbClient
 }
 
-func (c Client) GetCertClient() *certificate.CertificatesClient {
+func (c ClientProvider) GetCertClient() *certificate.CertificatesClient {
 	return c.certificatesClient
 }

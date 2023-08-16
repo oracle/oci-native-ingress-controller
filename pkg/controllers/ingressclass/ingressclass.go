@@ -55,13 +55,13 @@ type Controller struct {
 	lister   networkinglisters.IngressClassLister
 	queue    workqueue.RateLimitingInterface
 	informer networkinginformers.IngressClassInformer
-	client   *client.Client
+	client   *client.ClientProvider
 	cache    ctrcache.Cache
 }
 
 // NewController creates a new Controller.
 func NewController(defaultCompartmentId string, defaultSubnetId string, controllerClass string, informer networkinginformers.IngressClassInformer,
-	client *client.Client, ctrcache ctrcache.Cache) *Controller {
+	client *client.ClientProvider, ctrcache ctrcache.Cache) *Controller {
 
 	c := &Controller{
 		defaultCompartmentId: defaultCompartmentId,
@@ -297,12 +297,12 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 }
 
 func (c *Controller) setupWebApplicationFirewall(ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
-	firewall, err, err2, done := c.client.GetWafClient().GetFireWallId(c.client.GetK8Client(), ic, compartmentId, lbId)
-	if done {
-		return err2
+	firewall, conflictError, throwableError, updateRequired := c.client.GetWafClient().GetFireWallId(c.client.GetK8Client(), ic, compartmentId, lbId)
+	if !updateRequired {
+		return throwableError
 	}
 	// update to ingressclass
-	if err == nil && firewall.GetId() != nil {
+	if conflictError == nil && firewall.GetId() != nil {
 		patchError, done := util.PatchIngressClassWithAnnotation(c.client.GetK8Client(), ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
 		if done {
 			return patchError
