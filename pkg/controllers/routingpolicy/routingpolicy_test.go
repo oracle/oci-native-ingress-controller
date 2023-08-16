@@ -8,8 +8,9 @@ import (
 
 	. "github.com/onsi/gomega"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -151,9 +152,10 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, client := setUp(ctx, ingressClassList, ingressList, testService)
+	ingressClassInformer, ingressInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller",
-		ingressClassInformer, ingressInformer, serviceLister, client, loadBalancerClient)
+		ingressClassInformer, ingressInformer, serviceLister, client)
 	return c
 }
 
@@ -182,7 +184,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	return ingressClassInformer, ingressInformer, serviceLister, client
 }
 
-func getLoadBalancerClient() client.LoadBalancerInterface {
+func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
 }
 

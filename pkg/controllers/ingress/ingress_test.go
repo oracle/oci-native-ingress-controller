@@ -12,6 +12,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -78,9 +79,10 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		CaBundleCache:      map[string]*CaBundleCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, client := setUp(ctx, ingressClassList, ingressList, testService)
+	ingressClassInformer, ingressInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, certificatesClient)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, serviceLister, client, loadBalancerClient, certificatesClient, nil)
+		ingressInformer, serviceLister, client, nil)
 	return c
 }
 

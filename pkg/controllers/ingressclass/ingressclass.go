@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/klog/v2"
 
@@ -28,7 +29,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/client-go/kubernetes"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -36,13 +36,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
-	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/util"
-	"github.com/oracle/oci-native-ingress-controller/pkg/waf"
-
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
 var errIngressClassNotReady = errors.New("ingress class not ready")
@@ -58,15 +55,13 @@ type Controller struct {
 	lister   networkinglisters.IngressClassLister
 	queue    workqueue.RateLimitingInterface
 	informer networkinginformers.IngressClassInformer
-	client   kubernetes.Interface
+	client   *client.Client
 	cache    ctrcache.Cache
-
-	lbClient  *loadbalancer.LoadBalancerClient
-	wafClient *waf.Client
 }
 
 // NewController creates a new Controller.
-func NewController(defaultCompartmentId string, defaultSubnetId string, controllerClass string, informer networkinginformers.IngressClassInformer, client kubernetes.Interface, lbClient *loadbalancer.LoadBalancerClient, wafClient *waf.Client, ctrcache ctrcache.Cache) *Controller {
+func NewController(defaultCompartmentId string, defaultSubnetId string, controllerClass string, informer networkinginformers.IngressClassInformer,
+	client *client.Client, ctrcache ctrcache.Cache) *Controller {
 
 	c := &Controller{
 		defaultCompartmentId: defaultCompartmentId,
@@ -75,8 +70,6 @@ func NewController(defaultCompartmentId string, defaultSubnetId string, controll
 		informer:             informer,
 		lister:               informer.Lister(),
 		client:               client,
-		lbClient:             lbClient,
-		wafClient:            wafClient,
 		cache:                ctrcache,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -206,7 +199,7 @@ func (c *Controller) getLoadBalancer(ic *networkingv1.IngressClass) (*ociloadbal
 		return nil, &exception.NotFoundServiceError{}
 	}
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +264,7 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 			CreateLoadBalancerDetails: createDetails,
 		}
 		klog.Infof("Create lb request: %s", util.PrettyPrint(createLbRequest))
-		lb, err = c.lbClient.CreateLoadBalancer(context.Background(), createLbRequest)
+		lb, err = c.client.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
 		if err != nil {
 			return err
 		}
@@ -279,14 +272,14 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
 		klog.InfoS("Adding load balancer id to ingress class", "lbId", *lb.Id, "ingressClass", klog.KObj(ic))
-		patchError, done := util.PatchIngressClassWithAnnotation(c.client, ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client.GetK8Client(), ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
 		if done {
 			return patchError
 		}
 	}
 
 	// Add Web Application Firewall to LB
-	if c.wafClient != nil {
+	if c.client.GetWafClient() != nil {
 		err = c.setupWebApplicationFirewall(ic, compartmentId, lb.Id)
 		if err != nil {
 			return err
@@ -298,13 +291,13 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 }
 
 func (c *Controller) setupWebApplicationFirewall(ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
-	firewall, err, err2, done := c.wafClient.GetFireWallId(c.client, ic, compartmentId, lbId)
+	firewall, err, err2, done := c.client.GetWafClient().GetFireWallId(c.client.GetK8Client(), ic, compartmentId, lbId)
 	if done {
 		return err2
 	}
 	// update to ingressclass
 	if err == nil && firewall.GetId() != nil {
-		patchError, done := util.PatchIngressClassWithAnnotation(c.client, ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client.GetK8Client(), ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
 		if done {
 			return patchError
 		}
@@ -333,7 +326,7 @@ func (c *Controller) deleteLoadBalancer(ic *networkingv1.IngressClass) error {
 		return nil
 	}
 
-	return c.lbClient.DeleteLoadBalancer(context.Background(), lbID)
+	return c.client.GetLbClient().DeleteLoadBalancer(context.Background(), lbID)
 }
 
 func isIngressControllerDeleting(ic *networkingv1.IngressClass) bool {
@@ -372,7 +365,7 @@ func (c *Controller) ensureFinalizer(ic *networkingv1.IngressClass) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 
@@ -399,7 +392,7 @@ func (c *Controller) deleteFinalizer(ic *networkingv1.IngressClass) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 

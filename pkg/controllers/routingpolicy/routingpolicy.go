@@ -15,10 +15,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
-	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -29,7 +29,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
@@ -47,9 +46,7 @@ type Controller struct {
 	serviceLister      corelisters.ServiceLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
-	client             kubernetes.Interface
-
-	lbClient *loadbalancer.LoadBalancerClient
+	client             *client.Client
 }
 
 // NewController creates a new Controller.
@@ -58,8 +55,7 @@ func NewController(
 	ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer,
 	serviceLister corelisters.ServiceLister,
-	client kubernetes.Interface,
-	lbClient *loadbalancer.LoadBalancerClient,
+	client *client.Client,
 ) *Controller {
 
 	c := &Controller{
@@ -69,9 +65,8 @@ func NewController(
 		serviceLister:      serviceLister,
 		informer:           ingressInformer,
 
-		client:   client,
-		lbClient: lbClient,
-		queue:    workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		client: client,
+		queue:  workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
 
 	return c
@@ -187,7 +182,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 			})
 		}
 
-		err = c.lbClient.EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
+		err = c.client.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
 		if err != nil {
 			// we purposefully only log here then return an error at the end, so we can attempt to sync all listeners.
 			klog.ErrorS(err, "unable to ensure route policy", "ingressClass", klog.KObj(ingressClass), "listenerName", listenerName)
@@ -196,7 +191,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 		}
 	}
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return err
 	}
@@ -211,7 +206,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 	if len(routingPoliciesToDelete) > 0 {
 		klog.Infof("Following routing policies are eligible for deletion: %s", util.PrettyPrint(routingPoliciesToDelete))
 		for routingPolicyToDelete := range routingPoliciesToDelete {
-			lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
@@ -219,20 +214,20 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 			listener, listenerFound := lb.Listeners[routingPolicyToDelete]
 			if listenerFound {
 				klog.Infof("Detaching the routing policy %s from listener.", routingPolicyToDelete)
-				err = c.lbClient.UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol)
+				err = c.client.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol)
 				if err != nil {
 					return err
 				}
 			}
 
-			lb, etag, err = c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err = c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
 
 			_, routingPolicyFound := lb.RoutingPolicies[routingPolicyToDelete]
 			if routingPolicyFound {
-				err = c.lbClient.DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
+				err = c.client.GetLbClient().DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
 				if err != nil {
 					return err
 				}

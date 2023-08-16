@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/pkg/errors"
@@ -35,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
@@ -57,10 +57,7 @@ type Controller struct {
 	serviceLister      corelisters.ServiceLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
-	client             kubernetes.Interface
-
-	lbClient           *loadbalancer.LoadBalancerClient
-	certificatesClient *certificate.CertificatesClient
+	client             *client.Client
 	metricsCollector   *metric.IngressCollector
 }
 
@@ -68,7 +65,7 @@ type Controller struct {
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	serviceLister corelisters.ServiceLister,
-	client kubernetes.Interface, lbClient *loadbalancer.LoadBalancerClient, certificatesClient *certificate.CertificatesClient,
+	client *client.Client,
 	reg *prometheus.Registry) *Controller {
 
 	c := &Controller{
@@ -79,8 +76,6 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		informer:             ingressInformer,
 		serviceLister:        serviceLister,
 		client:               client,
-		lbClient:             lbClient,
-		certificatesClient:   certificatesClient,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 		metricsCollector:     metric.NewIngressCollector(controllerClass, reg),
 	}
@@ -248,7 +243,7 @@ func (c *Controller) sync(key string) error {
 
 func (c *Controller) ensureLoadBalancerIP(lbID string, ingress *networkingv1.Ingress) error {
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return errors.Wrapf(err, "unable to fetch ip from load balancer: %s", err.Error())
 	}
@@ -276,7 +271,7 @@ func (c *Controller) ensureLoadBalancerIP(lbID string, ingress *networkingv1.Ing
 	klog.V(2).InfoS("adding ip address to ingress", "ingress", klog.KObj(ingress), "ipAddress", ipAddress)
 
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-		latest, err := c.client.NetworkingV1().Ingresses(ingress.Namespace).Get(context.TODO(), ingress.Name, metav1.GetOptions{})
+		latest, err := c.client.GetK8Client().NetworkingV1().Ingresses(ingress.Namespace).Get(context.TODO(), ingress.Name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -285,7 +280,7 @@ func (c *Controller) ensureLoadBalancerIP(lbID string, ingress *networkingv1.Ing
 			{IP: ipAddress},
 		}
 
-		_, err = c.client.NetworkingV1().Ingresses(ingress.Namespace).UpdateStatus(context.TODO(), latest, metav1.UpdateOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().Ingresses(ingress.Namespace).UpdateStatus(context.TODO(), latest, metav1.UpdateOptions{})
 		return err
 	})
 
@@ -316,7 +311,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 	lbId := util.GetIngressClassLoadBalancerId(ingressClass)
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbId)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbId)
 	if err != nil {
 		return err
 	}
@@ -337,14 +332,14 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.certificatesClient, c.client)
+		backendSetSslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
 		if err != nil {
 			return err
 		}
 
 		healthChecker := stateStore.GetBackendSetHealthChecker(bsName)
 		policy := stateStore.GetBackendSetPolicy(bsName)
-		err = c.lbClient.CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig)
+		err = c.client.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig)
 		if err != nil {
 			return err
 		}
@@ -372,13 +367,13 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := certificate.GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.certificatesClient, c.client)
+		listenerSslConfig, err := certificate.GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
 		if err != nil {
 			return err
 		}
 
 		protocol := stateStore.GetListenerProtocol(port)
-		err = c.lbClient.CreateListener(context.TODO(), lbId, int(port), protocol, listenerSslConfig)
+		err = c.client.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, listenerSslConfig)
 		if err != nil {
 			return err
 		}
@@ -389,7 +384,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		return err
 	}
 
-	err = deleteBackendSets(actualBackendSets, desiredBackendSets, c.lbClient, lbId)
+	err = deleteBackendSets(actualBackendSets, desiredBackendSets, c.client.GetLbClient(), lbId)
 	if err != nil {
 		return err
 	}
@@ -399,7 +394,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		return err
 	}
 
-	return deleteListeners(actualListenerPorts, desiredListenerPorts, c.lbClient, lbId)
+	return deleteListeners(actualListenerPorts, desiredListenerPorts, c.client.GetLbClient(), lbId)
 }
 
 func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass) error {
@@ -412,7 +407,7 @@ func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass)
 
 	lbId := util.GetIngressClassLoadBalancerId(ingressClass)
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbId)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbId)
 	if err != nil {
 		return err
 	}
@@ -422,7 +417,7 @@ func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass)
 		actualBackendSets.Insert(bsName)
 	}
 
-	err = deleteBackendSets(actualBackendSets, stateStore.GetAllBackendSetForIngressClass(), c.lbClient, lbId)
+	err = deleteBackendSets(actualBackendSets, stateStore.GetAllBackendSetForIngressClass(), c.client.GetLbClient(), lbId)
 	if err != nil {
 		return err
 	}
@@ -432,7 +427,7 @@ func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass)
 		actualListeners.Insert(int32(*listener.Port))
 	}
 
-	err = deleteListeners(actualListeners, stateStore.GetAllListenersForIngressClass(), c.lbClient, lbId)
+	err = deleteListeners(actualListeners, stateStore.GetAllListenersForIngressClass(), c.client.GetLbClient(), lbId)
 	if err != nil {
 		return err
 	}
@@ -474,7 +469,7 @@ func deleteListeners(actualListeners sets.Int32, desiredListeners sets.Int32, lb
 
 func syncListener(namespace string, stateStore *state.StateStore, lbId *string, listenerName string, c *Controller) error {
 	startTime := util.GetCurrentTimeInUnixMillis()
-	lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), *lbId)
+	lb, etag, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), *lbId)
 	if err != nil {
 		return err
 	}
@@ -488,7 +483,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = certificate.GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.certificatesClient, c.client)
+		sslConfig, err = certificate.GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
 		if err != nil {
 			return err
 		}
@@ -509,7 +504,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	}
 
 	if needsUpdate {
-		err := c.lbClient.UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol)
+		err := c.client.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol)
 		if err != nil {
 			return err
 		}
@@ -524,7 +519,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName string, stateStore *state.StateStore, c *Controller) error {
 
 	startTime := util.GetCurrentTimeInUnixMillis()
-	lb, etag, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+	lb, etag, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return err
 	}
@@ -536,7 +531,7 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.certificatesClient, c.client)
+	sslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
 	if err != nil {
 		return err
 	}
@@ -562,7 +557,7 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 	}
 
 	if needsUpdate {
-		err = c.lbClient.UpdateBackendSet(context.TODO(), lb.Id, etag, bs, nil, sslConfig, healthChecker, &policy)
+		err = c.client.GetLbClient().UpdateBackendSet(context.TODO(), lb.Id, etag, bs, nil, sslConfig, healthChecker, &policy)
 		if err != nil {
 			return err
 		}
@@ -641,7 +636,7 @@ func (c *Controller) ensureFinalizer(ingress *networkingv1.Ingress) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().Ingresses(ingress.Namespace).Patch(context.TODO(), ingress.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().Ingresses(ingress.Namespace).Patch(context.TODO(), ingress.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 
@@ -671,7 +666,7 @@ func (c *Controller) deleteFinalizer(ingress *networkingv1.Ingress) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().Ingresses(ingress.Namespace).Patch(context.TODO(), ingress.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().Ingresses(ingress.Namespace).Patch(context.TODO(), ingress.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 

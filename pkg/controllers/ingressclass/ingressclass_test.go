@@ -10,8 +10,9 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/waf"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	WAF "github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -163,8 +164,9 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 		Cache:     map[string]*WAF.CacheObj{},
 	}
 
-	ingressClassInformer, client := setUp(ctx, ingressClassList)
-	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, loadBalancerClient, firewallClient, nil)
+	ingressClassInformer, k8client := setUp(ctx, ingressClassList)
+	client := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil)
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, nil)
 	return c
 }
 
@@ -184,11 +186,11 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 	return ingressClassInformer, client
 }
 
-func getLoadBalancerClient() client.LoadBalancerInterface {
+func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
 }
 
-func getWafClient() client.WafInterface {
+func getWafClient() ociclient.WafInterface {
 	return &MockWafClient{}
 }
 
