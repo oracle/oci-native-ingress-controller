@@ -9,8 +9,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+
 	"github.com/oracle/oci-go-sdk/v65/waf"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -122,6 +126,27 @@ func TestSetupWebApplicationFirewall_NoPolicySet(t *testing.T) {
 	Expect(err).Should(BeNil())
 }
 
+func TestCheckForIngressClassParameterUpdates(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList)
+	loadBalancer, _, _ := c.client.GetLbClient().GetLoadBalancer(context.TODO(), "id")
+	icp := v1beta1.IngressClassParameters{
+		Spec: v1beta1.IngressClassParametersSpec{
+			CompartmentId:    "",
+			SubnetId:         "",
+			LoadBalancerName: "testecho1-998",
+			IsPrivate:        false,
+			MinBandwidthMbps: 200,
+			MaxBandwidthMbps: 400,
+		},
+	}
+	err := c.checkForIngressClassParameterUpdates(loadBalancer, &ingressClassList.Items[0], &icp)
+	Expect(err).Should(BeNil())
+}
+
 func TestDeleteFinalizer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -222,6 +247,22 @@ type MockLoadBalancerClient struct {
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
 	res := util.SampleLoadBalancerResponse()
 	return res, nil
+}
+
+func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerRequest) (response ociloadbalancer.UpdateLoadBalancerResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
+}
+
+func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerShapeRequest) (response ociloadbalancer.UpdateLoadBalancerShapeResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerShapeResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
 }
 
 func (m MockLoadBalancerClient) CreateLoadBalancer(ctx context.Context, request ociloadbalancer.CreateLoadBalancerRequest) (ociloadbalancer.CreateLoadBalancerResponse, error) {

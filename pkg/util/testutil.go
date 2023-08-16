@@ -421,9 +421,12 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 		RuleSetNames:            nil,
 		RoutingPolicyName:       &routeN,
 	}
+	minimumBandwidthInMbps := 100
+	maximumBandwidthInMbps := 400
 	var res = ociloadbalancer.GetLoadBalancerResponse{
 		RawResponse: nil,
 		LoadBalancer: ociloadbalancer.LoadBalancer{
+			DisplayName: &name,
 			Id:          &lbId,
 			IpAddresses: ipAddresses,
 			Listeners: map[string]ociloadbalancer.Listener{
@@ -446,6 +449,10 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 			SystemTags:      nil,
 			RuleSets:        nil,
 			RoutingPolicies: policies,
+			ShapeDetails: &ociloadbalancer.ShapeDetails{
+				MinimumBandwidthInMbps: &minimumBandwidthInMbps,
+				MaximumBandwidthInMbps: &maximumBandwidthInMbps,
+			},
 		},
 		OpcRequestId: nil,
 		ETag:         &etag,

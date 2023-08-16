@@ -247,6 +247,14 @@ func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 type MockLoadBalancerClient struct {
 }
 
+func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerRequest) (response ociloadbalancer.UpdateLoadBalancerResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerResponse{}, nil
+}
+
+func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerShapeRequest) (response ociloadbalancer.UpdateLoadBalancerShapeResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerShapeResponse{}, nil
+}
+
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
 	res := util.SampleLoadBalancerResponse()
 	return res, nil

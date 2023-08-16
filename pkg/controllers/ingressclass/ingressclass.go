@@ -217,9 +217,13 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 
 	icp := &v1beta1.IngressClassParameters{}
 	if ic.Spec.Parameters != nil {
+		namespace := ""
+		if ic.Spec.Parameters.Namespace != nil {
+			namespace = *ic.Spec.Parameters.Namespace
+		}
 		err = c.cache.Get(context.TODO(), ctrclient.ObjectKey{
 			Name:      ic.Spec.Parameters.Name,
-			Namespace: *ic.Spec.Parameters.Namespace,
+			Namespace: namespace,
 		}, icp)
 		if err != nil {
 			return fmt.Errorf("unable to fetch IngressClassParameters %s: %w", ic.Spec.Parameters.Name, err)
@@ -227,7 +231,6 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 	}
 
 	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
-
 	if lb == nil {
 		klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
 
@@ -245,6 +248,7 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 					},
 				},
 			},
+			FreeformTags: map[string]string{"oci-native-ingress-controller-resource": "loadbalancer"},
 		}
 
 		if icp.Spec.ReservedPublicAddressId != "" {
@@ -268,6 +272,8 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		c.checkForIngressClassParameterUpdates(lb, ic, icp)
 	}
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
@@ -301,6 +307,53 @@ func (c *Controller) setupWebApplicationFirewall(ic *networkingv1.IngressClass, 
 		if done {
 			return patchError
 		}
+	}
+	return nil
+}
+
+func (c *Controller) checkForIngressClassParameterUpdates(lb *ociloadbalancer.LoadBalancer, ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters) error {
+	// check LoadBalancerName AND  MinBandwidthMbps ,MaxBandwidthMbps
+	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
+	if *lb.DisplayName != displayName {
+
+		detail := ociloadbalancer.UpdateLoadBalancerDetails{
+			DisplayName: &displayName,
+		}
+		req := ociloadbalancer.UpdateLoadBalancerRequest{
+			OpcRetryToken:             common.String(fmt.Sprintf("update-lb-detail-%s", ic.UID)),
+			UpdateLoadBalancerDetails: detail,
+			LoadBalancerId:            lb.Id,
+		}
+
+		klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
+		_, err := c.client.GetLbClient().UpdateLoadBalancer(context.Background(), req)
+		if err != nil {
+			return err
+		}
+
+	}
+
+	if *lb.ShapeDetails.MaximumBandwidthInMbps != icp.Spec.MaxBandwidthMbps ||
+		*lb.ShapeDetails.MinimumBandwidthInMbps != icp.Spec.MinBandwidthMbps {
+		shapeDetails := &ociloadbalancer.ShapeDetails{
+			MinimumBandwidthInMbps: common.Int(icp.Spec.MinBandwidthMbps),
+			MaximumBandwidthInMbps: common.Int(icp.Spec.MaxBandwidthMbps),
+		}
+
+		req := ociloadbalancer.UpdateLoadBalancerShapeRequest{
+			LoadBalancerId: lb.Id,
+			UpdateLoadBalancerShapeDetails: ociloadbalancer.UpdateLoadBalancerShapeDetails{
+				ShapeName:    common.String("flexible"),
+				ShapeDetails: shapeDetails,
+			},
+			OpcRetryToken: common.String(fmt.Sprintf("update-lb-shape-%s", ic.UID)),
+		}
+		klog.Infof("Update lb shape request: %s", util.PrettyPrint(req))
+		_, err := c.client.GetLbClient().UpdateLoadBalancerShape(context.Background(), req)
+		if err != nil {
+			return err
+		}
+
 	}
 	return nil
 }
