@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/klog/v2"
 
@@ -28,7 +29,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/client-go/kubernetes"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -36,12 +36,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
-	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/util"
-
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
 var errIngressClassNotReady = errors.New("ingress class not ready")
@@ -57,23 +55,13 @@ type Controller struct {
 	lister   networkinglisters.IngressClassLister
 	queue    workqueue.RateLimitingInterface
 	informer networkinginformers.IngressClassInformer
-	client   kubernetes.Interface
+	client   *client.ClientProvider
 	cache    ctrcache.Cache
-
-	lbClient *loadbalancer.LoadBalancerClient
 }
 
 // NewController creates a new Controller.
-func NewController(
-	defaultCompartmentId string,
-	defaultSubnetId string,
-	controllerClass string,
-	informer networkinginformers.IngressClassInformer,
-	client kubernetes.Interface,
-	lbClient *loadbalancer.LoadBalancerClient,
-	ctrcache ctrcache.Cache,
-
-) *Controller {
+func NewController(defaultCompartmentId string, defaultSubnetId string, controllerClass string, informer networkinginformers.IngressClassInformer,
+	client *client.ClientProvider, ctrcache ctrcache.Cache) *Controller {
 
 	c := &Controller{
 		defaultCompartmentId: defaultCompartmentId,
@@ -82,7 +70,6 @@ func NewController(
 		informer:             informer,
 		lister:               informer.Lister(),
 		client:               client,
-		lbClient:             lbClient,
 		cache:                ctrcache,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -212,7 +199,7 @@ func (c *Controller) getLoadBalancer(ic *networkingv1.IngressClass) (*ociloadbal
 		return nil, &exception.NotFoundServiceError{}
 	}
 
-	lb, _, err := c.lbClient.GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +229,13 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 			return fmt.Errorf("unable to fetch IngressClassParameters %s: %w", ic.Spec.Parameters.Name, err)
 		}
 	}
+
+	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
 	if lb == nil {
 		klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
 
 		createDetails := ociloadbalancer.CreateLoadBalancerDetails{
-			CompartmentId: common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId)),
+			CompartmentId: compartmentId,
 			DisplayName:   common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
 			ShapeName:     common.String("flexible"),
 			SubnetIds:     []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
@@ -279,7 +268,7 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 			CreateLoadBalancerDetails: createDetails,
 		}
 		klog.Infof("Create lb request: %s", util.PrettyPrint(createLbRequest))
-		lb, err = c.lbClient.CreateLoadBalancer(context.Background(), createLbRequest)
+		lb, err = c.client.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
 		if err != nil {
 			return err
 		}
@@ -289,25 +278,36 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
 		klog.InfoS("Adding load balancer id to ingress class", "lbId", *lb.Id, "ingressClass", klog.KObj(ic))
-
-		patchBytes := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":"%s"}}}`, util.IngressClassLoadBalancerIdAnnotation, *lb.Id))
-
-		err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-			_, err := c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
-			return err
-		})
-
-		if apierrors.IsConflict(err) {
-			return errors.Wrapf(err, "updateMaxRetries(%d) limit was reached while attempting to add load balancer id annotation", retry.DefaultBackoff.Steps)
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client.GetK8Client(), ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
+		if done {
+			return patchError
 		}
+	}
 
+	// Add Web Application Firewall to LB
+	if c.client.GetWafClient() != nil {
+		err = c.setupWebApplicationFirewall(ic, compartmentId, lb.Id)
 		if err != nil {
 			return err
 		}
 	}
 
 	klog.V(4).InfoS("checking if updates are required for load balancer", "ingressClass", klog.KObj(ic))
+	return nil
+}
 
+func (c *Controller) setupWebApplicationFirewall(ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
+	firewall, conflictError, throwableError, updateRequired := c.client.GetWafClient().GetFireWallId(c.client.GetK8Client(), ic, compartmentId, lbId)
+	if !updateRequired {
+		return throwableError
+	}
+	// update to ingressclass
+	if conflictError == nil && firewall.GetId() != nil {
+		patchError, done := util.PatchIngressClassWithAnnotation(c.client.GetK8Client(), ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
+		if done {
+			return patchError
+		}
+	}
 	return nil
 }
 
@@ -326,7 +326,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(lb *ociloadbalancer.Lo
 		}
 
 		klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
-		_, err := c.lbClient.UpdateLoadBalancer(context.Background(), req)
+		_, err := c.client.GetLbClient().UpdateLoadBalancer(context.Background(), req)
 		if err != nil {
 			return err
 		}
@@ -349,7 +349,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(lb *ociloadbalancer.Lo
 			OpcRetryToken: common.String(fmt.Sprintf("update-lb-shape-%s", ic.UID)),
 		}
 		klog.Infof("Update lb shape request: %s", util.PrettyPrint(req))
-		_, err := c.lbClient.UpdateLoadBalancerShape(context.Background(), req)
+		_, err := c.client.GetLbClient().UpdateLoadBalancerShape(context.Background(), req)
 		if err != nil {
 			return err
 		}
@@ -379,7 +379,7 @@ func (c *Controller) deleteLoadBalancer(ic *networkingv1.IngressClass) error {
 		return nil
 	}
 
-	return c.lbClient.DeleteLoadBalancer(context.Background(), lbID)
+	return c.client.GetLbClient().DeleteLoadBalancer(context.Background(), lbID)
 }
 
 func isIngressControllerDeleting(ic *networkingv1.IngressClass) bool {
@@ -418,7 +418,7 @@ func (c *Controller) ensureFinalizer(ic *networkingv1.IngressClass) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 
@@ -445,7 +445,7 @@ func (c *Controller) deleteFinalizer(ic *networkingv1.IngressClass) error {
 			return err
 		}
 
-		_, err = c.client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = c.client.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 

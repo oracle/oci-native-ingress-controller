@@ -10,8 +10,9 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -187,8 +188,9 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod)
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client, loadBalancerClient)
+	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod)
+	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil)
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client)
 	return c
 }
 
@@ -238,7 +240,7 @@ func TestBuildPodConditionPatch(t *testing.T) {
 	Expect(bytes.Equal(patch, []byte("{\"status\":{\"conditions\":[{\"lastProbeTime\":null,\"lastTransitionTime\":null,\"status\":\"True\",\"type\":\"ContainersReady\"}]}}"))).Should(Equal(true))
 }
 
-func getLoadBalancerClient() client.LoadBalancerInterface {
+func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
 }
 

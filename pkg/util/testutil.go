@@ -146,6 +146,23 @@ func GetIngressClassResource(name string, isDefault bool, controller string) *ne
 	}
 }
 
+func GetIngressClassResourceWithAnnotation(name string, annotation map[string]string, controller string) *networkingv1.IngressClassList {
+	ingressClass := GetIngressClassResource("default-ingress-class", true, "oci.oraclecloud.com/native-ingress-controller")
+	ic := &networkingv1.IngressClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Annotations: annotation,
+		},
+		Spec: networkingv1.IngressClassSpec{
+			Controller: controller,
+		},
+	}
+	ingressClassList := &networkingv1.IngressClassList{
+		Items: []networkingv1.IngressClass{*ic, *ingressClass},
+	}
+	return ingressClassList
+}
+
 func GetIngressClassResourceWithLbId(name string, isDefault bool, controller string, lbid string) *networkingv1.IngressClass {
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{

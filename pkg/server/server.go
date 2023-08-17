@@ -17,6 +17,8 @@ import (
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	ociwaf "github.com/oracle/oci-go-sdk/v65/waf"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/oracle/oci-go-sdk/v65/certificates"
@@ -32,8 +34,9 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/routingpolicy"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
-	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
+	"github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	"github.com/prometheus/client_golang/prometheus"
 
 	v1 "k8s.io/client-go/informers/core/v1"
@@ -62,35 +65,13 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 }
 
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
-	ingressInformer networkinginformers.IngressInformer, client kubernetes.Interface,
+	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface,
 	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache,
 	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
-		configProvider, err := auth.GetConfigurationProvider(ctx, opts, client)
-		if err != nil {
-			klog.Fatalf("failed to load authentication configuration provider: %v", err)
-		}
-
-		ociLBClient, err := ociloadbalancer.NewLoadBalancerClientWithConfigurationProvider(configProvider)
-		if err != nil {
-			klog.Fatalf("unable to construct oci load balancer client: %v", err)
-		}
-
-		ociCertificatesClient, err := certificates.NewCertificatesClientWithConfigurationProvider(configProvider)
-		if err != nil {
-			klog.Fatalf("unable to construct oci certificate client: %v", err)
-		}
-
-		ociCertificatesMgmtClient, err := certificatesmanagement.NewCertificatesManagementClientWithConfigurationProvider(configProvider)
-		if err != nil {
-			klog.Fatalf("unable to construct oci certificate management client: %v", err)
-		}
-
-		lbClient := loadbalancer.New(&ociLBClient)
-
-		certificatesClient := certificate.New(&ociCertificatesMgmtClient, NewCertificateClient(&ociCertificatesClient))
+		client := setupClient(ctx, opts, k8client)
 
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
@@ -99,8 +80,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			ingressInformer,
 			serviceInformer.Lister(),
 			client,
-			lbClient,
-			certificatesClient,
 			reg,
 		)
 
@@ -110,7 +89,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			ingressInformer,
 			serviceInformer.Lister(),
 			client,
-			lbClient,
 		)
 
 		backendController := backend.NewController(
@@ -121,7 +99,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			endpointInformer.Lister(),
 			podInformer.Lister(),
 			client,
-			lbClient,
 		)
 
 		ingressClassController := ingressclass.NewController(
@@ -130,7 +107,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			opts.ControllerClass,
 			ingressClassInformer,
 			client,
-			lbClient,
 			c,
 		)
 
@@ -139,6 +115,41 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		go routingPolicyController.Run(3, ctx.Done())
 		go backendController.Run(3, ctx.Done())
 	}
+}
+
+func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset.Interface) *client.ClientProvider {
+	configProvider, err := auth.GetConfigurationProvider(ctx, opts, k8client)
+	if err != nil {
+		klog.Fatalf("failed to load authentication configuration provider: %v", err)
+	}
+
+	ociLBClient, err := ociloadbalancer.NewLoadBalancerClientWithConfigurationProvider(configProvider)
+	if err != nil {
+		klog.Fatalf("unable to construct oci load balancer client: %v", err)
+	}
+
+	ociCertificatesClient, err := certificates.NewCertificatesClientWithConfigurationProvider(configProvider)
+	if err != nil {
+		klog.Fatalf("unable to construct oci certificate client: %v", err)
+	}
+
+	ociCertificatesMgmtClient, err := certificatesmanagement.NewCertificatesManagementClientWithConfigurationProvider(configProvider)
+	if err != nil {
+		klog.Fatalf("unable to construct oci certificate management client: %v", err)
+	}
+
+	ociWafClient, err := ociwaf.NewWafClientWithConfigurationProvider(configProvider)
+	if err != nil {
+		klog.Fatalf("unable to construct oci web application firewall client: %v", err)
+	}
+
+	lbClient := loadbalancer.New(&ociLBClient)
+
+	certificatesClient := certificate.New(&ociCertificatesMgmtClient, ociclient.NewCertificateClient(&ociCertificatesClient))
+
+	wafClient := waf.New(&ociWafClient)
+
+	return client.NewWrapperClient(k8client, wafClient, lbClient, certificatesClient)
 }
 
 func SetupWebhookServer(ingressInformer networkinginformers.IngressInformer, serviceInformer v1.ServiceInformer, client *clientset.Clientset, ctx context.Context) {
