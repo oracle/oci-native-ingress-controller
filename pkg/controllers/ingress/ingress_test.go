@@ -2,19 +2,16 @@ package ingress
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/oracle/oci-go-sdk/v65/certificates"
-	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -29,7 +26,7 @@ import (
 const (
 	ingressPath              = "ingressPath.yaml"
 	ingressPathWithFinalizer = "ingressPathWithFinalizer.yaml"
-	namespace                = "default"
+	//namespace                = "default"
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
@@ -75,8 +72,8 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	certificatesClient := &certificate.CertificatesClient{
 		ManagementClient:   certManageClient,
 		CertificatesClient: certClient,
-		CertCache:          map[string]*CertCacheObj{},
-		CaBundleCache:      map[string]*CaBundleCacheObj{},
+		CertCache:          map[string]*ociclient.CertCacheObj{},
+		CaBundleCache:      map[string]*ociclient.CaBundleCacheObj{},
 	}
 
 	ingressClassInformer, ingressInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
@@ -84,6 +81,19 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
 		ingressInformer, serviceLister, client, nil)
 	return c
+}
+
+func TestSync(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+	c := inits(ctx, ingressClassList, ingressList)
+	err := c.sync("default/ingress-readiness")
+
+	Expect(err == nil).Should(Equal(false))
+	Expect(err.Error()).Should(Equal("ingress class not ready"))
 }
 
 func TestEnsureIngressSuccess(t *testing.T) {
@@ -182,105 +192,7 @@ func TestProcessNextItem(t *testing.T) {
 	Expect(res).Should(BeTrue())
 }
 
-func GetCertManageClient() CertificateManagementInterface {
-	return &MockCertificateManagerClient{}
-}
-
-type MockCertificateManagerClient struct {
-}
-
-func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
-	return certificatesmanagement.CreateCertificateResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error) {
-	return certificatesmanagement.GetCertificateResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) ListCertificates(ctx context.Context, request certificatesmanagement.ListCertificatesRequest) (certificatesmanagement.ListCertificatesResponse, error) {
-	return certificatesmanagement.ListCertificatesResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) ScheduleCertificateDeletion(ctx context.Context, request certificatesmanagement.ScheduleCertificateDeletionRequest) (certificatesmanagement.ScheduleCertificateDeletionResponse, error) {
-	return certificatesmanagement.ScheduleCertificateDeletionResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) CreateCaBundle(ctx context.Context, request certificatesmanagement.CreateCaBundleRequest) (certificatesmanagement.CreateCaBundleResponse, error) {
-	return certificatesmanagement.CreateCaBundleResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) GetCaBundle(ctx context.Context, request certificatesmanagement.GetCaBundleRequest) (certificatesmanagement.GetCaBundleResponse, error) {
-	return certificatesmanagement.GetCaBundleResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) ListCaBundles(ctx context.Context, request certificatesmanagement.ListCaBundlesRequest) (certificatesmanagement.ListCaBundlesResponse, error) {
-	return certificatesmanagement.ListCaBundlesResponse{}, nil
-}
-
-func (m MockCertificateManagerClient) DeleteCaBundle(ctx context.Context, request certificatesmanagement.DeleteCaBundleRequest) (certificatesmanagement.DeleteCaBundleResponse, error) {
-	return certificatesmanagement.DeleteCaBundleResponse{}, nil
-}
-
-func GetCertClient() CertificateInterface {
-	return &MockCertificateClient{}
-}
-
-type MockCertificateClient struct {
-}
-
-func (m MockCertificateClient) SetCertCache(cert *certificatesmanagement.Certificate) {
-
-}
-
-func (m MockCertificateClient) GetFromCertCache(certId string) *CertCacheObj {
-	return nil
-}
-
-func (m MockCertificateClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
-
-}
-
-func (m MockCertificateClient) GetFromCaBundleCache(id string) *CaBundleCacheObj {
-	return nil
-}
-
-func (m MockCertificateClient) CreateCertificate(ctx context.Context, req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, error) {
-	return &certificatesmanagement.Certificate{}, nil
-}
-
-func (m MockCertificateClient) CreateCaBundle(ctx context.Context, req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	return &certificatesmanagement.CaBundle{}, nil
-}
-
-func (m MockCertificateClient) GetCertificate(ctx context.Context, req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, error) {
-	return &certificatesmanagement.Certificate{}, nil
-}
-
-func (m MockCertificateClient) ListCertificates(ctx context.Context, req certificatesmanagement.ListCertificatesRequest) (*certificatesmanagement.CertificateCollection, *string, error) {
-	return &certificatesmanagement.CertificateCollection{}, nil, nil
-}
-
-func (m MockCertificateClient) ScheduleCertificateDeletion(ctx context.Context, req certificatesmanagement.ScheduleCertificateDeletionRequest) error {
-	return nil
-}
-
-func (m MockCertificateClient) GetCaBundle(ctx context.Context, req certificatesmanagement.GetCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
-	return &certificatesmanagement.CaBundle{}, nil
-}
-
-func (m MockCertificateClient) ListCaBundles(ctx context.Context, req certificatesmanagement.ListCaBundlesRequest) (*certificatesmanagement.CaBundleCollection, error) {
-	return &certificatesmanagement.CaBundleCollection{}, nil
-}
-
-func (m MockCertificateClient) DeleteCaBundle(ctx context.Context, req certificatesmanagement.DeleteCaBundleRequest) (*http.Response, error) {
-	return &http.Response{}, nil
-}
-
-func (m MockCertificateClient) GetCertificateBundle(ctx context.Context, request certificates.GetCertificateBundleRequest) (certificates.GetCertificateBundleResponse, error) {
-	return certificates.GetCertificateBundleResponse{}, nil
-}
-
-func GetLoadBalancerClient() LoadBalancerInterface {
+func GetLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
 }
 

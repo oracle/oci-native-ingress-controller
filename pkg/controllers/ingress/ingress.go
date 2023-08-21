@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
-	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
 	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
@@ -332,7 +331,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
+		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
 		}
@@ -367,7 +366,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := certificate.GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
+		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
 		}
@@ -483,7 +482,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = certificate.GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
+		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
 		}
@@ -531,7 +530,7 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := certificate.GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client.GetCertClient(), c.client.GetK8Client())
+	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client)
 	if err != nil {
 		return err
 	}

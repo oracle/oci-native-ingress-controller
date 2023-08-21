@@ -155,4 +155,5 @@ func (W Client) DeleteWebAppFirewallWithId(id string) {
 	if err != nil {
 		klog.Infof("Error deleting web app firewall for %s %s", id, err.Error())
 	}
+	W.removeFromCache(id)
 }
