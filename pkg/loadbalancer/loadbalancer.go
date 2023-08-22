@@ -86,6 +86,36 @@ func (lbc *LoadBalancerClient) GetBackendSetHealth(ctx context.Context, lbID str
 	return &resp.BackendSetHealth, nil
 }
 
+func (lbc *LoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req loadbalancer.UpdateLoadBalancerShapeRequest) (response loadbalancer.UpdateLoadBalancerShapeResponse, err error) {
+	resp, err := lbc.LbClient.UpdateLoadBalancerShape(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+
+	lbID, err := lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
+	if err != nil {
+		return resp, err
+	}
+
+	_, _, err = lbc.getLoadBalancerBustCache(ctx, lbID)
+	return resp, err
+}
+
+func (lbc *LoadBalancerClient) UpdateLoadBalancer(ctx context.Context, req loadbalancer.UpdateLoadBalancerRequest) (*loadbalancer.LoadBalancer, error) {
+	resp, err := lbc.LbClient.UpdateLoadBalancer(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	lbID, err := lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
+	if err != nil {
+		return nil, err
+	}
+
+	lb, _, err := lbc.getLoadBalancerBustCache(ctx, lbID)
+	return lb, err
+}
+
 func (lbc *LoadBalancerClient) CreateLoadBalancer(ctx context.Context, req loadbalancer.CreateLoadBalancerRequest) (*loadbalancer.LoadBalancer, error) {
 	resp, err := lbc.LbClient.CreateLoadBalancer(ctx, req)
 	if err != nil {

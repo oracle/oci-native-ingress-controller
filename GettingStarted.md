@@ -28,12 +28,13 @@ The native ingress controller itself is lightweight process and pushes all the r
     + [Pod Readiness Gate](#pod-readiness-gate)
       - [Configuration](#configuration)
       - [Checking the pod readiness condition](#checking-the-pod-readiness-condition)
-    + [HTTPS/TLS Support](#https-tls-support)
-      - [Sample configuration : Using Secret](#sample-configuration---using-secret)
-      - [Sample configuration : Using Certificate](#sample-configuration---using-certificate)
+    + [HTTPS/TLS Support](#httpstls-support)
+      - [Sample configuration : Using Secret](#sample-configuration--using-secret)
+      - [Sample configuration : Using Certificate](#sample-configuration--using-certificate)
     + [Custom Health Checker](#custom-health-checker)
+    + [Web Firewall Integration](#web-firewall-integration)
   * [Dependency management](#dependency-management)
-    + [How to introduce new modules or upgrade existing ones?](#how-to-introduce-new-modules-or-upgrade-existing-ones-)
+    + [How to introduce new modules or upgrade existing ones?](#how-to-introduce-new-modules-or-upgrade-existing-ones)
   * [Known Issues](#known-issues)
   * [FAQ](#faq)
 
@@ -114,6 +115,9 @@ Allow <subject> to manage certificate-associations in compartment <compartment-i
 Allow <subject> to read certificate-authorities in compartment <compartment-id>
 Allow <subject> to manage certificate-authority-associations in compartment <compartment-id>
 Allow <subject> to read certificate-authority-bundles in compartment <compartment-id>
+ALLOW <subject> native-ingress-controller to read public-ips in tenancy
+ALLOW <subject> native-ingress-controller to manage floating-ips in tenancy 
+Allow <subject> to manage waf-family in compartment <compartment-id>
 
 Policy scope can be broadened to Tenancy or restricted to a particular location as shown below:
 allow <subject> to manage load-balancers in tenancy
@@ -505,6 +509,19 @@ oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext
 References:
 - [Policy](https://docs.oracle.com/en-us/iaas/Content/Balance/Reference/lbpolicies.htm)
 - [Health-checker](https://docs.oracle.com/en-us/iaas/api/#/en/loadbalancer/20170115/HealthChecker/)
+
+#### Web Firewall Integration
+We can create a Web Application Firewalls (WAF) policy either through Console or API to protect the applications from threats and filter out bad traffic.
+Once the WAF policy is created we can associate the OCI Load Balancer. We can add any desired conditions and rules to the web policies. 
+
+In order to enable WAF, copy the OCI WAF policy OCID from the OCI WAF console and add the OCI WAF web Policy annotation to the IngressClass.
+```
+apiVersion: extensions/v1beta1
+kind: IngressClass
+metadata:
+ annotations: 
+     oci-native-ingress.oraclecloud.com/waf-policy-ocid: ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3sigtz347pqyr4n3b7udo2zw4jskownbq
+```
 
 ### Dependency management
 Module [vendoring](https://go.dev/ref/mod#vendoring) is used to manage 3d-party modules in the project.

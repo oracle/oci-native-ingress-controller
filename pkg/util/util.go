@@ -10,10 +10,10 @@
 package util
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,10 +23,17 @@ import (
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+
+	"github.com/pkg/errors"
 
 	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 )
@@ -44,7 +51,9 @@ const (
 	// HTTP, HTTP2 - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
 
-	IngressPolicyAnnotation = "oci-native-ingress.oraclecloud.com/policy"
+	IngressPolicyAnnotation          = "oci-native-ingress.oraclecloud.com/policy"
+	IngressClassWafPolicyAnnotation  = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
+	IngressClassFireWallIdAnnotation = "oci-native-ingress.oraclecloud.com/firewall-id"
 
 	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
 	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
@@ -70,6 +79,7 @@ const (
 
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
+	WAFCacheMaxAgeInMinutes         = 5
 )
 
 func GetIngressClassCompartmentId(p *v1beta1.IngressClassParameters, defaultCompartment string) string {
@@ -100,6 +110,24 @@ func GetIngressPolicy(i *networkingv1.Ingress) string {
 	value, ok := i.Annotations[IngressPolicyAnnotation]
 	if !ok {
 		return DefaultBackendSetRoutingPolicy
+	}
+
+	return value
+}
+
+func GetIngressClassWafPolicy(ic *networkingv1.IngressClass) string {
+	value, ok := ic.Annotations[IngressClassWafPolicyAnnotation]
+	if !ok {
+		return ""
+	}
+
+	return value
+}
+
+func GetIngressClassFireWallId(ic *networkingv1.IngressClass) string {
+	value, ok := ic.Annotations[IngressClassFireWallIdAnnotation]
+	if !ok {
+		return ""
 	}
 
 	return value
@@ -387,4 +415,23 @@ func GetCurrentTimeInUnixMillis() int64 {
 // GetTimeDifferenceInSeconds returns time difference in seconds of two timestamp values passed in Milliseconds
 func GetTimeDifferenceInSeconds(startTime, endTime int64) float64 {
 	return float64(endTime-startTime) / 1000
+}
+
+func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networkingv1.IngressClass, annotationName string, annotationValue string) (error, bool) {
+
+	patchBytes := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":"%s"}}}`, annotationName, annotationValue))
+
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		_, err := client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
+		return err
+	})
+
+	if apierrors.IsConflict(err) {
+		return errors.Wrapf(err, "updateMaxRetries(%d) limit was reached while attempting to add load balancer id annotation", retry.DefaultBackoff.Steps), true
+	}
+
+	if err != nil {
+		return err, true
+	}
+	return nil, false
 }

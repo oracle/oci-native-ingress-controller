@@ -42,25 +42,25 @@ func New(managementClient CertificateManagementInterface,
 	}
 }
 
-func (certificatesClient *CertificatesClient) setCertCache(cert *certificatesmanagement.Certificate) {
+func (certificatesClient *CertificatesClient) SetCertCache(cert *certificatesmanagement.Certificate) {
 	certificatesClient.certMu.Lock()
 	certificatesClient.CertCache[*cert.Id] = &CertCacheObj{Cert: cert, Age: time.Now()}
 	certificatesClient.certMu.Unlock()
 }
 
-func (certificatesClient *CertificatesClient) getFromCertCache(certId string) *CertCacheObj {
+func (certificatesClient *CertificatesClient) GetFromCertCache(certId string) *CertCacheObj {
 	certificatesClient.certMu.Lock()
 	defer certificatesClient.certMu.Unlock()
 	return certificatesClient.CertCache[certId]
 }
 
-func (certificatesClient *CertificatesClient) setCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
+func (certificatesClient *CertificatesClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
 	certificatesClient.caMu.Lock()
 	certificatesClient.CaBundleCache[*caBundle.Id] = &CaBundleCacheObj{CaBundle: caBundle, Age: time.Now()}
 	certificatesClient.caMu.Unlock()
 }
 
-func (certificatesClient *CertificatesClient) getFromCaBundleCache(id string) *CaBundleCacheObj {
+func (certificatesClient *CertificatesClient) GetFromCaBundleCache(id string) *CaBundleCacheObj {
 	certificatesClient.caMu.Lock()
 	defer certificatesClient.caMu.Unlock()
 	return certificatesClient.CaBundleCache[id]

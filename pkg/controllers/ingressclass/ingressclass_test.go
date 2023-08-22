@@ -9,9 +9,16 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+
+	"github.com/oracle/oci-go-sdk/v65/waf"
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+
+	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
-	"github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	WAF "github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -93,6 +100,53 @@ func TestEnsureFinalizer(t *testing.T) {
 	Expect(err).Should(BeNil())
 }
 
+func TestSetupWebApplicationFirewall_WithPolicySet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := "id"
+	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
+	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
+	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	c := inits(ctx, ingressClassList)
+	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	Expect(err).Should(BeNil())
+}
+
+func TestSetupWebApplicationFirewall_NoPolicySet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	id := "id"
+	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
+
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList)
+	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	Expect(err).Should(BeNil())
+}
+
+func TestCheckForIngressClassParameterUpdates(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList)
+	loadBalancer, _, _ := c.client.GetLbClient().GetLoadBalancer(context.TODO(), "id")
+	icp := v1beta1.IngressClassParameters{
+		Spec: v1beta1.IngressClassParametersSpec{
+			CompartmentId:    "",
+			SubnetId:         "",
+			LoadBalancerName: "testecho1-998",
+			IsPrivate:        false,
+			MinBandwidthMbps: 200,
+			MaxBandwidthMbps: 400,
+		},
+	}
+	err := c.checkForIngressClassParameterUpdates(loadBalancer, &ingressClassList.Items[0], &icp)
+	Expect(err).Should(BeNil())
+}
+
 func TestDeleteFinalizer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,6 +175,7 @@ func TestDeleteFinalizer(t *testing.T) {
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList) *Controller {
 
 	lbClient := getLoadBalancerClient()
+	wafClient := getWafClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
 		LbClient: lbClient,
@@ -128,9 +183,15 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, client := setUp(ctx, ingressClassList)
-	c := NewController("", "",
-		"oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, loadBalancerClient, nil)
+	firewallClient := &WAF.Client{
+		WafClient: wafClient,
+		Mu:        sync.Mutex{},
+		Cache:     map[string]*WAF.CacheObj{},
+	}
+
+	ingressClassInformer, k8client := setUp(ctx, ingressClassList)
+	client := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil)
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, nil)
 	return c
 }
 
@@ -150,8 +211,34 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 	return ingressClassInformer, client
 }
 
-func getLoadBalancerClient() client.LoadBalancerInterface {
+func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
+}
+
+func getWafClient() ociclient.WafInterface {
+	return &MockWafClient{}
+}
+
+type MockWafClient struct {
+}
+
+func (m MockWafClient) GetWebAppFirewall(ctx context.Context, request waf.GetWebAppFirewallRequest) (waf.GetWebAppFirewallResponse, error) {
+	return waf.GetWebAppFirewallResponse{}, nil
+}
+
+func (m MockWafClient) CreateWebAppFirewall(ctx context.Context, request waf.CreateWebAppFirewallRequest) (waf.CreateWebAppFirewallResponse, error) {
+
+	return waf.CreateWebAppFirewallResponse{
+		RawResponse: nil,
+		WebAppFirewall: waf.WebAppFirewallLoadBalancer{
+			Id: common.String("fireWallId"),
+		},
+		OpcRequestId: common.String("id"),
+	}, nil
+}
+
+func (m MockWafClient) DeleteWebAppFirewall(ctx context.Context, request waf.DeleteWebAppFirewallRequest) (waf.DeleteWebAppFirewallResponse, error) {
+	return waf.DeleteWebAppFirewallResponse{}, nil
 }
 
 type MockLoadBalancerClient struct {
@@ -160,6 +247,22 @@ type MockLoadBalancerClient struct {
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
 	res := util.SampleLoadBalancerResponse()
 	return res, nil
+}
+
+func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerRequest) (response ociloadbalancer.UpdateLoadBalancerResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
+}
+
+func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerShapeRequest) (response ociloadbalancer.UpdateLoadBalancerShapeResponse, err error) {
+	return ociloadbalancer.UpdateLoadBalancerShapeResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
 }
 
 func (m MockLoadBalancerClient) CreateLoadBalancer(ctx context.Context, request ociloadbalancer.CreateLoadBalancerRequest) (ociloadbalancer.CreateLoadBalancerResponse, error) {

@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
-
 	"k8s.io/klog/v2"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -33,13 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
-	"github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
@@ -54,11 +52,8 @@ type Controller struct {
 	podLister          corelisters.PodLister
 	endpointLister     corelisters.EndpointsLister
 
-	queue workqueue.RateLimitingInterface
-
-	clientset kubernetes.Interface
-
-	lbClient *loadbalancer.LoadBalancerClient
+	queue  workqueue.RateLimitingInterface
+	client *client.ClientProvider
 }
 
 func NewController(
@@ -68,8 +63,7 @@ func NewController(
 	serviceLister corelisters.ServiceLister,
 	endpointLister corelisters.EndpointsLister,
 	podLister corelisters.PodLister,
-	client kubernetes.Interface,
-	lbClient *loadbalancer.LoadBalancerClient,
+	client *client.ClientProvider,
 ) *Controller {
 
 	c := &Controller{
@@ -79,8 +73,7 @@ func NewController(
 		serviceLister:      serviceLister,
 		endpointLister:     endpointLister,
 		podLister:          podLister,
-		clientset:          client,
-		lbClient:           lbClient,
+		client:             client,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
 
@@ -207,12 +200,12 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 				}
 
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = c.lbClient.UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
 
-				backendSetHealth, err := c.lbClient.GetBackendSetHealth(context.TODO(), lbID, backendSetName)
+				backendSetHealth, err := c.client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch backendset health: %w", err)
 				}
@@ -249,7 +242,7 @@ func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.I
 		return nil
 	}
 
-	err = c.lbClient.UpdateBackends(context.TODO(), lbID, ingressclass.DefaultIngress, backends)
+	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, ingressclass.DefaultIngress, backends)
 	if err != nil {
 		return err
 	}
@@ -378,7 +371,7 @@ func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate 
 		return fmt.Errorf("unable to build pod condition for %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
 
-	_, err = c.clientset.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+	_, err = c.client.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if err != nil {
 		return fmt.Errorf("unable to remove readiness gate %s from pod %s/%s: %w", readinessGate, pod.Namespace, pod.Name, err)
 	}
