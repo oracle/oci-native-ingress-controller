@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 
 	"github.com/oracle/oci-go-sdk/v65/waf"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -36,6 +37,42 @@ func TestEnsureLoadBalancer(t *testing.T) {
 
 	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
+}
+
+func TestEnsureLoadBalancerWithLbIdSet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx := context.TODO()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	c := inits(ctx, ingressClassList)
+
+	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
+	Expect(err).Should(BeNil())
+}
+
+func TestEnsureLoadBalancerWithNotFound(t *testing.T) {
+	RegisterTestingT(t)
+	ctx := context.TODO()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("notfound")
+	c := inits(ctx, ingressClassList)
+
+	ic := &ingressClassList.Items[0]
+	err := c.ensureLoadBalancer(ic)
+	Expect(err).Should(BeNil())
+
+}
+
+func TestEnsureLoadBalancerWithNetworkError(t *testing.T) {
+	RegisterTestingT(t)
+	ctx := context.TODO()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("networkerror")
+	c := inits(ctx, ingressClassList)
+
+	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
+	Expect(err).Should(Not(BeNil()))
+	Expect(err.Error()).Should(Equal("Failure due to network error"))
 }
 
 func TestIngressClassAdd(t *testing.T) {
@@ -245,8 +282,22 @@ type MockLoadBalancerClient struct {
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	if *request.LoadBalancerId == "networkerror" {
+		return ociloadbalancer.GetLoadBalancerResponse{}, NetworkError{}
+	}
+	if *request.LoadBalancerId == "notfound" {
+		return ociloadbalancer.GetLoadBalancerResponse{}, &exception.NotFoundServiceError{}
+	}
+
 	res := util.SampleLoadBalancerResponse()
 	return res, nil
+}
+
+type NetworkError struct {
+}
+
+func (n NetworkError) Error() string {
+	return "Failure due to network error"
 }
 
 func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerRequest) (response ociloadbalancer.UpdateLoadBalancerResponse, err error) {

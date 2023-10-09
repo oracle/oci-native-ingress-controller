@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
-	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/klog/v2"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -196,22 +195,28 @@ func (c *Controller) sync(key string) error {
 func (c *Controller) getLoadBalancer(ic *networkingv1.IngressClass) (*ociloadbalancer.LoadBalancer, error) {
 	lbID := util.GetIngressClassLoadBalancerId(ic)
 	if lbID == "" {
-		return nil, &exception.NotFoundServiceError{}
+		klog.Errorf("LB id not set for ingressClass: %s", ic.Name)
+		return nil, nil // LoadBalancer ID not set, Trigger new LB creation
 	}
 
 	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
+		klog.Errorf("Error while fetching LB %s for ingressClass: %s, err: %s", lbID, ic.Name, err.Error())
+
+		// Check if Service error 404, then ignore it since LB is not found.
+		svcErr, ok := common.IsServiceError(err)
+		if ok && svcErr.GetHTTPStatusCode() == 404 {
+			return nil, nil // Redirect new LB creation
+		}
 		return nil, err
 	}
-
 	return lb, nil
 }
 
 func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 
 	lb, err := c.getLoadBalancer(ic)
-	svcErr, ok := common.IsServiceError(err)
-	if err != nil && (ok && svcErr.GetHTTPStatusCode() != 404) {
+	if err != nil {
 		return err
 	}
 
