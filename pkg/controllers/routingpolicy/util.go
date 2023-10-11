@@ -17,7 +17,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/klog/v2"
 )
 
 type listenerPath struct {
@@ -92,9 +91,6 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 				desiredRoutingPolicies.Insert(listenerName)
 			}
 		}
-	}
-	if len(listenerPaths) > 0 {
-		klog.Infof("Listener paths for routing policy: %s", util.PrettyPrint(listenerPaths))
 	}
 	return nil
 }
