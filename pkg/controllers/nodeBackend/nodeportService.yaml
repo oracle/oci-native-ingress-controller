@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testecho1
+  labels:
+    app: testecho1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testecho1
+  template:
+    metadata:
+      labels:
+        app: testecho1
+    spec:
+      containers:
+        - name: testecho1
+          image: registry.k8s.io/echoserver:1.4
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testecho1
+spec:
+  selector:
+    app: testecho1
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: NodePort
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-readiness
+spec:
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho1"
+            backend:
+              service:
+                name: testecho1
+                port:
+                  number: 80

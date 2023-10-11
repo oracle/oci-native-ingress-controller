@@ -1,33 +1,21 @@
-/*
- *
- * * OCI Native Ingress Controller
- * *
- * * Copyright (c) 2023 Oracle America, Inc. and its affiliates.
- * * Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
- *
- */
-
-package backend
+package nodeBackend
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
+
 	"k8s.io/klog/v2"
 
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -38,6 +26,12 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
 
+const (
+	// ToBeDeletedTaint is a taint used by the CLuster Autoscaler before marking a node for deletion. Defined in
+	// https://github.com/kubernetes/autoscaler/blob/e80ab518340f88f364fe3ef063f8303755125971/cluster-autoscaler/utils/deletetaint/delete.go#L36
+	ToBeDeletedTaint = "ToBeDeletedByClusterAutoscaler"
+)
+
 type Controller struct {
 	controllerClass string
 
@@ -45,21 +39,16 @@ type Controller struct {
 	ingressLister      networkinglisters.IngressLister
 	serviceLister      corelisters.ServiceLister
 	podLister          corelisters.PodLister
+	nodeLister         corelisters.NodeLister
 	endpointLister     corelisters.EndpointsLister
 
-	queue  workqueue.RateLimitingInterface
+	queue workqueue.RateLimitingInterface
+
 	client *client.ClientProvider
 }
 
-func NewController(
-	controllerClass string,
-	ingressClassInformer networkinginformers.IngressClassInformer,
-	ingressInformer networkinginformers.IngressInformer,
-	serviceLister corelisters.ServiceLister,
-	endpointLister corelisters.EndpointsLister,
-	podLister corelisters.PodLister,
-	client *client.ClientProvider,
-) *Controller {
+func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
+	client *client.ClientProvider) *Controller {
 
 	c := &Controller{
 		controllerClass:    controllerClass,
@@ -68,6 +57,7 @@ func NewController(
 		serviceLister:      serviceLister,
 		endpointLister:     endpointLister,
 		podLister:          podLister,
+		nodeLister:         nodeLister,
 		client:             client,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -136,55 +126,86 @@ func (c *Controller) sync(key string) error {
 	return nil
 }
 
+func getNodeConditionPredicate() NodeConditionPredicate {
+	return func(node *corev1.Node) bool {
+
+		// Remove nodes that are about to be deleted by the cluster autoscaler.
+		for _, taint := range node.Spec.Taints {
+			if taint.Key == ToBeDeletedTaint {
+				return false
+			}
+		}
+
+		// If we have no info, don't accept
+		if len(node.Status.Conditions) == 0 {
+			return false
+		}
+		for _, cond := range node.Status.Conditions {
+			// We consider the node for load balancing only when its NodeReady condition status
+			// is ConditionTrue
+			if cond.Type == corev1.NodeReady && cond.Status != corev1.ConditionTrue {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbID string) error {
 
 	ingresses, err := util.GetIngressesForClass(c.ingressLister, ingressClass)
 	if err != nil {
 		return err
 	}
+	nodes, err := filterNodes(c.nodeLister)
+	if err != nil {
+		return err
+	}
+	// If there are no available nodes.
+	if len(nodes) == 0 {
+		return fmt.Errorf("error: %s due to : %s", "UnAvailableNodes", "There are no available provisioned nodes")
+	}
 
 	for _, ingress := range ingresses {
 		for _, rule := range ingress.Spec.Rules {
 			for _, path := range rule.HTTP.Paths {
-				svcName, svcPort, targetPort, _, err := util.PathToServiceAndTargetPort(c.serviceLister, ingress.Namespace, path)
+				svcName, svcPort, _, svc, err := util.PathToServiceAndTargetPort(c.serviceLister, ingress.Namespace, path)
 				if err != nil {
 					return err
 				}
 
-				epAddrs, err := util.GetEndpoints(c.endpointLister, ingress.Namespace, svcName)
-				if err != nil {
-					return fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", ingress.Namespace, svcName, targetPort, err)
+				if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
+					continue
 				}
 
-				backends := []ociloadbalancer.BackendDetails{}
-				for _, epAddr := range epAddrs {
-					backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
+				var backends []ociloadbalancer.BackendDetails
+				nodePort := svc.Spec.Ports[0].NodePort
+				trafficPolicy := svc.Spec.ExternalTrafficPolicy
+				if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
+					for _, node := range nodes {
+						backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+					}
+				} else {
+					pods, err := util.RetrievePods(c.endpointLister, c.podLister, ingress.Namespace, svcName)
+					if err != nil {
+						return err
+					}
+					for _, pod := range pods {
+						node, err := c.nodeLister.Get(pod.Spec.NodeName)
+						if err != nil {
+							if apierrors.IsNotFound(err) {
+								klog.Infof("node %s has been deleted, skipping pod", pod.Spec.NodeName)
+								continue
+							}
+							return err
+						}
+						backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+					}
 				}
-
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
 				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
-				}
-
-				backendSetHealth, err := c.client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
-				if err != nil {
-					return fmt.Errorf("unable to fetch backendset health: %w", err)
-				}
-
-				for _, epAddr := range epAddrs {
-					pod, err := c.podLister.Pods(ingress.Namespace).Get(epAddr.TargetRef.Name)
-					if err != nil {
-						return fmt.Errorf("failed to fetch pod %s/%s: %w", ingress.Namespace, epAddr.TargetRef.Name, err)
-					}
-
-					backendName := fmt.Sprintf("%s:%d", epAddr.IP, targetPort)
-					readinessCondition := util.GetPodReadinessCondition(ingress.Name, rule.Host, path)
-
-					err = c.ensurePodReadinessCondition(pod, readinessCondition, backendSetHealth, backendName)
-					if err != nil {
-						return fmt.Errorf("%w", err)
-					}
 				}
 			}
 		}
@@ -192,6 +213,36 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	// Sync default backends
 	c.syncDefaultBackend(lbID, ingresses)
 	return nil
+}
+
+func NodeInternalIP(node *corev1.Node) string {
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			return addr.Address
+		}
+	}
+	return ""
+}
+
+// NodeConditionPredicate is a function that indicates whether the given node's conditions meet
+// some set of criteria defined by the function.
+type NodeConditionPredicate func(node *corev1.Node) bool
+
+// filterNodes gets nodes that matches predicate function.
+func filterNodes(nodeLister corelisters.NodeLister) ([]*corev1.Node, error) {
+	nodes, err := nodeLister.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []*corev1.Node
+	predicate := getNodeConditionPredicate()
+	for i := range nodes {
+		if predicate(nodes[i]) {
+			filtered = append(filtered, nodes[i])
+		}
+	}
+	return filtered, nil
 }
 
 func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.Ingress) error {
@@ -240,132 +291,31 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 	}
 
 	svcName := backend.Service.Name
-	targetPort := backend.Service.Port.Number
-	epAdrress, err := util.GetEndpoints(c.endpointLister, namespace, svcName)
+	svc, err := c.serviceLister.Services(namespace).Get(svcName)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", namespace, svcName, targetPort, err)
+		klog.Errorf("Default backend service not found for service : %s", svcName)
+		return nil, err
 	}
 
-	for _, epAddr := range epAdrress {
-		backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
+	if svc.Spec.Ports[0].NodePort == 0 {
+		return nil, fmt.Errorf("Node port not found for service : %s", svcName)
+	}
+
+	nodePort := svc.Spec.Ports[0].NodePort
+
+	pods, err := util.RetrievePods(c.endpointLister, c.podLister, namespace, svcName)
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range pods {
+		node, err := c.nodeLister.Get(pod.Spec.NodeName)
+		if err != nil {
+			return nil, err
+		}
+		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+		break
 	}
 	return backends, err
-}
-
-func hasReadinessGate(pod *corev1.Pod, readinessGate corev1.PodConditionType) bool {
-	for _, readiness := range pod.Spec.ReadinessGates {
-		if readiness.ConditionType == readinessGate {
-			return true
-		}
-	}
-	return false
-}
-
-func getPodCondition(pod *corev1.Pod, conditionType corev1.PodConditionType) (corev1.PodCondition, bool) {
-	for _, cond := range pod.Status.Conditions {
-		if cond.Type == conditionType {
-			return cond, true
-		}
-	}
-
-	return corev1.PodCondition{}, false
-}
-
-func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate corev1.PodConditionType, backendSetHealth *ociloadbalancer.BackendSetHealth, backendName string) error {
-	klog.InfoS("validating pod readiness gate status", "pod", klog.KObj(pod), "gate", readinessGate)
-
-	if !hasReadinessGate(pod, readinessGate) {
-		// pod does not match this readiness gate so nothing to do.
-		klog.V(4).InfoS("pod readiness gate status not set on pod", "pod", klog.KObj(pod), "gate", readinessGate)
-		return nil
-	}
-
-	condStatus := corev1.ConditionTrue
-	reason := "backend is healthy"
-	message := ""
-
-	for _, backend := range backendSetHealth.CriticalStateBackendNames {
-		if backend == backendName {
-			reason = "backend is CRITICAL"
-			condStatus = corev1.ConditionFalse
-			break
-		}
-	}
-	for _, backend := range backendSetHealth.WarningStateBackendNames {
-		if backend == backendName {
-			reason = "backend is WARNING"
-			condStatus = corev1.ConditionFalse
-			break
-		}
-	}
-	for _, backend := range backendSetHealth.UnknownStateBackendNames {
-		if backend == backendName {
-			reason = "backend is UNKNOWN"
-			condStatus = corev1.ConditionFalse
-			break
-		}
-	}
-
-	existingCondition, exists := getPodCondition(pod, readinessGate)
-	if exists &&
-		existingCondition.Status == condStatus &&
-		existingCondition.Reason == reason &&
-		existingCondition.Message == message {
-		// no change in condition so no work to do
-		return nil
-	}
-
-	updatedCondition := corev1.PodCondition{
-		Type:    readinessGate,
-		Status:  condStatus,
-		Reason:  reason,
-		Message: message,
-	}
-
-	if !exists || updatedCondition.Status != condStatus {
-		updatedCondition.LastTransitionTime = metav1.Now()
-	}
-
-	klog.InfoS("updating pod readiness gate from pod", "pod", klog.KObj(pod), "gate", readinessGate)
-
-	patchBytes, err := BuildPodConditionPatch(pod, updatedCondition)
-	if err != nil {
-		return fmt.Errorf("unable to build pod condition for %s/%s: %w", pod.Namespace, pod.Name, err)
-	}
-
-	_, err = c.client.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
-	if err != nil {
-		return fmt.Errorf("unable to remove readiness gate %s from pod %s/%s: %w", readinessGate, pod.Namespace, pod.Name, err)
-	}
-
-	klog.InfoS("successfully updated pod readiness gate status", "pod", klog.KObj(pod), "gate", readinessGate)
-
-	return nil
-}
-
-func BuildPodConditionPatch(pod *corev1.Pod, condition corev1.PodCondition) ([]byte, error) {
-	oldData, err := json.Marshal(corev1.Pod{
-		Status: corev1.PodStatus{
-			Conditions: nil,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	newData, err := json.Marshal(corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			UID: pod.UID,
-		},
-		Status: corev1.PodStatus{
-			Conditions: []corev1.PodCondition{condition},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return strategicpatch.CreateTwoWayMergePatch(oldData, newData, corev1.Pod{})
 }
 
 // Run begins watching and syncing.

@@ -55,6 +55,7 @@ func main() {
 	flag.StringVar(&opts.AuthSecretName, "auth-secret-name", "", "Secret name used for auth, cannot be empty if authType is user principal")
 	flag.StringVar(&opts.MetricsBackend, "metrics-backend", "prometheus", "Backend used for metrics")
 	flag.IntVar(&opts.MetricsPort, "metrics-port", 2223, "Metrics port for metrics backend")
+	flag.StringVar(&opts.CniType, "cniType", "OCI_VCN_IP_NATIVE", "the default CNI for the cluster")
 	flag.Parse()
 
 	if opts.LeaseLockName == "" {
@@ -144,6 +145,9 @@ func main() {
 	podInformer := informerFactory.Core().V1().Pods()
 	go podInformer.Informer().Run(ctx.Done())
 
+	nodeInformer := informerFactory.Core().V1().Nodes()
+	go nodeInformer.Informer().Run(ctx.Done())
+
 	informerFactory.Start(ctx.Done())
 	informerFactory.WaitForCacheSync(ctx.Done())
 	klog.Info("waiting on caches to sync")
@@ -155,7 +159,8 @@ func main() {
 		serviceInformer.Informer().HasSynced,
 		endpointInformer.Informer().HasSynced,
 		podInformer.Informer().HasSynced,
-		classParamInformer.HasSynced) {
+		classParamInformer.HasSynced,
+		nodeInformer.Informer().HasSynced) {
 
 		klog.Fatal("failed to sync informers")
 	}
@@ -164,7 +169,7 @@ func main() {
 	mux := http.NewServeMux()
 	reg, err := server.SetupMetricsServer(opts.MetricsBackend, opts.MetricsPort, mux, ctx)
 
-	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, endpointInformer, podInformer, c, reg)
+	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, endpointInformer, podInformer, nodeInformer, c, reg)
 
 	metric.ServeMetrics(opts.MetricsPort, mux)
 	// we use the Lease lock type since edits to Leases are less common

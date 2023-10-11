@@ -144,7 +144,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 		if util.IsIngressDeleting(ingress) {
 			continue
 		}
-		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations["ingressclass.kubernetes.io/is-default-class"] == "true" {
+		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations[util.IngressClassIsDefault] == "true" {
 			// ingress has on class name defined and our ingress class is default
 			ingresses = append(ingresses, ingress)
 		}

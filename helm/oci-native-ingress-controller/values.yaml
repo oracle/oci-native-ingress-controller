@@ -21,7 +21,7 @@ image:
   repository: ghcr.io/oracle/oci-native-ingress-controller
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "v1.0.0"
+  tag: "v1.3.0"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -110,3 +110,7 @@ objectSelector:
 metrics:
   backend: prometheus
   port: 2223
+
+
+# Supported CNI : OCI_VCN_IP_NATIVE, FLANNEL_OVERLAY
+cniType: OCI_VCN_IP_NATIVE

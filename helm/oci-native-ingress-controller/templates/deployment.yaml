@@ -63,6 +63,7 @@ spec:
           - --subnet-id={{ .Values.subnet_id }}
           - --metrics-backend={{.Values.metrics.backend}}
           - --metrics-port={{.Values.metrics.port}}
+          - --cniType={{.Values.cniType}}
           - --v=4
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION

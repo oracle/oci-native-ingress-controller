@@ -19,6 +19,7 @@ import (
 
 	ociwaf "github.com/oracle/oci-go-sdk/v65/waf"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/nodeBackend"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/oracle/oci-go-sdk/v65/certificates"
@@ -66,7 +67,7 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface,
-	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache,
+	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, c ctrcache.Cache,
 	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
@@ -91,16 +92,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			client,
 		)
 
-		backendController := backend.NewController(
-			opts.ControllerClass,
-			ingressClassInformer,
-			ingressInformer,
-			serviceInformer.Lister(),
-			endpointInformer.Lister(),
-			podInformer.Lister(),
-			client,
-		)
-
 		ingressClassController := ingressclass.NewController(
 			opts.CompartmentId,
 			opts.SubnetId,
@@ -113,7 +104,37 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		go ingressClassController.Run(3, ctx.Done())
 		go ingressController.Run(3, ctx.Done())
 		go routingPolicyController.Run(3, ctx.Done())
-		go backendController.Run(3, ctx.Done())
+		go getBackendController(ctx, opts.CniType, opts, client, ingressClassInformer, ingressInformer, serviceInformer, endpointInformer, podInformer, nodeInformer)
+	}
+}
+
+func getBackendController(ctx context.Context, cniType string, opts types.IngressOpts, client *client.ClientProvider, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer) func() {
+
+	return func() {
+		if cniType == "FLANNEL_OVERLAY" {
+			backendController := nodeBackend.NewController(
+				opts.ControllerClass,
+				ingressClassInformer,
+				ingressInformer,
+				serviceInformer.Lister(),
+				endpointInformer.Lister(),
+				podInformer.Lister(),
+				nodeInformer.Lister(),
+				client,
+			)
+			backendController.Run(3, ctx.Done())
+		} else {
+			backendController := backend.NewController(
+				opts.ControllerClass,
+				ingressClassInformer,
+				ingressInformer,
+				serviceInformer.Lister(),
+				endpointInformer.Lister(),
+				podInformer.Lister(),
+				client,
+			)
+			backendController.Run(3, ctx.Done())
+		}
 	}
 }
 

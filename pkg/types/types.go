@@ -35,6 +35,7 @@ type IngressOpts struct {
 	AuthSecretName     string
 	MetricsBackend     string
 	MetricsPort        int
+	CniType            string
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {

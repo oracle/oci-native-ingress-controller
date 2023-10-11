@@ -28,7 +28,7 @@ func setupClient() (*fakeclientset.Clientset, *Client, *networkingv1.IngressClas
 	}
 
 	k8client := fakeclientset.NewSimpleClientset()
-	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId}
+	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId}
 	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 
 	util.UpdateFakeClientCall(k8client, "list", "ingressclasses", ingressClassList)
@@ -47,12 +47,12 @@ func TestClient_GetFireWallId(t *testing.T) {
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 
 	// PolicyId and FireWall Set
-	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId, util.IngressClassFireWallIdAnnotation: "SetFirewall"}
+	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId, util.IngressClassFireWallIdAnnotation: "SetFirewall"}
 	ingressClassList = util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 
 	// Only FireWall Set
-	annotations = map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassFireWallIdAnnotation: "SetFirewall"}
+	annotations = map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassFireWallIdAnnotation: "SetFirewall"}
 	ingressClassList = util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 

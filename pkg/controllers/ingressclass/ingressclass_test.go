@@ -106,7 +106,7 @@ func TestSetupWebApplicationFirewall_WithPolicySet(t *testing.T) {
 	defer cancel()
 	id := "id"
 	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
-	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
+	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
 	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	c := inits(ctx, ingressClassList)
 	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
@@ -159,7 +159,7 @@ func TestDeleteFinalizer(t *testing.T) {
 	ingressClass := &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "name",
-			Annotations: map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint("isDefault")},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint("isDefault")},
 			Finalizers:  finalizers,
 		},
 		Spec: networkingv1.IngressClassSpec{

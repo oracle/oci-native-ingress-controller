@@ -1,7 +1,6 @@
-package backend
+package nodeBackend
 
 import (
-	"bytes"
 	"context"
 	"sync"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -26,12 +24,12 @@ import (
 )
 
 const (
-	backendPath                   = "backendPath.yaml"
-	backendPathWithDefaultBackend = "backendPathWithDefaultBackend.yaml"
+	backendPath                   = "ingressPath.yaml"
+	backendPathWithDefaultBackend = "ingressWithDefault.yaml"
 	namespace                     = "default"
 )
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, *fakeclientset.Clientset) {
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList, nodes *corev1.NodeList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, corelisters.NodeLister, *fakeclientset.Clientset) {
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
@@ -39,7 +37,10 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
 	util.UpdateFakeClientCall(client, action, "services", testService)
 	util.UpdateFakeClientCall(client, action, "endpoints", endpoints)
+	util.UpdateFakeClientCall(client, "get", "endpoints", endpoints)
 	util.UpdateFakeClientCall(client, action, "pods", pod)
+	util.UpdateFakeClientCall(client, action, "nodes", nodes)
+	util.UpdateFakeClientCall(client, "get", "nodes", &nodes.Items[0])
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -57,13 +58,17 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	podInformer := informerFactory.Core().V1().Pods()
 	podLister := podInformer.Lister()
 
+	nodeInformer := informerFactory.Core().V1().Nodes()
+	nodeLister := nodeInformer.Lister()
+
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), serviceInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), endpointInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), podInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client
+	cache.WaitForCacheSync(ctx.Done(), nodeInformer.Informer().HasSynced)
+	return ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, client
 }
 
 func TestEnsureBackend(t *testing.T) {
@@ -71,7 +76,7 @@ func TestEnsureBackend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 
 	err := c.ensureBackends(&ingressClassList.Items[0], "id")
 	Expect(err == nil).Should(Equal(true))
@@ -82,7 +87,7 @@ func TestRunPusher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.runPusher()
 	Expect(c.queue.Len()).Should(Equal(1))
@@ -93,7 +98,7 @@ func TestProcessNextItem(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.queue.Add("default-ingress-class")
 	res := c.processNextItem()
@@ -107,7 +112,7 @@ func TestProcessNextItemWithNginx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassListWithNginx()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.queue.Add("nginx-ingress-class")
 	res := c.processNextItem()
@@ -120,7 +125,7 @@ func TestNoDefaultBackends(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
 	Expect(err == nil).Should(Equal(true))
@@ -131,55 +136,38 @@ func TestDefaultBackends(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend)
+	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend, false)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(backends)).Should(Equal(1))
 }
 
-func TestEnsurePodReadinessConditionWithExistingReadiness(t *testing.T) {
+func TestGetEndpoints(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend)
-	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
-	ingress := ingresses[0]
-	var readinessCondition corev1.PodConditionType
-	for _, rule := range ingress.Spec.Rules {
-		for _, path := range rule.HTTP.Paths {
-			readinessCondition = util.GetPodReadinessCondition(ingress.Name, rule.Host, path)
-			break
-		}
-		break
-	}
+	c := inits(ctx, ingressClassList, backendPath, true)
 
-	backendHealth := ociloadbalancer.BackendSetHealth{
-		Status:                    ociloadbalancer.BackendSetHealthStatusOk,
-		WarningStateBackendNames:  nil,
-		CriticalStateBackendNames: nil,
-		UnknownStateBackendNames:  nil,
-		TotalBackendCount:         nil,
-	}
-	var condition []corev1.PodCondition
-	condition = append(condition, corev1.PodCondition{
-		Type:   readinessCondition,
-		Status: corev1.ConditionTrue,
-		Reason: "backend is healthy",
-	})
+	endpoints, err := util.GetEndpoints(c.endpointLister, "test", "testecho1")
+	Expect(err).Should(Not(BeNil()))
+	Expect(err.Error()).Should(Equal("endpoints \"testecho1\" not found"))
 
-	err := c.ensurePodReadinessCondition(util.GetPodResourceWithReadiness("testecho1", "echoserver", "ingress-readiness", "foo.bar.com", condition), readinessCondition, &backendHealth, "testecho1")
-
-	Expect(err == nil).Should(Equal(true))
+	endpoints, err = util.GetEndpoints(c.endpointLister, "default", "testecho1")
+	Expect(err).Should(BeNil())
+	Expect(endpoints).Should(Not(BeNil()))
+	Expect(len(endpoints)).Should(Equal(2))
 }
 
-func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string) *Controller {
+func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string, allCase bool) *Controller {
 
 	ingressList := util.ReadResourceAsIngressList(yamlPath)
 	testService := util.GetServiceListResource(namespace, "testecho1", 80)
-	endpoints := util.GetEndpointsResourceList("testecho1", namespace, false)
+	endpoints := util.GetEndpointsResourceList("testecho1", namespace, allCase)
 	pod := util.GetPodResourceList("testpod", "echoserver")
+	nodes := util.GetNodesList()
 	lbClient := getLoadBalancerClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
@@ -188,10 +176,25 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod)
+	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod, nodes)
 	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil)
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client)
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, client)
 	return c
+}
+
+func TestListWithPredicate(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList, backendPath, false)
+
+	nodes, err := filterNodes(c.nodeLister)
+	Expect(err).Should(BeNil())
+	Expect(nodes).Should(Not(BeNil()))
+	Expect(len(nodes)).Should(Equal(1))
+
 }
 
 func TestGetIngressesForClass(t *testing.T) {
@@ -199,7 +202,7 @@ func TestGetIngressesForClass(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
-	c := inits(ctx, ingressClassList, backendPath)
+	c := inits(ctx, ingressClassList, backendPath, false)
 	ic, err := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(ic)).Should(Equal(1))
@@ -213,31 +216,6 @@ func TestGetIngressesForClass(t *testing.T) {
 	}
 	Expect(count).Should(Equal(1))
 
-}
-
-func TestBuildPodConditionPatch(t *testing.T) {
-	RegisterTestingT(t)
-	pod := &corev1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Pod",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "test",
-					Image: "echoserver",
-				},
-			},
-		},
-	}
-	newCondition := corev1.PodCondition{
-		Type:   corev1.ContainersReady,
-		Status: corev1.ConditionTrue,
-	}
-	patch, err := BuildPodConditionPatch(pod, newCondition)
-	Expect(err == nil).Should(Equal(true))
-	Expect(bytes.Equal(patch, []byte("{\"status\":{\"conditions\":[{\"lastProbeTime\":null,\"lastTransitionTime\":null,\"status\":\"True\",\"type\":\"ContainersReady\"}]}}"))).Should(Equal(true))
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {
