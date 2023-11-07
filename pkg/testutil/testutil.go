@@ -1,4 +1,4 @@
-package util
+package testutil
 
 import (
 	"encoding/base64"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,21 +56,7 @@ func ReadResourceAsIngressList(fileName string) *networkingv1.IngressList {
 		Items: ingressList,
 	}
 }
-func GetServiceResource(namespace string, name string, port int32) *v1.Service {
-	return &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: v1.ServiceSpec{
-			Selector: map[string]string{"app": name},
-			Ports: []v1.ServicePort{{
-				Protocol: v1.ProtocolTCP,
-				Port:     port,
-			}},
-		},
-	}
-}
+
 func GetServiceListResource(namespace string, name string, port int32) *v1.ServiceList {
 	testService := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -160,7 +147,7 @@ func GetIngressClassResource(name string, isDefault bool, controller string) *ne
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Annotations: map[string]string{IngressClassIsDefault: fmt.Sprint(isDefault)},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint(isDefault)},
 		},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: controller,
@@ -189,7 +176,7 @@ func GetIngressClassResourceWithLbId(name string, isDefault bool, controller str
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Annotations: map[string]string{IngressClassIsDefault: fmt.Sprint(isDefault), IngressClassLoadBalancerIdAnnotation: lbid},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint(isDefault), util.IngressClassLoadBalancerIdAnnotation: lbid},
 		},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: controller,
@@ -344,38 +331,6 @@ func GetEndpointsResourceListAllCase(name string, namespace string) *v1.Endpoint
 
 }
 
-func GetEndpointsResource(name string, namespace string) *v1.Endpoints {
-	var emptyNodeName string
-	return &v1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       namespace,
-			ResourceVersion: "1",
-		},
-		Subsets: []v1.EndpointSubset{{
-			Addresses: []v1.EndpointAddress{{IP: "6.7.8.9", NodeName: &emptyNodeName}},
-			Ports:     []v1.EndpointPort{{Port: 1000}},
-		}},
-	}
-}
-
-func GetPodResource(name string, image string) *v1.Pod {
-	pod := &v1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Pod",
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:  name,
-					Image: image,
-				},
-			},
-		},
-	}
-	return pod
-}
 func GetPodResourceWithReadiness(name string, image string, ingressName string, host string, condition []v1.PodCondition) *v1.Pod {
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -404,7 +359,7 @@ func GetPodResourceWithReadiness(name string, image string, ingressName string, 
 func GetPodReadinessGates(name string, host string) []v1.PodReadinessGate {
 	var gates []v1.PodReadinessGate
 
-	cond := GetPodReadinessCondition(name, host, GetHTTPPath())
+	cond := util.GetPodReadinessCondition(name, host, GetHTTPPath())
 	gates = append(gates, v1.PodReadinessGate{
 		ConditionType: cond,
 	})
@@ -469,7 +424,7 @@ func UpdateFakeClientCall(client *fakeclientset.Clientset, action string, resour
 func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	etag := "testTag"
 	lbId := "id"
-	backendSetName := GenerateBackendSetName("default", "testecho1", 80)
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
 	name := "testecho1-999"
 	port := 80
 	ip := "127.89.90.90"
@@ -486,7 +441,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	backends = append(backends, backend)
 
 	healthChecker := &ociloadbalancer.HealthChecker{
-		Protocol:          common.String(ProtocolHTTP),
+		Protocol:          common.String(util.ProtocolHTTP),
 		UrlPath:           common.String("/health"),
 		Port:              common.Int(8080),
 		ReturnCode:        common.Int(200),
@@ -523,7 +478,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	policies := map[string]ociloadbalancer.RoutingPolicy{
 		routeN: plcy,
 	}
-	proto := ProtocolHTTP
+	proto := util.ProtocolHTTP
 	listener := ociloadbalancer.Listener{
 		Name:                    &routeN,
 		DefaultBackendSetName:   nil,

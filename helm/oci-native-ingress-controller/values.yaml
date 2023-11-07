@@ -13,6 +13,7 @@ controller_class: oci.oraclecloud.com/native-ingress-controller
 lease_lock_name: oci-native-ingress-controller
 compartment_id: ""
 subnet_id: ""
+cluster_id: ""
 
 deploymentNamespace : native-ingress-controller-system
 replicaCount: 1
@@ -110,7 +111,3 @@ objectSelector:
 metrics:
   backend: prometheus
   port: 2223
-
-
-# Supported CNI : OCI_VCN_IP_NATIVE, FLANNEL_OVERLAY
-cniType: OCI_VCN_IP_NATIVE

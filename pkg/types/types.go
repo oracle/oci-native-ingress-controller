@@ -30,12 +30,12 @@ type IngressOpts struct {
 	LeaseID            string
 	CompartmentId      string
 	SubnetId           string
+	ClusterId          string
 	ControllerClass    string
 	AuthType           string
 	AuthSecretName     string
 	MetricsBackend     string
 	MetricsPort        int
-	CniType            string
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {

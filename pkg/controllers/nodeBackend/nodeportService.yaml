@@ -1,3 +1,47 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: host-es
+  labels:
+    app: host-es
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: host-es
+  template:
+    metadata:
+      labels:
+        app: host-es
+    spec:
+      containers:
+        - name: host-es
+          image: iad.ocir.io/odx-mockcustomer/nirpai/testservice:0.4
+          args:
+            - --response-text=host-es
+            - --port=8082
+          ports:
+            - containerPort: 8082
+      imagePullSecrets:
+        - name: ocirsecret
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: host-es
+spec:
+  selector:
+    app: host-es
+  ports:
+    - protocol: TCP
+      port: 82
+      targetPort: 8082
+  type: NodePort
+
+---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,7 +49,7 @@ metadata:
   labels:
     app: testecho1
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: testecho1
@@ -33,15 +77,61 @@ spec:
       port: 80
       targetPort: 8080
   type: NodePort
+  externalTrafficPolicy: Local
 
 ---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testecho2
+  labels:
+    app: testecho2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: testecho2
+  template:
+    metadata:
+      labels:
+        app: testecho2
+    spec:
+      containers:
+        - name: testecho1
+          image: registry.k8s.io/echoserver:1.4
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: testecho2
+spec:
+  selector:
+    app: testecho2
+  ports:
+    - protocol: TCP
+      port: 81
+      targetPort: 8080
+  type: NodePort
+
+---
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ingress-readiness
+  name: ingress-flannel
 spec:
+  defaultBackend:
+    service:
+      name: host-es
+      port:
+        number: 8082
   rules:
-    - host: "foo.bar.com"
+    - host: "foo1.bar.com"
       http:
         paths:
           - pathType: Exact
@@ -51,3 +141,13 @@ spec:
                 name: testecho1
                 port:
                   number: 80
+    - host: "foo2.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho2"
+            backend:
+              service:
+                name: testecho2
+                port:
+                  number: 81

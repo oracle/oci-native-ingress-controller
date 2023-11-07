@@ -24,6 +24,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 )
@@ -122,11 +123,11 @@ const (
 
 func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 	k8client := fakeclientset.NewSimpleClientset()
-	secret := util.GetSampleCertSecret()
+	secret := testutil.GetSampleCertSecret()
 	action := "get"
 	resource := "secrets"
 	obj := secret
-	util.FakeClientGetCall(k8client, action, resource, obj)
+	testutil.FakeClientGetCall(k8client, action, resource, obj)
 
 	certClient := GetCertClient()
 	certManageClient := GetCertManageClient()
@@ -187,7 +188,7 @@ func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 		RuleSets:                nil,
 		RoutingPolicies:         nil,
 	}
-	client := client.NewWrapperClient(k8client, nil, nil, certificatesClient)
+	client := client.NewWrapperClient(k8client, nil, nil, certificatesClient, nil)
 	return client, lb
 }
 

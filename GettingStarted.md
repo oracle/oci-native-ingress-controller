@@ -118,6 +118,7 @@ Allow <subject> to read certificate-authority-bundles in compartment <compartmen
 ALLOW <subject> native-ingress-controller to read public-ips in tenancy
 ALLOW <subject> native-ingress-controller to manage floating-ips in tenancy 
 Allow <subject> to manage waf-family in compartment <compartment-id>
+Allow <subject> to read cluster-family in compartment <compartment-id>
 
 Policy scope can be broadened to Tenancy or restricted to a particular location as shown below:
 allow <subject> to manage load-balancers in tenancy

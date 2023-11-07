@@ -12,6 +12,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -33,14 +34,14 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
-	util.UpdateFakeClientCall(client, action, "endpoints", endpoints)
-	util.UpdateFakeClientCall(client, "get", "endpoints", endpoints)
-	util.UpdateFakeClientCall(client, action, "pods", pod)
-	util.UpdateFakeClientCall(client, action, "nodes", nodes)
-	util.UpdateFakeClientCall(client, "get", "nodes", &nodes.Items[0])
+	testutil.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
+	testutil.UpdateFakeClientCall(client, action, "ingresses", ingressList)
+	testutil.UpdateFakeClientCall(client, action, "services", testService)
+	testutil.UpdateFakeClientCall(client, action, "endpoints", endpoints)
+	testutil.UpdateFakeClientCall(client, "get", "endpoints", endpoints)
+	testutil.UpdateFakeClientCall(client, action, "pods", pod)
+	testutil.UpdateFakeClientCall(client, action, "nodes", nodes)
+	testutil.UpdateFakeClientCall(client, "get", "nodes", &nodes.Items[0])
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -75,7 +76,7 @@ func TestEnsureBackend(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
 	err := c.ensureBackends(&ingressClassList.Items[0], "id")
@@ -86,7 +87,7 @@ func TestRunPusher(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.runPusher()
@@ -97,7 +98,7 @@ func TestProcessNextItem(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.queue.Add("default-ingress-class")
@@ -111,7 +112,7 @@ func TestProcessNextItemWithNginx(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassListWithNginx()
+	ingressClassList := testutil.GetIngressClassListWithNginx()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
 	c.queue.Add("nginx-ingress-class")
@@ -124,7 +125,7 @@ func TestNoDefaultBackends(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
@@ -135,7 +136,7 @@ func TestDefaultBackends(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend, false)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
@@ -148,7 +149,7 @@ func TestGetEndpoints(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, true)
 
 	endpoints, err := util.GetEndpoints(c.endpointLister, "test", "testecho1")
@@ -163,11 +164,11 @@ func TestGetEndpoints(t *testing.T) {
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string, allCase bool) *Controller {
 
-	ingressList := util.ReadResourceAsIngressList(yamlPath)
-	testService := util.GetServiceListResource(namespace, "testecho1", 80)
-	endpoints := util.GetEndpointsResourceList("testecho1", namespace, allCase)
-	pod := util.GetPodResourceList("testpod", "echoserver")
-	nodes := util.GetNodesList()
+	ingressList := testutil.ReadResourceAsIngressList(yamlPath)
+	testService := testutil.GetServiceListResource(namespace, "testecho1", 80)
+	endpoints := testutil.GetEndpointsResourceList("testecho1", namespace, allCase)
+	pod := testutil.GetPodResourceList("testpod", "echoserver")
+	nodes := testutil.GetNodesList()
 	lbClient := getLoadBalancerClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
@@ -177,7 +178,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 
 	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod, nodes)
-	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil)
+	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, client)
 	return c
 }
@@ -187,7 +188,7 @@ func TestListWithPredicate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
 	nodes, err := filterNodes(c.nodeLister)
@@ -201,7 +202,7 @@ func TestGetIngressesForClass(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 	ic, err := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	Expect(err == nil).Should(Equal(true))
@@ -234,7 +235,7 @@ func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
-	res := util.SampleLoadBalancerResponse()
+	res := testutil.SampleLoadBalancerResponse()
 	return res, nil
 }
 

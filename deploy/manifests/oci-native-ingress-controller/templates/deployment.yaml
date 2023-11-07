@@ -61,15 +61,15 @@ spec:
           - --controller-class=oci.oraclecloud.com/native-ingress-controller
           - --compartment-id=
           - --subnet-id=
+          - --cluster-id=
           - --metrics-backend=prometheus
           - --metrics-port=2223
-          - --cniType=OCI_VCN_IP_NATIVE
           - --v=4
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
             - name: OCI_RESOURCE_PRINCIPAL_REGION
-              value: "us-ashburn-1"
+              value: "us-phoenix-1"
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
           ports:

@@ -16,6 +16,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -39,9 +40,9 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
+	testutil.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
+	testutil.UpdateFakeClientCall(client, action, "ingresses", ingressList)
+	testutil.UpdateFakeClientCall(client, action, "services", testService)
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -65,10 +66,10 @@ func TestListenerWithDifferentSecrets(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	ingressList := testutil.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -82,15 +83,15 @@ func TestListenerWithSameSecrets(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
 
 	secretName := "same_secret_name"
 	ingressList.Items[0].Spec.TLS[0].SecretName = secretName
 	ingressList.Items[1].Spec.TLS[0].SecretName = secretName
 
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -114,14 +115,14 @@ func TestListenerWithSecretAndCertificate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
 
 	ingressList.Items[1].Spec.TLS = []networkingv1.IngressTLS{}
 	ingressList.Items[1].Annotations = map[string]string{util.IngressListenerTlsCertificateAnnotation: "certificateId"}
 
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -136,16 +137,16 @@ func TestListenerWithDifferentCertificates(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
 
 	ingressList.Items[0].Spec.TLS = []networkingv1.IngressTLS{}
 	ingressList.Items[0].Annotations = map[string]string{util.IngressListenerTlsCertificateAnnotation: "certificateId"}
 	ingressList.Items[1].Spec.TLS = []networkingv1.IngressTLS{}
 	ingressList.Items[1].Annotations = map[string]string{util.IngressListenerTlsCertificateAnnotation: "differentCertificateId"}
 
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -159,9 +160,9 @@ func TestListenerWithSameCertificate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TlsConfigValidationsFilePath)
 
 	certificateId := "certificateId"
 	ingressList.Items[0].Spec.TLS = []networkingv1.IngressTLS{}
@@ -170,7 +171,7 @@ func TestListenerWithSameCertificate(t *testing.T) {
 	ingressList.Items[1].Spec.TLS = []networkingv1.IngressTLS{}
 	ingressList.Items[1].Annotations = map[string]string{util.IngressListenerTlsCertificateAnnotation: certificateId}
 
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -192,11 +193,11 @@ func TestIngressState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TestIngressStateFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TestIngressStateFilePath)
 
-	testService := util.GetServiceListResource("default", "tls-test", 943)
+	testService := testutil.GetServiceListResource("default", "tls-test", 943)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -211,11 +212,11 @@ func TestIngressStateWithPortName(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(TestIngressStateWithPortNameFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(TestIngressStateWithPortNameFilePath)
 
-	testService := util.GetServiceListResourceWithPortName("default", "tls-test", 80, "tls-port")
+	testService := testutil.GetServiceListResourceWithPortName("default", "tls-test", 80, "tls-port")
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -262,11 +263,11 @@ func TestValidateHealthCheckerConfig(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
 
-	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	testService := testutil.GetServiceListResource("default", "test-health-checker-annotation", 800)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -298,13 +299,13 @@ func TestValidateHealthCheckerConfigWithConflict(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
 
 	ingressList.Items[1].Annotations[util.IngressHealthCheckPortAnnotation] = "9090"
 
-	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	testService := testutil.GetServiceListResource("default", "test-health-checker-annotation", 800)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -319,11 +320,11 @@ func TestValidatePolicyConfig(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(BackendSetPolicyConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(BackendSetPolicyConfigValidationsFilePath)
 
-	testService := util.GetServiceListResource("default", "test-policy-annotation", 900)
+	testService := testutil.GetServiceListResource("default", "test-policy-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -342,13 +343,13 @@ func TestValidatePolicyConfigWithConflict(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(BackendSetPolicyConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(BackendSetPolicyConfigValidationsFilePath)
 
 	ingressList.Items[1].Annotations[util.IngressPolicyAnnotation] = "LEAST_CONNECTIONS"
 
-	testService := util.GetServiceListResource("default", "test-policy-annotation", 900)
+	testService := testutil.GetServiceListResource("default", "test-policy-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -363,11 +364,11 @@ func TestValidateProtocolConfig(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(ListenerProtocolConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(ListenerProtocolConfigValidationsFilePath)
 
-	testService := util.GetServiceListResource("default", "test-protocol-annotation", 900)
+	testService := testutil.GetServiceListResource("default", "test-protocol-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
@@ -382,13 +383,13 @@ func TestValidateProtocolConfigWithConflict(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 
-	ingressList := util.ReadResourceAsIngressList(ListenerProtocolConfigValidationsFilePath)
+	ingressList := testutil.ReadResourceAsIngressList(ListenerProtocolConfigValidationsFilePath)
 
 	ingressList.Items[1].Annotations[util.IngressProtocolAnnotation] = "HTTP"
 
-	testService := util.GetServiceListResource("default", "test-protocol-annotation", 900)
+	testService := testutil.GetServiceListResource("default", "test-protocol-annotation", 900)
 	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)

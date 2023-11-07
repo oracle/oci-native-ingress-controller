@@ -186,20 +186,9 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 						backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
 					}
 				} else {
-					pods, err := util.RetrievePods(c.endpointLister, c.podLister, ingress.Namespace, svcName)
+					backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, ingress.Namespace, svcName, backends, nodePort)
 					if err != nil {
 						return err
-					}
-					for _, pod := range pods {
-						node, err := c.nodeLister.Get(pod.Spec.NodeName)
-						if err != nil {
-							if apierrors.IsNotFound(err) {
-								klog.Infof("node %s has been deleted, skipping pod", pod.Spec.NodeName)
-								continue
-							}
-							return err
-						}
-						backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
 					}
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
@@ -213,6 +202,25 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	// Sync default backends
 	c.syncDefaultBackend(lbID, ingresses)
 	return nil
+}
+
+func getBackendsFromPods(endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister, namespace string, svcName string, backends []ociloadbalancer.BackendDetails, nodePort int32) ([]ociloadbalancer.BackendDetails, error) {
+	pods, err := util.RetrievePods(endpointLister, podLister, namespace, svcName)
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range pods {
+		node, err := nodeLister.Get(pod.Spec.NodeName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				klog.Infof("node %s has been deleted, skipping pod", pod.Spec.NodeName)
+				continue
+			}
+			return nil, err
+		}
+		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+	}
+	return backends, nil
 }
 
 func NodeInternalIP(node *corev1.Node) string {
@@ -303,17 +311,9 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 
 	nodePort := svc.Spec.Ports[0].NodePort
 
-	pods, err := util.RetrievePods(c.endpointLister, c.podLister, namespace, svcName)
+	backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, namespace, svcName, backends, nodePort)
 	if err != nil {
 		return nil, err
-	}
-	for _, pod := range pods {
-		node, err := c.nodeLister.Get(pod.Spec.NodeName)
-		if err != nil {
-			return nil, err
-		}
-		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
-		break
 	}
 	return backends, err
 }

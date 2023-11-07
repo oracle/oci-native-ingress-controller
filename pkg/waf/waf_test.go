@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	networkingv1 "k8s.io/api/networking/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -29,10 +30,10 @@ func setupClient() (*fakeclientset.Clientset, *Client, *networkingv1.IngressClas
 
 	k8client := fakeclientset.NewSimpleClientset()
 	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId}
-	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	ingressClassList := testutil.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 
-	util.UpdateFakeClientCall(k8client, "list", "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(k8client, "patch", "ingressclasses", &ingressClassList.Items[0])
+	testutil.UpdateFakeClientCall(k8client, "list", "ingressclasses", ingressClassList)
+	testutil.UpdateFakeClientCall(k8client, "patch", "ingressclasses", &ingressClassList.Items[0])
 
 	return k8client, wafClient, ingressClassList
 }
@@ -48,16 +49,16 @@ func TestClient_GetFireWallId(t *testing.T) {
 
 	// PolicyId and FireWall Set
 	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: policyId, util.IngressClassFireWallIdAnnotation: "SetFirewall"}
-	ingressClassList = util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	ingressClassList = testutil.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 
 	// Only FireWall Set
 	annotations = map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassFireWallIdAnnotation: "SetFirewall"}
-	ingressClassList = util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	ingressClassList = testutil.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 
 	// None Set
-	ingressClassList = util.GetIngressClassList()
+	ingressClassList = testutil.GetIngressClassList()
 	wafClient.GetFireWallId(k8client, &ingressClassList.Items[0], common.String(compartmentId), common.String("id"))
 
 }
