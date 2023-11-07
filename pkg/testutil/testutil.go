@@ -1,4 +1,4 @@
-package util
+package testutil
 
 import (
 	"encoding/base64"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +19,10 @@ import (
 	"k8s.io/client-go/kubernetes/typed/core/v1/fake"
 	fake2 "k8s.io/client-go/kubernetes/typed/networking/v1/fake"
 	k8stesting "k8s.io/client-go/testing"
+)
+
+const (
+	ToBeDeletedTaint = "ToBeDeletedByClusterAutoscaler"
 )
 
 func ReadResourceAsIngressList(fileName string) *networkingv1.IngressList {
@@ -51,21 +56,7 @@ func ReadResourceAsIngressList(fileName string) *networkingv1.IngressList {
 		Items: ingressList,
 	}
 }
-func GetServiceResource(namespace string, name string, port int32) *v1.Service {
-	return &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: v1.ServiceSpec{
-			Selector: map[string]string{"app": name},
-			Ports: []v1.ServicePort{{
-				Protocol: v1.ProtocolTCP,
-				Port:     port,
-			}},
-		},
-	}
-}
+
 func GetServiceListResource(namespace string, name string, port int32) *v1.ServiceList {
 	testService := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -77,11 +68,29 @@ func GetServiceListResource(namespace string, name string, port int32) *v1.Servi
 			Ports: []v1.ServicePort{{
 				Protocol: v1.ProtocolTCP,
 				Port:     port,
+				NodePort: 30223,
 			}},
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+		},
+	}
+	testService2 := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "host-es",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"app": name},
+			Ports: []v1.ServicePort{{
+				Protocol: v1.ProtocolTCP,
+				Port:     8080,
+				NodePort: 30224,
+			}},
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
 		},
 	}
 	var services []v1.Service
 	services = append(services, testService)
+	services = append(services, testService2)
 
 	return &v1.ServiceList{
 		Items: services,
@@ -138,7 +147,7 @@ func GetIngressClassResource(name string, isDefault bool, controller string) *ne
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Annotations: map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(isDefault)},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint(isDefault)},
 		},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: controller,
@@ -167,7 +176,7 @@ func GetIngressClassResourceWithLbId(name string, isDefault bool, controller str
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Annotations: map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(isDefault), IngressClassLoadBalancerIdAnnotation: lbid},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint(isDefault), util.IngressClassLoadBalancerIdAnnotation: lbid},
 		},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: controller,
@@ -175,7 +184,11 @@ func GetIngressClassResourceWithLbId(name string, isDefault bool, controller str
 	}
 }
 
-func GetEndpointsResourceList(name string, namespace string) *v1.EndpointsList {
+func GetEndpointsResourceList(name string, namespace string, allCase bool) *v1.EndpointsList {
+	if allCase {
+		return GetEndpointsResourceListAllCase(name,
+			namespace)
+	}
 	var emptyNodeName string
 	endpoint := v1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{
@@ -230,38 +243,94 @@ func GetEndpointsResourceList(name string, namespace string) *v1.EndpointsList {
 
 }
 
-func GetEndpointsResource(name string, namespace string) *v1.Endpoints {
+func GetEndpointsResourceListAllCase(name string, namespace string) *v1.EndpointsList {
 	var emptyNodeName string
-	return &v1.Endpoints{
+	endpoint := v1.Endpoints{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
 			Namespace:       namespace,
 			ResourceVersion: "1",
 		},
 		Subsets: []v1.EndpointSubset{{
-			Addresses: []v1.EndpointAddress{{IP: "6.7.8.9", NodeName: &emptyNodeName}},
-			Ports:     []v1.EndpointPort{{Port: 1000}},
+			Addresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.0",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod0",
+					UID:       "990",
+				},
+			}},
+			Ports: []v1.EndpointPort{{Port: 1000}},
 		}},
 	}
+	endpoint2 := v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "host-es",
+			Namespace:       namespace,
+			ResourceVersion: "1",
+		},
+		Subsets: []v1.EndpointSubset{{
+			Addresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.1",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod1",
+					UID:       "991",
+				},
+			}},
+			Ports: []v1.EndpointPort{{Port: 1001}},
+		}},
+	}
+	endpoint3 := v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			ResourceVersion: "1",
+		},
+		Subsets: []v1.EndpointSubset{{
+			Addresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.2",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod2",
+					UID:       "992",
+				},
+			}},
+			Ports: []v1.EndpointPort{{Port: 1004}},
+			NotReadyAddresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.3",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod3",
+					UID:       "993",
+				},
+			}},
+		}},
+	}
+
+	var endpoints []v1.Endpoints
+	endpoints = append(endpoints, endpoint)
+	endpoints = append(endpoints, endpoint2)
+	endpoints = append(endpoints, endpoint3)
+
+	return &v1.EndpointsList{
+		Items: endpoints,
+	}
+
 }
 
-func GetPodResource(name string, image string) *v1.Pod {
-	pod := &v1.Pod{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Pod",
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name:  name,
-					Image: image,
-				},
-			},
-		},
-	}
-	return pod
-}
 func GetPodResourceWithReadiness(name string, image string, ingressName string, host string, condition []v1.PodCondition) *v1.Pod {
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -290,7 +359,7 @@ func GetPodResourceWithReadiness(name string, image string, ingressName string, 
 func GetPodReadinessGates(name string, host string) []v1.PodReadinessGate {
 	var gates []v1.PodReadinessGate
 
-	cond := GetPodReadinessCondition(name, host, GetHTTPPath())
+	cond := util.GetPodReadinessCondition(name, host, GetHTTPPath())
 	gates = append(gates, v1.PodReadinessGate{
 		ConditionType: cond,
 	})
@@ -329,6 +398,7 @@ func GetPodResourceList(name string, image string) *v1.PodList {
 					Image: image,
 				},
 			},
+			NodeName: "10.0.10.166",
 		},
 	}
 
@@ -354,7 +424,7 @@ func UpdateFakeClientCall(client *fakeclientset.Clientset, action string, resour
 func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	etag := "testTag"
 	lbId := "id"
-	backendSetName := GenerateBackendSetName("default", "testecho1", 80)
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
 	name := "testecho1-999"
 	port := 80
 	ip := "127.89.90.90"
@@ -371,7 +441,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	backends = append(backends, backend)
 
 	healthChecker := &ociloadbalancer.HealthChecker{
-		Protocol:          common.String(ProtocolHTTP),
+		Protocol:          common.String(util.ProtocolHTTP),
 		UrlPath:           common.String("/health"),
 		Port:              common.Int(8080),
 		ReturnCode:        common.Int(200),
@@ -408,7 +478,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	policies := map[string]ociloadbalancer.RoutingPolicy{
 		routeN: plcy,
 	}
-	proto := ProtocolHTTP
+	proto := util.ProtocolHTTP
 	listener := ociloadbalancer.Listener{
 		Name:                    &routeN,
 		DefaultBackendSetName:   nil,
@@ -501,4 +571,97 @@ func FakeClientGetCall(client *fakeclientset.Clientset, action string, resource 
 		PrependReactor(action, resource, func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
 			return true, obj, nil
 		})
+}
+
+func GetNodesList() *v1.NodeList {
+	var conditions []v1.NodeCondition
+	cond := v1.NodeCondition{
+		Type:   v1.NodeReady,
+		Status: v1.ConditionTrue,
+	}
+	conditions = append(conditions, cond)
+	var nodeAddress []v1.NodeAddress
+	nodeAdd1 := v1.NodeAddress{
+		Type:    v1.NodeInternalIP,
+		Address: "10.0.10.166",
+	}
+	nodeAddress = append(nodeAddress, nodeAdd1)
+
+	nodeA := v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "10.0.10.166",
+		},
+		Status: v1.NodeStatus{
+			Conditions: conditions,
+			Addresses:  nodeAddress,
+		},
+	}
+	var taints []v1.Taint
+	taint := v1.Taint{
+		Key: ToBeDeletedTaint,
+	}
+	taints = append(taints, taint)
+
+	nodeB := v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "nodeB",
+		},
+		Spec: v1.NodeSpec{
+			Taints: taints,
+		},
+	}
+
+	var conditions2 []v1.NodeCondition
+	cond2 := v1.NodeCondition{
+		Type:   v1.NodeReady,
+		Status: v1.ConditionFalse,
+	}
+	conditions2 = append(conditions2, cond2)
+
+	nodeC := v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "nodeC",
+		},
+		Status: v1.NodeStatus{
+			Conditions: conditions2,
+		},
+	}
+	nodeD := v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "nodeD",
+		},
+	}
+
+	var nodes []v1.Node
+	nodes = append(nodes, nodeA)
+	nodes = append(nodes, nodeB)
+	nodes = append(nodes, nodeC)
+	nodes = append(nodes, nodeD)
+
+	return &v1.NodeList{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "NodeList",
+			APIVersion: "v1",
+		},
+		Items: nodes,
+	}
 }

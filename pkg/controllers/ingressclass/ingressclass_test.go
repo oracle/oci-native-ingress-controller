@@ -10,6 +10,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 
 	"github.com/oracle/oci-go-sdk/v65/waf"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -32,7 +33,7 @@ import (
 func TestEnsureLoadBalancer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx := context.TODO()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 
 	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
@@ -43,7 +44,7 @@ func TestEnsureLoadBalancerWithLbIdSet(t *testing.T) {
 	RegisterTestingT(t)
 	ctx := context.TODO()
 
-	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressClassList := testutil.GetIngressClassListWithLBSet("id")
 	c := inits(ctx, ingressClassList)
 
 	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
@@ -54,7 +55,7 @@ func TestEnsureLoadBalancerWithNotFound(t *testing.T) {
 	RegisterTestingT(t)
 	ctx := context.TODO()
 
-	ingressClassList := util.GetIngressClassListWithLBSet("notfound")
+	ingressClassList := testutil.GetIngressClassListWithLBSet("notfound")
 	c := inits(ctx, ingressClassList)
 
 	ic := &ingressClassList.Items[0]
@@ -67,7 +68,7 @@ func TestEnsureLoadBalancerWithNetworkError(t *testing.T) {
 	RegisterTestingT(t)
 	ctx := context.TODO()
 
-	ingressClassList := util.GetIngressClassListWithLBSet("networkerror")
+	ingressClassList := testutil.GetIngressClassListWithLBSet("networkerror")
 	c := inits(ctx, ingressClassList)
 
 	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
@@ -79,7 +80,7 @@ func TestIngressClassAdd(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	queueSize := c.queue.Len()
 	c.ingressClassAdd(&ingressClassList.Items[0])
@@ -90,7 +91,7 @@ func TestIngressUpdate(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	queueSize := c.queue.Len()
 	c.ingressClassUpdate(&ingressClassList.Items[0], &ingressClassList.Items[0])
@@ -100,7 +101,7 @@ func TestIngressClassDelete(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	queueSize := c.queue.Len()
 	c.ingressClassDelete(&ingressClassList.Items[0])
@@ -111,7 +112,7 @@ func TestDeleteIngressClass(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	err := c.deleteIngressClass(&ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
@@ -121,7 +122,7 @@ func TestDeleteLoadBalancer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	err := c.deleteLoadBalancer(&ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
@@ -131,7 +132,7 @@ func TestEnsureFinalizer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	err := c.ensureFinalizer(&ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
@@ -143,8 +144,8 @@ func TestSetupWebApplicationFirewall_WithPolicySet(t *testing.T) {
 	defer cancel()
 	id := "id"
 	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
-	annotations := map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
-	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
+	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
+	ingressClassList := testutil.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	c := inits(ctx, ingressClassList)
 	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
 	Expect(err).Should(BeNil())
@@ -157,7 +158,7 @@ func TestSetupWebApplicationFirewall_NoPolicySet(t *testing.T) {
 	id := "id"
 	compartmentId := "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
 
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
 	Expect(err).Should(BeNil())
@@ -167,7 +168,7 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	loadBalancer, _, _ := c.client.GetLbClient().GetLoadBalancer(context.TODO(), "id")
 	icp := v1beta1.IngressClassParameters{
@@ -188,7 +189,7 @@ func TestDeleteFinalizer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := testutil.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 	var finalizers []string
 	finalizer := "oci.oraclecloud.com/ingress-controller-protection"
@@ -196,7 +197,7 @@ func TestDeleteFinalizer(t *testing.T) {
 	ingressClass := &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "name",
-			Annotations: map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint("isDefault")},
+			Annotations: map[string]string{util.IngressClassIsDefault: fmt.Sprint("isDefault")},
 			Finalizers:  finalizers,
 		},
 		Spec: networkingv1.IngressClassSpec{
@@ -227,7 +228,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 	}
 
 	ingressClassInformer, k8client := setUp(ctx, ingressClassList)
-	client := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil)
+	client := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil, nil)
 	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, nil)
 	return c
 }
@@ -235,8 +236,8 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList) (networkinginformers.IngressClassInformer, *fakeclientset.Clientset) {
 	client := fakeclientset.NewSimpleClientset()
 
-	util.UpdateFakeClientCall(client, "list", "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, "patch", "ingressclasses", &ingressClassList.Items[0])
+	testutil.UpdateFakeClientCall(client, "list", "ingressclasses", ingressClassList)
+	testutil.UpdateFakeClientCall(client, "patch", "ingressclasses", &ingressClassList.Items[0])
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -289,7 +290,7 @@ func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request oci
 		return ociloadbalancer.GetLoadBalancerResponse{}, &exception.NotFoundServiceError{}
 	}
 
-	res := util.SampleLoadBalancerResponse()
+	res := testutil.SampleLoadBalancerResponse()
 	return res, nil
 }
 

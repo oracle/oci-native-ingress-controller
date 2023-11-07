@@ -13,6 +13,7 @@ controller_class: oci.oraclecloud.com/native-ingress-controller
 lease_lock_name: oci-native-ingress-controller
 compartment_id: ""
 subnet_id: ""
+cluster_id: ""
 
 deploymentNamespace : native-ingress-controller-system
 replicaCount: 1
@@ -21,7 +22,7 @@ image:
   repository: ghcr.io/oracle/oci-native-ingress-controller
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "v1.2.0"
+  tag: "v1.3.0"
 
 imagePullSecrets: []
 nameOverride: ""

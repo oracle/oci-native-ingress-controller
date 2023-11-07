@@ -11,20 +11,25 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ociwaf "github.com/oracle/oci-go-sdk/v65/waf"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/nodeBackend"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/oracle/oci-go-sdk/v65/certificates"
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	clientset "k8s.io/client-go/kubernetes"
+
+	"github.com/oracle/oci-go-sdk/v65/containerengine"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/auth"
 	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
@@ -66,13 +71,17 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface,
-	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, c ctrcache.Cache,
+	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, c ctrcache.Cache,
 	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
 		client := setupClient(ctx, opts, k8client)
 
+		cni, err := fetchCniType(opts.ClusterId, client.GetContainerEngineClient())
+		if err != nil {
+			klog.Fatalf("failed to get cluster details: %v", err)
+		}
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
 			opts.CompartmentId,
@@ -91,16 +100,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			client,
 		)
 
-		backendController := backend.NewController(
-			opts.ControllerClass,
-			ingressClassInformer,
-			ingressInformer,
-			serviceInformer.Lister(),
-			endpointInformer.Lister(),
-			podInformer.Lister(),
-			client,
-		)
-
 		ingressClassController := ingressclass.NewController(
 			opts.CompartmentId,
 			opts.SubnetId,
@@ -113,12 +112,65 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		go ingressClassController.Run(3, ctx.Done())
 		go ingressController.Run(3, ctx.Done())
 		go routingPolicyController.Run(3, ctx.Done())
-		go backendController.Run(3, ctx.Done())
+
+		klog.Infof("CNI Type of given cluster : %s", cni)
+		if cni == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay) {
+
+			backendController := nodeBackend.NewController(
+				opts.ControllerClass,
+				ingressClassInformer,
+				ingressInformer,
+				serviceInformer.Lister(),
+				endpointInformer.Lister(),
+				podInformer.Lister(),
+				nodeInformer.Lister(),
+				client,
+			)
+			go backendController.Run(3, ctx.Done())
+		} else {
+			backendController := backend.NewController(
+				opts.ControllerClass,
+				ingressClassInformer,
+				ingressInformer,
+				serviceInformer.Lister(),
+				endpointInformer.Lister(),
+				podInformer.Lister(),
+				client,
+			)
+			go backendController.Run(3, ctx.Done())
+		}
 	}
+}
+
+func fetchCniType(id string, client *containerengine.ContainerEngineClient) (string, error) {
+
+	// Create a request and dependent object(s).
+	req := containerengine.GetClusterRequest{ClusterId: common.String(id)}
+
+	// Send the request using the service client
+	resp, err := client.GetCluster(context.Background(), req)
+	if err != nil {
+		klog.Fatalf("failed to get cluster details: %v", err)
+	}
+	cni := resp.Cluster.ClusterPodNetworkOptions
+
+	for _, n := range cni {
+		switch n.(type) {
+		case containerengine.FlannelOverlayClusterPodNetworkOptionDetails:
+			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay), nil
+		case containerengine.OciVcnIpNativeClusterPodNetworkOptionDetails:
+			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative), nil
+		default:
+			return "", fmt.Errorf("unsupported CNI found in Cluster : %v", n)
+		}
+	}
+
+	return "", fmt.Errorf("no CNI found in Cluster")
 }
 
 func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset.Interface) *client.ClientProvider {
 	configProvider, err := auth.GetConfigurationProvider(ctx, opts, k8client)
+
 	if err != nil {
 		klog.Fatalf("failed to load authentication configuration provider: %v", err)
 	}
@@ -143,13 +195,18 @@ func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset
 		klog.Fatalf("unable to construct oci web application firewall client: %v", err)
 	}
 
+	containerEngineClient, err := containerengine.NewContainerEngineClientWithConfigurationProvider(configProvider)
+	if err != nil {
+		klog.Fatalf("failed to load container engine client configuration provider: %v", err)
+	}
+
 	lbClient := loadbalancer.New(&ociLBClient)
 
 	certificatesClient := certificate.New(&ociCertificatesMgmtClient, ociclient.NewCertificateClient(&ociCertificatesClient))
 
 	wafClient := waf.New(&ociWafClient)
 
-	return client.NewWrapperClient(k8client, wafClient, lbClient, certificatesClient)
+	return client.NewWrapperClient(k8client, wafClient, lbClient, certificatesClient, &containerEngineClient)
 }
 
 func SetupWebhookServer(ingressInformer networkinginformers.IngressInformer, serviceInformer v1.ServiceInformer, client *clientset.Clientset, ctx context.Context) {

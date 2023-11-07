@@ -27,10 +27,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
 	"github.com/pkg/errors"
@@ -40,6 +43,7 @@ import (
 
 const (
 	IngressClassLoadBalancerIdAnnotation = "oci-native-ingress.oraclecloud.com/id"
+	IngressClassIsDefault                = "ingressclass.kubernetes.io/is-default-class"
 
 	PodReadinessConditionPrefix = "podreadiness.ingress.oraclecloud.com"
 
@@ -81,6 +85,8 @@ const (
 	LBCacheMaxAgeInMinutes          = 1
 	WAFCacheMaxAgeInMinutes         = 5
 )
+
+var ErrIngressClassNotReady = errors.New("ingress class not ready")
 
 func GetIngressClassCompartmentId(p *v1beta1.IngressClassParameters, defaultCompartment string) string {
 	if strings.TrimSpace(p.Spec.CompartmentId) == "" {
@@ -283,7 +289,7 @@ func GetIngressClass(ingress *networkingv1.Ingress, ingressClassLister networkin
 	if ingress.Spec.IngressClassName == nil {
 		// find default ingress class since ingress has no class defined.
 		for _, ic := range icList {
-			if ic.Annotations["ingressclass.kubernetes.io/is-default-class"] == "true" {
+			if ic.Annotations[IngressClassIsDefault] == "true" {
 				klog.InfoS("Found default ingress class: %s ", ic.Name)
 				return ic, nil
 			}
@@ -434,4 +440,144 @@ func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networking
 		return err, true
 	}
 	return nil, false
+}
+
+func GetTargetPortForService(lister corelisters.ServiceLister, namespace string, name string, port int32, portName string) (int32, int32, *corev1.Service, error) {
+	svc, err := lister.Services(namespace).Get(name)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	for _, p := range svc.Spec.Ports {
+		if (p.Port != 0 && p.Port == port) || p.Name == portName {
+			if p.TargetPort.Type != intstr.Int {
+				return 0, 0, nil, fmt.Errorf("service %s/%s has non-integer ports: %s", namespace, name, p.Name)
+			}
+			return p.Port, p.TargetPort.IntVal, svc, nil
+		}
+	}
+
+	return 0, 0, nil, fmt.Errorf("service %s/%s does not have port: %s (%d)", namespace, name, portName, port)
+}
+
+func PathToServiceAndTargetPort(lister corelisters.ServiceLister, ingressNamespace string, path networkingv1.HTTPIngressPath) (string, int32, int32, *corev1.Service, error) {
+	if path.Backend.Service == nil {
+		return "", 0, 0, nil, fmt.Errorf("backend service is not defined for ingress")
+	}
+
+	pSvc := *path.Backend.Service
+
+	svcPort, targetPort, svc, err := GetTargetPortForService(lister, ingressNamespace, pSvc.Name, pSvc.Port.Number, pSvc.Port.Name)
+	if err != nil {
+		return "", 0, 0, nil, err
+	}
+
+	return pSvc.Name, svcPort, targetPort, svc, nil
+}
+
+func GetEndpoints(lister corelisters.EndpointsLister, namespace string, service string) ([]corev1.EndpointAddress, error) {
+	endpoints, err := lister.Endpoints(namespace).Get(service)
+	if err != nil {
+		return nil, err
+	}
+
+	var addresses []corev1.EndpointAddress
+	for _, endpoint := range endpoints.Subsets {
+		for _, address := range endpoint.Addresses {
+			if address.TargetRef == nil || address.TargetRef.Kind != "Pod" {
+				continue
+			}
+
+			addresses = append(addresses, address)
+		}
+		for _, address := range endpoint.NotReadyAddresses {
+			if address.TargetRef == nil || address.TargetRef.Kind != "Pod" {
+				continue
+			}
+
+			addresses = append(addresses, address)
+		}
+	}
+
+	return addresses, nil
+}
+
+// HandleErr checks if an error happened and makes sure we will retry later.
+func HandleErr(queue workqueue.RateLimitingInterface, err error, message string, key interface{}) {
+	if err == nil {
+		// Forget about the #AddRateLimited history of the key on every successful synchronization.
+		// This ensures that future processing of updates for this key is not delayed because of
+		// an outdated error history.
+		queue.Forget(key)
+		return
+	}
+
+	if errors.Is(err, ErrIngressClassNotReady) {
+		queue.AddAfter(key, 10*time.Second)
+		return
+	}
+
+	// This controller retries 5 times if something goes wrong. After that, it stops trying.
+	if queue.NumRequeues(key) < 5 {
+		klog.Infof(message+" %v: %v", key, err)
+
+		// Re-enqueue the key rate limited. Based on the rate limiter on the
+		// queue and the re-enqueue history, the key will be processed later again.
+		queue.AddRateLimited(key)
+		return
+	}
+
+	queue.Forget(key)
+	// Report to an external entity that, even after several retries, we could not successfully process this key
+	utilruntime.HandleError(err)
+	klog.Infof("Dropping items %q out of the queue: %v", key, err)
+}
+
+func GetIngressesForClass(lister networkinglisters.IngressLister, ingressClass *networkingv1.IngressClass) ([]*networkingv1.Ingress, error) {
+
+	ingresses, err := lister.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter ingresses down to this ingress class we want to sync.
+	var result []*networkingv1.Ingress
+	for _, ingress := range ingresses {
+		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations[IngressClassIsDefault] == "true" {
+			// ingress has on class name defined and our ingress class is default
+			result = append(result, ingress)
+		}
+		if ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName == ingressClass.Name {
+			result = append(result, ingress)
+		}
+	}
+	return result, nil
+}
+
+func NewBackend(ip string, port int32) ociloadbalancer.BackendDetails {
+	return ociloadbalancer.BackendDetails{
+		IpAddress: common.String(ip),
+		Port:      common.Int(int(port)),
+		Weight:    common.Int(1),
+		Drain:     common.Bool(false),
+		Backup:    common.Bool(false),
+		Offline:   common.Bool(false),
+	}
+}
+
+func RetrievePods(endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, namespace string, svcName string) ([]*corev1.Pod, error) {
+	epAddress, err := GetEndpoints(endpointLister, namespace, svcName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s: %w", namespace, svcName, err)
+	}
+
+	var pods []*corev1.Pod
+	for _, epAddr := range epAddress {
+		pod, err := podLister.Pods(namespace).Get(epAddr.TargetRef.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch pod %s/%s: %w", namespace, epAddr.TargetRef.Name, err)
+		}
+		pods = append(pods, pod)
+	}
+	return pods, nil
 }

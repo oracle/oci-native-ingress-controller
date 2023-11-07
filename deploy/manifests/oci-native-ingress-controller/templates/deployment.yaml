@@ -18,10 +18,10 @@ metadata:
   name: oci-native-ingress-controller
   namespace: native-ingress-controller-system
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.2.0
+    helm.sh/chart: oci-native-ingress-controller-1.3.0
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.2.0"
+    app.kubernetes.io/version: "1.3.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -51,7 +51,7 @@ spec:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 1000
-          image: "ghcr.io/oracle/oci-native-ingress-controller:v1.2.0"
+          image: "ghcr.io/oracle/oci-native-ingress-controller:v1.3.0"
           imagePullPolicy: Always
           args: 
           - --lease-lock-name=oci-native-ingress-controller
@@ -61,6 +61,7 @@ spec:
           - --controller-class=oci.oraclecloud.com/native-ingress-controller
           - --compartment-id=
           - --subnet-id=
+          - --cluster-id=
           - --metrics-backend=prometheus
           - --metrics-port=2223
           - --v=4
@@ -68,7 +69,7 @@ spec:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
             - name: OCI_RESOURCE_PRINCIPAL_REGION
-              value: "us-ashburn-1"
+              value: "us-phoenix-1"
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
           ports:

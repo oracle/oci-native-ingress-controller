@@ -11,6 +11,8 @@ package state
 
 import (
 	"fmt"
+	"reflect"
+
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -21,7 +23,6 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/klog/v2"
-	"reflect"
 )
 
 const (
@@ -93,7 +94,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		if err != nil {
 			return errors.Wrap(err, "error getting ingress class")
 		}
-		if ingressClass.Name == ingIc.Name && !util.IsIngressDeleting(ing) {
+		if ingIc != nil && ingressClass.Name == ingIc.Name && !util.IsIngressDeleting(ing) {
 			ingressGroup = append(ingressGroup, ing)
 		}
 	}

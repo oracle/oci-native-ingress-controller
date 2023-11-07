@@ -540,7 +540,7 @@ func getIngressClassResource(name string, isDefault bool, controller string) *ne
 	return &networkingv1.IngressClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Annotations: map[string]string{"ingressclass.kubernetes.io/is-default-class": fmt.Sprint(isDefault)},
+			Annotations: map[string]string{IngressClassIsDefault: fmt.Sprint(isDefault)},
 		},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: controller,

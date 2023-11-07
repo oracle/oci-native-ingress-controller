@@ -30,6 +30,7 @@ type IngressOpts struct {
 	LeaseID            string
 	CompartmentId      string
 	SubnetId           string
+	ClusterId          string
 	ControllerClass    string
 	AuthType           string
 	AuthSecretName     string

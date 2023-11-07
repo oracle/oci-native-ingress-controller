@@ -12,7 +12,6 @@ package backend
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
 	"k8s.io/klog/v2"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -28,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -40,8 +37,6 @@ import (
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 )
-
-var errIngressClassNotReady = errors.New("ingress class not ready")
 
 type Controller struct {
 	controllerClass string
@@ -95,7 +90,7 @@ func (c *Controller) processNextItem() bool {
 	err := c.sync(key.(string))
 
 	// Handle the error if something went wrong during the execution of the business logic
-	c.handleErr(err, key)
+	util.HandleErr(c.queue, err, "Error syncing backends for ingress class", key)
 	return true
 }
 
@@ -130,7 +125,7 @@ func (c *Controller) sync(key string) error {
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
 	if lbID == "" {
 		// Still waiting on the ingress class controller to provision the load balancer.
-		return errIngressClassNotReady
+		return util.ErrIngressClassNotReady
 	}
 
 	err = c.ensureBackends(ingressClass, lbID)
@@ -141,42 +136,9 @@ func (c *Controller) sync(key string) error {
 	return nil
 }
 
-// filters list of all ingresses down to the subset that apply to the ingress class specified.
-func (c *Controller) getIngressesForClass(ingressClass *networkingv1.IngressClass) ([]*networkingv1.Ingress, error) {
-
-	ingresses, err := c.ingressLister.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter ingresses down to this ingress class we want to sync.
-	var result []*networkingv1.Ingress
-	for _, ingress := range ingresses {
-		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations["ingressclass.kubernetes.io/is-default-class"] == "true" {
-			// ingress has on class name defined and our ingress class is default
-			result = append(result, ingress)
-		}
-		if ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName == ingressClass.Name {
-			result = append(result, ingress)
-		}
-	}
-	return result, nil
-}
-
-func newBackend(ip string, port int32) ociloadbalancer.BackendDetails {
-	return ociloadbalancer.BackendDetails{
-		IpAddress: common.String(ip),
-		Port:      common.Int(int(port)),
-		Weight:    common.Int(1),
-		Drain:     common.Bool(false),
-		Backup:    common.Bool(false),
-		Offline:   common.Bool(false),
-	}
-}
-
 func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbID string) error {
 
-	ingresses, err := c.getIngressesForClass(ingressClass)
+	ingresses, err := util.GetIngressesForClass(c.ingressLister, ingressClass)
 	if err != nil {
 		return err
 	}
@@ -184,19 +146,19 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	for _, ingress := range ingresses {
 		for _, rule := range ingress.Spec.Rules {
 			for _, path := range rule.HTTP.Paths {
-				svcName, svcPort, targetPort, err := c.pathToServiceAndTargetPort(ingress.Namespace, path)
+				svcName, svcPort, targetPort, _, err := util.PathToServiceAndTargetPort(c.serviceLister, ingress.Namespace, path)
 				if err != nil {
 					return err
 				}
 
-				epAddrs, err := c.getEndpoints(ingress.Namespace, svcName)
+				epAddrs, err := util.GetEndpoints(c.endpointLister, ingress.Namespace, svcName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", ingress.Namespace, svcName, targetPort, err)
 				}
 
 				backends := []ociloadbalancer.BackendDetails{}
 				for _, epAddr := range epAddrs {
-					backends = append(backends, newBackend(epAddr.IP, targetPort))
+					backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
 				}
 
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
@@ -279,13 +241,13 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 
 	svcName := backend.Service.Name
 	targetPort := backend.Service.Port.Number
-	epAdrress, err := c.getEndpoints(namespace, svcName)
+	epAdrress, err := util.GetEndpoints(c.endpointLister, namespace, svcName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", namespace, svcName, targetPort, err)
 	}
 
 	for _, epAddr := range epAdrress {
-		backends = append(backends, newBackend(epAddr.IP, targetPort))
+		backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
 	}
 	return backends, err
 }
@@ -404,97 +366,6 @@ func BuildPodConditionPatch(pod *corev1.Pod, condition corev1.PodCondition) ([]b
 	}
 
 	return strategicpatch.CreateTwoWayMergePatch(oldData, newData, corev1.Pod{})
-}
-
-func (c *Controller) getEndpoints(namespace string, service string) ([]corev1.EndpointAddress, error) {
-	endpoints, err := c.endpointLister.Endpoints(namespace).Get(service)
-	if err != nil {
-		return nil, err
-	}
-
-	var addresses []corev1.EndpointAddress
-	for _, endpoint := range endpoints.Subsets {
-		for _, address := range endpoint.Addresses {
-			if address.TargetRef == nil || address.TargetRef.Kind != "Pod" {
-				continue
-			}
-
-			addresses = append(addresses, address)
-		}
-		for _, address := range endpoint.NotReadyAddresses {
-			if address.TargetRef == nil || address.TargetRef.Kind != "Pod" {
-				continue
-			}
-
-			addresses = append(addresses, address)
-		}
-	}
-
-	return addresses, nil
-}
-
-func (c *Controller) getTargetPortForService(namespace string, name string, port int32, portName string) (int32, int32, error) {
-	svc, err := c.serviceLister.Services(namespace).Get(name)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	for _, p := range svc.Spec.Ports {
-		if (p.Port != 0 && p.Port == port) || p.Name == portName {
-			if p.TargetPort.Type != intstr.Int {
-				return 0, 0, fmt.Errorf("service %s/%s has non-integer ports: %s", namespace, name, p.Name)
-			}
-			return p.Port, int32(p.TargetPort.IntVal), nil
-		}
-	}
-
-	return 0, 0, fmt.Errorf("service %s/%s does not have port: %s (%d)", namespace, name, portName, port)
-}
-
-func (c *Controller) pathToServiceAndTargetPort(ingressNamespace string, path networkingv1.HTTPIngressPath) (string, int32, int32, error) {
-	if path.Backend.Service == nil {
-		return "", 0, 0, fmt.Errorf("backend service is not defined for ingress")
-	}
-
-	pSvc := *path.Backend.Service
-
-	svcPort, targetPort, err := c.getTargetPortForService(ingressNamespace, pSvc.Name, pSvc.Port.Number, pSvc.Port.Name)
-	if err != nil {
-		return "", 0, 0, err
-	}
-
-	return pSvc.Name, svcPort, targetPort, nil
-}
-
-// handleErr checks if an error happened and makes sure we will retry later.
-func (c *Controller) handleErr(err error, key interface{}) {
-	if err == nil {
-		// Forget about the #AddRateLimited history of the key on every successful synchronization.
-		// This ensures that future processing of updates for this key is not delayed because of
-		// an outdated error history.
-		c.queue.Forget(key)
-		return
-	}
-
-	if errors.Is(err, errIngressClassNotReady) {
-		c.queue.AddAfter(key, 10*time.Second)
-		return
-	}
-
-	// This controller retries 5 times if something goes wrong. After that, it stops trying.
-	if c.queue.NumRequeues(key) < 5 {
-		klog.Infof("Error syncing backends for ingress class %v: %v", key, err)
-
-		// Re-enqueue the key rate limited. Based on the rate limiter on the
-		// queue and the re-enqueue history, the key will be processed later again.
-		c.queue.AddRateLimited(key)
-		return
-	}
-
-	c.queue.Forget(key)
-	// Report to an external entity that, even after several retries, we could not successfully process this key
-	utilruntime.HandleError(err)
-	klog.Infof("Dropping backends for ingress class %q out of the queue: %v", key, err)
 }
 
 // Run begins watching and syncing.
