@@ -10,6 +10,7 @@ The native ingress controller itself is lightweight process and pushes all the r
   * [Principal Credential Setup](#principal-credential-setup)
     + [Instance Principal](#instance-principal)
     + [User Principal](#user-principal)
+    + [Workload Identity](#workload-identity)
     + [Access Policies](#access-policies)
   * [Cert Manager](#cert-manager)
   * [Deployment](#deployment)
@@ -59,9 +60,10 @@ Policy documentation for setting up security rules for load balancer:
 For native ingress controller to access other dependent services and perform operations, we need to configure it with a principal credential.
 We can grant permissions to this principal which will be inherited by native ingress controller.
 
-Two types of principal that are supported:
+Different types of principal that are supported:
 * [Instance Principal](#instance-principal)
 * [User Principal](#user-principal)
+* [Workload Identity](#workload-identity)
 
 #### Instance Principal
 This is the default authentication type. It uses the instance identity where the controller is deployed on (worker node).
@@ -100,6 +102,23 @@ If the deployment is done via manifest templates update deployment container arg
   - --compartment-id=
   - --subnet-id=
   - --v=4
+```
+
+#### Workload Identity
+For workload identity, we have to use [Enhanced Clusters](https://confluence.oci.oraclecorp.com/display/OKE/Enhanced+Clusters), and follow the public documentation to setup policies - [Doc](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contenggrantingworkloadaccesstoresources.htm)
+
+We have added the support to enable this via the authType flag as follows:
+```
+authType: workloadIdentity
+```
+Also, internally we would need to update the resource principal version and region according to your deployment resource.
+These can be passed as env variables under [deployment.yaml](helm/oci-native-ingress-controller/templates/deployment.yaml)
+```
+  env:
+    - name: OCI_RESOURCE_PRINCIPAL_VERSION
+      value: "2.2"
+    - name: OCI_RESOURCE_PRINCIPAL_REGION
+      value: "us-ashburn-1"
 ```
 
 #### Access Policies
