@@ -90,11 +90,9 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 	var ingressGroup []*networkingv1.Ingress
 	for _, ing := range ingressList {
-		ingIc, err := util.GetIngressClass(ing, s.IngressClassLister)
-		if err != nil {
-			return errors.Wrap(err, "error getting ingress class")
-		}
-		if ingIc != nil && ingressClass.Name == ingIc.Name && !util.IsIngressDeleting(ing) {
+		if ((ing.Spec.IngressClassName == nil && ingressClass.Annotations[util.IngressClassIsDefault] == "true") ||
+			(ing.Spec.IngressClassName != nil && ingressClass.Name == *ing.Spec.IngressClassName)) &&
+			!util.IsIngressDeleting(ing) {
 			ingressGroup = append(ingressGroup, ing)
 		}
 	}
