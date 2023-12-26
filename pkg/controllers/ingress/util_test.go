@@ -11,6 +11,8 @@ package ingress
 import (
 	"context"
 	"errors"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net/http"
 	"testing"
 	"time"
@@ -195,28 +197,33 @@ func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 func TestGetSSLConfigForBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	client, lb := initsUtil()
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+		},
+	}
 
-	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", client)
+	config, err := GetSSLConfigForBackendSet(ingress, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(ingress, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(ingress, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(ingress, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
 	// No ca bundle scenario
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(ingress, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
 
-	_, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", client)
+	_, err = GetSSLConfigForBackendSet(ingress, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", client)
 	Expect(err).Should(Not(BeNil()))
 	Expect(err.Error()).Should(Equal(errorMsg))
 

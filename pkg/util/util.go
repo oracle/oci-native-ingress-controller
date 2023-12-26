@@ -55,6 +55,8 @@ const (
 	// HTTP, HTTP2 - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
 
+	IngressTerminateTlsAnnotation = "oci-native-ingress.oraclecloud.com/terminate-tls"
+
 	IngressPolicyAnnotation          = "oci-native-ingress.oraclecloud.com/policy"
 	IngressClassWafPolicyAnnotation  = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
 	IngressClassFireWallIdAnnotation = "oci-native-ingress.oraclecloud.com/firewall-id"
@@ -73,6 +75,7 @@ const (
 	ProtocolHTTP                           = "HTTP"
 	ProtocolHTTP2                          = "HTTP2"
 	ProtocolHTTP2DefaultCipherSuite        = "oci-default-http2-ssl-cipher-suite-v1"
+	TerminateTls                           = false
 	DefaultHealthCheckProtocol             = ProtocolTCP
 	DefaultHealthCheckPort                 = 0
 	DefaultHealthCheckTimeOutMilliSeconds  = 3000
@@ -145,6 +148,15 @@ func GetIngressProtocol(i *networkingv1.Ingress) string {
 		return ProtocolHTTP
 	}
 	return strings.ToUpper(protocol)
+}
+
+func GetIngressTerminateTls(i *networkingv1.Ingress) (bool, error) {
+	value, ok := i.Annotations[IngressTerminateTlsAnnotation]
+	if !ok {
+		return TerminateTls, nil
+	}
+
+	return strconv.ParseBool(value)
 }
 
 func GetIngressClassLoadBalancerId(ic *networkingv1.IngressClass) string {

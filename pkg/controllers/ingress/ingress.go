@@ -331,7 +331,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client)
+		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
 		}
@@ -530,7 +530,7 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client)
+	sslConfig, err := GetSSLConfigForBackendSet(ingress, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client)
 	if err != nil {
 		return err
 	}

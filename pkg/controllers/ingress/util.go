@@ -12,6 +12,7 @@ package ingress
 import (
 	"context"
 	"fmt"
+	networkingv1 "k8s.io/api/networking/v1"
 	"reflect"
 	"strings"
 	"time"
@@ -218,12 +219,20 @@ func getCertificateNameFromSecret(secretName string) string {
 	return fmt.Sprintf("ic-%s", secretName)
 }
 
-func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
+func GetSSLConfigForBackendSet(ingress *networkingv1.Ingress, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
 	var backendSetSslConfig *ociloadbalancer.SslConfigurationDetails
 	createCaBundle := false
 	var caBundleId *string
 
 	bs, ok := lb.BackendSets[bsName]
+
+	terminateTls, err := util.GetIngressTerminateTls(ingress)
+	if err != nil {
+		return nil, fmt.Errorf("error TLS termination: %w", err)
+	}
+	if terminateTls {
+		return nil, nil
+	}
 
 	if artifactType == state.ArtifactTypeSecret && artifact != "" {
 		klog.Infof("Secret name for backend set %s is %s", bsName, artifact)
@@ -244,7 +253,7 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 		}
 
 		if createCaBundle {
-			cId, err := CreateOrGetCaBundleForBackendSet(namespace, artifact, compartmentId, client)
+			cId, err := CreateOrGetCaBundleForBackendSet(ingress.Namespace, artifact, compartmentId, client)
 			if err != nil {
 				return nil, err
 			}
