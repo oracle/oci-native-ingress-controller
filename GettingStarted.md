@@ -105,7 +105,7 @@ If the deployment is done via manifest templates update deployment container arg
 ```
 
 #### Workload Identity
-For workload identity, we have to use [Enhanced Clusters](https://confluence.oci.oraclecorp.com/display/OKE/Enhanced+Clusters), and follow the public documentation to setup policies - [Doc](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contenggrantingworkloadaccesstoresources.htm)
+For workload identity, we have to use [Enhanced Clusters](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengcreatingenhancedclusters.htm), and follow the public documentation to setup policies - [Doc](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contenggrantingworkloadaccesstoresources.htm)
 
 We have added the support to enable this via the authType flag as follows:
 ```
