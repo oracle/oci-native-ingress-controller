@@ -28,12 +28,13 @@ import (
 )
 
 const (
-	TlsConfigValidationsFilePath              = "validate-tls-config.yaml"
-	HealthCheckerConfigValidationsFilePath    = "validate-hc-config.yaml"
-	BackendSetPolicyConfigValidationsFilePath = "validate-bs-policy-config.yaml"
-	ListenerProtocolConfigValidationsFilePath = "validate-listener-protocol-config.yaml"
-	TestIngressStateFilePath                  = "test-ingress-state.yaml"
-	TestIngressStateWithPortNameFilePath      = "test-ingress-state_withportname.yaml"
+	TlsConfigValidationsFilePath                = "validate-tls-config.yaml"
+	HealthCheckerConfigValidationsFilePath      = "validate-hc-config.yaml"
+	BackendSetPolicyConfigValidationsFilePath   = "validate-bs-policy-config.yaml"
+	ListenerProtocolConfigValidationsFilePath   = "validate-listener-protocol-config.yaml"
+	TestIngressStateFilePath                    = "test-ingress-state.yaml"
+	TestIngressStateFilePathMissingIngressClass = "test-ingress-state-missing-class.yaml"
+	TestIngressStateWithPortNameFilePath        = "test-ingress-state_withportname.yaml"
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinglisters.IngressClassLister, networkinglisters.IngressLister, corelisters.ServiceLister) {
@@ -397,4 +398,23 @@ func TestValidateProtocolConfigWithConflict(t *testing.T) {
 	Expect(err).Should(HaveOccurred())
 
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(ProtocolConflictMessage, 900)))
+}
+
+func TestIngressStateWithMissingIngressClass(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := testutil.GetIngressClassList()
+
+	ingressList := testutil.ReadResourceAsIngressList(TestIngressStateFilePathMissingIngressClass)
+
+	testService := testutil.GetServiceListResourceWithPortName("default", "tls-test", 80, "tls-port")
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	assertCases(stateStore)
 }

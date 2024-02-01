@@ -92,10 +92,11 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	for _, ing := range ingressList {
 		ingIc, err := util.GetIngressClass(ing, s.IngressClassLister)
 		if err != nil {
-			return errors.Wrap(err, "error getting ingress class")
-		}
-		if ingIc != nil && ingressClass.Name == ingIc.Name && !util.IsIngressDeleting(ing) {
-			ingressGroup = append(ingressGroup, ing)
+			klog.Errorf("IngressClass not found for ingress: %s. Skipping ingress.", ing.Name)
+		} else {
+			if ingIc != nil && ingressClass.Name == ingIc.Name && !util.IsIngressDeleting(ing) {
+				ingressGroup = append(ingressGroup, ing)
+			}
 		}
 	}
 
