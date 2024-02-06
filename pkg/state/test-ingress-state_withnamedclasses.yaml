@@ -37,48 +37,7 @@ spec:
             port:
               number: 70
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ingress-state-new
-  namespace: default
-spec:
-  ingressClassName: default-ingress-class
-  tls:
-  - hosts:
-      - foo.bar.com
-    secretName: secret_name
-  rules:
-  - host: "foo.bar.com"
-    http:
-      paths:
-      - pathType: Prefix
-        path: "/PrefixEcho1/aa"
-        backend:
-          service:
-            name: tls-test
-            port:
-              number: 80
-  - host: "foo.bar.com"
-    http:
-      paths:
-      - pathType: Prefix
-        path: "/ExactEcho1"
-        backend:
-          service:
-            name: tls-test
-            port:
-              number: 90
-  - http:
-      paths:
-      - pathType: Prefix
-        path: "/PrefixEcho1"
-        backend:
-          service:
-            name: tls-test
-            port:
-              number: 100
----
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -120,3 +79,45 @@ spec:
                 name: tls-test
                 port:
                   number: 100
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-state-new
+  namespace: default
+spec:
+  ingressClassName: default-ingress-class
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: secret_name
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/PrefixEcho1/aa"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 80
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/ExactEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 90
+  - http:
+      paths:
+      - pathType: Prefix
+        path: "/PrefixEcho1"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 100
