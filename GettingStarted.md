@@ -46,8 +46,9 @@ This section describes steps to deploy and test OCI-Native-Ingress-Controller.
 ### Prerequisites
 Kubernetes Cluster with Native Pod Networking setup.
 Currently supported kubernetes versions are:
-- v1.25.4
-- v1.26.2
+- 1.26
+- 1.27
+- 1.28
   
 We set up the cluster with native pod networking and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
@@ -105,7 +106,7 @@ If the deployment is done via manifest templates update deployment container arg
 ```
 
 #### Workload Identity
-For workload identity, we have to use [Enhanced Clusters](https://confluence.oci.oraclecorp.com/display/OKE/Enhanced+Clusters), and follow the public documentation to setup policies - [Doc](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contenggrantingworkloadaccesstoresources.htm)
+For workload identity, we have to use [Enhanced Clusters](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengcreatingenhancedclusters.htm), and follow the public documentation to setup policies - [Doc](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contenggrantingworkloadaccesstoresources.htm)
 
 We have added the support to enable this via the authType flag as follows:
 ```

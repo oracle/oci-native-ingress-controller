@@ -59,10 +59,10 @@ version:
 
 # Currently only supports amd
 build: ./main.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -mod vendor -a -o dist/onic ./main.go
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go build -mod vendor -a -o dist/onic ./main.go
 
 image:
-	docker build -t ${IMAGE_PATH} -f Dockerfile .
+	docker build --build-arg goos=$(GOOS) --build-arg goarch=$(GOARCH) -t ${IMAGE_PATH} -f Dockerfile .
 
 push:
 	docker push ${IMAGE_PATH}
