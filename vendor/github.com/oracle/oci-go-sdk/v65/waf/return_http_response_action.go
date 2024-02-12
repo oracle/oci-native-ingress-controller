@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -81,7 +81,7 @@ type ReturnHttpResponseAction struct {
 	Body HttpResponseBody `mandatory:"false" json:"body"`
 }
 
-//GetName returns Name
+// GetName returns Name
 func (m ReturnHttpResponseAction) GetName() *string {
 	return m.Name
 }
@@ -131,10 +131,7 @@ func (m *ReturnHttpResponseAction) UnmarshalJSON(data []byte) (e error) {
 	}
 	var nn interface{}
 	m.Headers = make([]ResponseHeader, len(model.Headers))
-	for i, n := range model.Headers {
-		m.Headers[i] = n
-	}
-
+	copy(m.Headers, model.Headers)
 	nn, e = model.Body.UnmarshalPolymorphicJSON(model.Body.JsonData)
 	if e != nil {
 		return

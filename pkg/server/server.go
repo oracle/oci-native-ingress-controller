@@ -212,12 +212,12 @@ func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset
 func SetupWebhookServer(ingressInformer networkinginformers.IngressInformer, serviceInformer v1.ServiceInformer, client *clientset.Clientset, ctx context.Context) {
 	klog.Info("setting up webhook server")
 
-	server := &webhook.Server{}
+	server := webhook.NewServer(webhook.Options{})
 	server.Register("/mutate-v1-pod", &webhook.Admission{Handler: podreadiness.NewWebhook(ingressInformer.Lister(), serviceInformer.Lister(), client)})
 
 	go func() {
 		klog.Infof("starting webhook server...")
-		err := server.StartStandalone(ctx, nil)
+		err := server.Start(ctx)
 		if err != nil {
 			klog.Errorf("failed to run webhook server: %v", err)
 			os.Exit(1)
@@ -229,7 +229,7 @@ func SetupMetricsServer(metricsBackend string, metricsPort int, mux *http.ServeM
 	// initialize metrics exporter before creating measurements
 	reg, err := metric.InitMetricsExporter(metricsBackend)
 	if err != nil {
-		klog.Error("failed to initialize metrics exporter: %s", err.Error())
+		klog.Errorf("failed to initialize metrics exporter: %s", err.Error())
 		return nil, err
 	}
 	metric.RegisterMetrics(reg, mux)

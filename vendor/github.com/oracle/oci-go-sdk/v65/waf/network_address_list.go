@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -57,6 +57,8 @@ type NetworkAddressList interface {
 
 type networkaddresslist struct {
 	JsonData         []byte
+	TimeUpdated      *common.SDKTime                      `mandatory:"false" json:"timeUpdated"`
+	LifecycleDetails *string                              `mandatory:"false" json:"lifecycleDetails"`
 	Id               *string                              `mandatory:"true" json:"id"`
 	DisplayName      *string                              `mandatory:"true" json:"displayName"`
 	CompartmentId    *string                              `mandatory:"true" json:"compartmentId"`
@@ -65,8 +67,6 @@ type networkaddresslist struct {
 	FreeformTags     map[string]string                    `mandatory:"true" json:"freeformTags"`
 	DefinedTags      map[string]map[string]interface{}    `mandatory:"true" json:"definedTags"`
 	SystemTags       map[string]map[string]interface{}    `mandatory:"true" json:"systemTags"`
-	TimeUpdated      *common.SDKTime                      `mandatory:"false" json:"timeUpdated"`
-	LifecycleDetails *string                              `mandatory:"false" json:"lifecycleDetails"`
 	Type             string                               `json:"type"`
 }
 
@@ -114,58 +114,59 @@ func (m *networkaddresslist) UnmarshalPolymorphicJSON(data []byte) (interface{},
 		err = json.Unmarshal(data, &mm)
 		return mm, err
 	default:
+		common.Logf("Recieved unsupported enum value for NetworkAddressList: %s.", m.Type)
 		return *m, nil
 	}
 }
 
-//GetId returns Id
-func (m networkaddresslist) GetId() *string {
-	return m.Id
-}
-
-//GetDisplayName returns DisplayName
-func (m networkaddresslist) GetDisplayName() *string {
-	return m.DisplayName
-}
-
-//GetCompartmentId returns CompartmentId
-func (m networkaddresslist) GetCompartmentId() *string {
-	return m.CompartmentId
-}
-
-//GetTimeCreated returns TimeCreated
-func (m networkaddresslist) GetTimeCreated() *common.SDKTime {
-	return m.TimeCreated
-}
-
-//GetLifecycleState returns LifecycleState
-func (m networkaddresslist) GetLifecycleState() NetworkAddressListLifecycleStateEnum {
-	return m.LifecycleState
-}
-
-//GetFreeformTags returns FreeformTags
-func (m networkaddresslist) GetFreeformTags() map[string]string {
-	return m.FreeformTags
-}
-
-//GetDefinedTags returns DefinedTags
-func (m networkaddresslist) GetDefinedTags() map[string]map[string]interface{} {
-	return m.DefinedTags
-}
-
-//GetSystemTags returns SystemTags
-func (m networkaddresslist) GetSystemTags() map[string]map[string]interface{} {
-	return m.SystemTags
-}
-
-//GetTimeUpdated returns TimeUpdated
+// GetTimeUpdated returns TimeUpdated
 func (m networkaddresslist) GetTimeUpdated() *common.SDKTime {
 	return m.TimeUpdated
 }
 
-//GetLifecycleDetails returns LifecycleDetails
+// GetLifecycleDetails returns LifecycleDetails
 func (m networkaddresslist) GetLifecycleDetails() *string {
 	return m.LifecycleDetails
+}
+
+// GetId returns Id
+func (m networkaddresslist) GetId() *string {
+	return m.Id
+}
+
+// GetDisplayName returns DisplayName
+func (m networkaddresslist) GetDisplayName() *string {
+	return m.DisplayName
+}
+
+// GetCompartmentId returns CompartmentId
+func (m networkaddresslist) GetCompartmentId() *string {
+	return m.CompartmentId
+}
+
+// GetTimeCreated returns TimeCreated
+func (m networkaddresslist) GetTimeCreated() *common.SDKTime {
+	return m.TimeCreated
+}
+
+// GetLifecycleState returns LifecycleState
+func (m networkaddresslist) GetLifecycleState() NetworkAddressListLifecycleStateEnum {
+	return m.LifecycleState
+}
+
+// GetFreeformTags returns FreeformTags
+func (m networkaddresslist) GetFreeformTags() map[string]string {
+	return m.FreeformTags
+}
+
+// GetDefinedTags returns DefinedTags
+func (m networkaddresslist) GetDefinedTags() map[string]map[string]interface{} {
+	return m.DefinedTags
+}
+
+// GetSystemTags returns SystemTags
+func (m networkaddresslist) GetSystemTags() map[string]map[string]interface{} {
+	return m.SystemTags
 }
 
 func (m networkaddresslist) String() string {
