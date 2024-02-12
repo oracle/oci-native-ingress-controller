@@ -94,18 +94,18 @@ func RetrieveAuthConfig(ctx context.Context, opts types.IngressOpts, namespace s
 		klog.Infof("secret is retrieved from kubernetes api: %s", authConfigSecretName)
 
 		if len(secret.Data) == 0 || len(secret.Data["config"]) == 0 {
-			klog.Error("Empty Configuration is found in the secret %s", authConfigSecretName)
+			klog.Errorf("Empty Configuration is found in the secret %s", authConfigSecretName)
 			return nil, fmt.Errorf("auth config data is empty: %v", authConfigSecretName)
 		}
 		authCfg, err := ParseAuthConfig(secret, authConfigSecretName)
 		if err != nil {
-			klog.Error("Missing auth config data: %s", authConfigSecretName)
+			klog.Errorf("Missing auth config data: %s", authConfigSecretName)
 			return nil, fmt.Errorf("missing auth config data: %v", err)
 		}
 
 		err = authCfg.Validate()
 		if err != nil {
-			klog.Error("Missing auth config data %s", authConfigSecretName)
+			klog.Errorf("Missing auth config data %s", authConfigSecretName)
 			return nil, fmt.Errorf("missing auth config data: %v", err)
 		}
 		auth.Config = *authCfg

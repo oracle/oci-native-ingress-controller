@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -17,7 +17,7 @@ import (
 	"net/http"
 )
 
-//CertificatesClient a client for Certificates
+// CertificatesClient a client for Certificates
 type CertificatesClient struct {
 	common.BaseClient
 	config *common.ConfigurationProvider
@@ -26,6 +26,9 @@ type CertificatesClient struct {
 // NewCertificatesClientWithConfigurationProvider Creates a new default Certificates client with the given configuration provider.
 // the configuration provider will be used for the default signer as well as reading the region
 func NewCertificatesClientWithConfigurationProvider(configProvider common.ConfigurationProvider) (client CertificatesClient, err error) {
+	if enabled := common.CheckForEnabledServices("certificates"); !enabled {
+		return client, fmt.Errorf("the Developer Tool configuration disabled this service, this behavior is controlled by OciSdkEnabledServicesMap variables. Please check if your local developer-tool-configuration.json file configured the service you're targeting or contact the cloud provider on the availability of this service")
+	}
 	provider, err := auth.GetGenericConfigurationProvider(configProvider)
 	if err != nil {
 		return client, err
@@ -39,7 +42,8 @@ func NewCertificatesClientWithConfigurationProvider(configProvider common.Config
 
 // NewCertificatesClientWithOboToken Creates a new default Certificates client with the given configuration provider.
 // The obotoken will be added to default headers and signed; the configuration provider will be used for the signer
-//  as well as reading the region
+//
+//	as well as reading the region
 func NewCertificatesClientWithOboToken(configProvider common.ConfigurationProvider, oboToken string) (client CertificatesClient, err error) {
 	baseClient, err := common.NewClientWithOboToken(configProvider, oboToken)
 	if err != nil {
@@ -76,7 +80,7 @@ func (client *CertificatesClient) setConfigurationProvider(configProvider common
 	region, _ := configProvider.Region()
 	client.SetRegion(region)
 	if client.Host == "" {
-		return fmt.Errorf("Invalid region or Host. Endpoint cannot be constructed without endpointServiceName or serviceEndpointTemplate for a dotted region")
+		return fmt.Errorf("invalid region or Host. Endpoint cannot be constructed without endpointServiceName or serviceEndpointTemplate for a dotted region")
 	}
 	client.config = &configProvider
 	return nil
@@ -89,7 +93,7 @@ func (client *CertificatesClient) ConfigurationProvider() *common.ConfigurationP
 
 // GetCaBundle Gets a ca-bundle bundle.
 //
-// See also
+// # See also
 //
 // Click https://docs.cloud.oracle.com/en-us/iaas/tools/go-sdk-examples/latest/certificates/GetCaBundle.go.html to see an example of how to use GetCaBundle API.
 func (client CertificatesClient) GetCaBundle(ctx context.Context, request GetCaBundleRequest) (response GetCaBundleResponse, err error) {
@@ -147,7 +151,7 @@ func (client CertificatesClient) getCaBundle(ctx context.Context, request common
 // GetCertificateAuthorityBundle Gets a certificate authority bundle that matches either the specified `stage`, `name`, or `versionNumber` parameter.
 // If none of these parameters are provided, the bundle for the certificate authority version marked as `CURRENT` will be returned.
 //
-// See also
+// # See also
 //
 // Click https://docs.cloud.oracle.com/en-us/iaas/tools/go-sdk-examples/latest/certificates/GetCertificateAuthorityBundle.go.html to see an example of how to use GetCertificateAuthorityBundle API.
 func (client CertificatesClient) GetCertificateAuthorityBundle(ctx context.Context, request GetCertificateAuthorityBundleRequest) (response GetCertificateAuthorityBundleResponse, err error) {
@@ -207,7 +211,7 @@ func (client CertificatesClient) getCertificateAuthorityBundle(ctx context.Conte
 // By default, the private key is not included in the query result, and a CertificateBundlePublicOnly is returned.
 // If the private key is needed, use the CertificateBundleTypeQueryParam parameter to get a CertificateBundleWithPrivateKey response.
 //
-// See also
+// # See also
 //
 // Click https://docs.cloud.oracle.com/en-us/iaas/tools/go-sdk-examples/latest/certificates/GetCertificateBundle.go.html to see an example of how to use GetCertificateBundle API.
 func (client CertificatesClient) GetCertificateBundle(ctx context.Context, request GetCertificateBundleRequest) (response GetCertificateBundleResponse, err error) {
@@ -264,7 +268,7 @@ func (client CertificatesClient) getCertificateBundle(ctx context.Context, reque
 
 // ListCertificateAuthorityBundleVersions Lists all certificate authority bundle versions for the specified certificate authority.
 //
-// See also
+// # See also
 //
 // Click https://docs.cloud.oracle.com/en-us/iaas/tools/go-sdk-examples/latest/certificates/ListCertificateAuthorityBundleVersions.go.html to see an example of how to use ListCertificateAuthorityBundleVersions API.
 func (client CertificatesClient) ListCertificateAuthorityBundleVersions(ctx context.Context, request ListCertificateAuthorityBundleVersionsRequest) (response ListCertificateAuthorityBundleVersionsResponse, err error) {
@@ -321,7 +325,7 @@ func (client CertificatesClient) listCertificateAuthorityBundleVersions(ctx cont
 
 // ListCertificateBundleVersions Lists all certificate bundle versions for the specified certificate.
 //
-// See also
+// # See also
 //
 // Click https://docs.cloud.oracle.com/en-us/iaas/tools/go-sdk-examples/latest/certificates/ListCertificateBundleVersions.go.html to see an example of how to use ListCertificateBundleVersions API.
 func (client CertificatesClient) ListCertificateBundleVersions(ctx context.Context, request ListCertificateBundleVersionsRequest) (response ListCertificateBundleVersionsResponse, err error) {
