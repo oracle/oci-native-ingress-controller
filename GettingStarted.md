@@ -46,7 +46,6 @@ This section describes steps to deploy and test OCI-Native-Ingress-Controller.
 ### Prerequisites
 Kubernetes Cluster with Native Pod Networking setup.
 Currently supported kubernetes versions are:
-- 1.26
 - 1.27
 - 1.28
 - 1.29
