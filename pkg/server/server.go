@@ -53,6 +53,11 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/podreadiness"
 )
 
+const (
+	// OkeHostOverrideEnvVar is a hidden flag that allows NIC to hit another containerengine endpoint
+	okeHostOverrideEnvVar = "OKE_HOST_OVERRIDE"
+)
+
 func BuildConfig(kubeconfig string) (*rest.Config, error) {
 	if kubeconfig != "" {
 		cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -198,6 +203,11 @@ func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset
 	containerEngineClient, err := containerengine.NewContainerEngineClientWithConfigurationProvider(configProvider)
 	if err != nil {
 		klog.Fatalf("failed to load container engine client configuration provider: %v", err)
+	}
+
+	// undocumented endpoint for testing in dev
+	if os.Getenv(okeHostOverrideEnvVar) != "" {
+		containerEngineClient.BaseClient.Host = os.Getenv(okeHostOverrideEnvVar)
 	}
 
 	lbClient := loadbalancer.New(&ociLBClient)
