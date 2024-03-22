@@ -50,7 +50,7 @@ const (
 	IngressControllerFinalizer = "oci.oraclecloud.com/ingress-controller-protection"
 
 	IngressListenerTlsCertificateAnnotation = "oci-native-ingress.oraclecloud.com/certificate-ocid"
-	IngressBackendTlsEnabledAnnotation = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
+	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
 	// IngressProtocolAnntoation - HTTP only for now
 	// HTTP, HTTP2 - accepted.
