@@ -181,6 +181,41 @@ func TestGetListenerTlsCertificateOcid(t *testing.T) {
 	Expect(result).To(BeNil())
 }
 
+func TestGetBackendTlsEnabled(t *testing.T) {
+	RegisterTestingT(t)
+	i := networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "true"},
+		},
+	}
+	result := GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "false"},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(false))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "scam"},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: ""},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
+}
+
 func TestGetIngressHealthCheckProtocol(t *testing.T) {
 	RegisterTestingT(t)
 	protocol := "http"

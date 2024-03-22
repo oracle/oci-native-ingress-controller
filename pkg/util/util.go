@@ -50,6 +50,7 @@ const (
 	IngressControllerFinalizer = "oci.oraclecloud.com/ingress-controller-protection"
 
 	IngressListenerTlsCertificateAnnotation = "oci-native-ingress.oraclecloud.com/certificate-ocid"
+	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
 	// IngressProtocolAnntoation - HTTP only for now
 	// HTTP, HTTP2 - accepted.
@@ -162,6 +163,23 @@ func GetListenerTlsCertificateOcid(i *networkingv1.Ingress) *string {
 		return nil
 	}
 	return &value
+}
+
+func GetBackendTlsEnabled(i *networkingv1.Ingress) bool {
+	annotation := IngressBackendTlsEnabledAnnotation
+	value, ok := i.Annotations[annotation]
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return true
+	}
+
+	result, err := strconv.ParseBool(value)
+	if err != nil {
+		klog.Errorf("Error parsing value %s for flag %s as boolean. Setting the default value as 'true'", value, annotation)
+		return true
+	}
+
+	return result
 }
 
 func GetIngressHealthCheckProtocol(i *networkingv1.Ingress) string {
