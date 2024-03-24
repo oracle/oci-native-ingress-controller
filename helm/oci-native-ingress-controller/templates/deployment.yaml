@@ -4,16 +4,12 @@
 # Copyright (c) 2023 Oracle America, Inc. and its affiliates.
 # Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
 #
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ .Values.deploymentNamespace }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "oci-native-ingress-controller.fullname" . }}
-  namespace: {{ .Values.deploymentNamespace }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
   labels:
     {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
 spec:

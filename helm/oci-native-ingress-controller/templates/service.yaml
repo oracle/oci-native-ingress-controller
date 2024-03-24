@@ -8,7 +8,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "oci-native-ingress-controller.fullname" . }}
-  namespace: {{ .Values.deploymentNamespace }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
   labels:
     {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
 spec:

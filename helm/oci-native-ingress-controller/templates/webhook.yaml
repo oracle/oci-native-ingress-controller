@@ -8,12 +8,12 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: oci-native-ingress-controller-webhook-serving-cert
-  namespace: {{ .Values.deploymentNamespace }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
 spec:
   dnsNames:
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc.cluster.local
+    - oci-native-ingress-controller.{{ .Values.namespaceOverride | default .Release.Namespace }}
+    - oci-native-ingress-controller.{{ .Values.namespaceOverride | default .Release.Namespace }}.svc
+    - oci-native-ingress-controller.{{ .Values.namespaceOverride | default .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: oci-native-ingress-controller-ca
@@ -23,7 +23,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: oci-native-ingress-controller-ca
-  namespace: {{ .Values.deploymentNamespace }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
 spec:
   selfSigned: {}
 ---
@@ -34,12 +34,12 @@ metadata:
   labels:
     {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Values.deploymentNamespace }}/oci-native-ingress-controller-webhook-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Values.namespaceOverride | default .Release.Namespace }}/oci-native-ingress-controller-webhook-serving-cert
 webhooks:
 - clientConfig:
     service:
       name: {{ include "oci-native-ingress-controller.fullname" . }}
-      namespace: {{ .Values.deploymentNamespace }}
+      namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
       path: /mutate-v1-pod
   failurePolicy: Fail
   name: podreadiness.ingress.oraclecloud.com
@@ -78,4 +78,3 @@ webhooks:
     resources:
     - pods
   sideEffects: None
-

@@ -82,5 +82,5 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: {{ template "oci-native-ingress-controller.serviceAccountName" . }}
-  namespace: {{ .Values.deploymentNamespace }}
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
 {{- end }}

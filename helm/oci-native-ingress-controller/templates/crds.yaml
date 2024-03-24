@@ -1,0 +1,32 @@
+#
+# OCI Native Ingress Controller
+#
+# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
+# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
+#
+{{if .Values.installCRDs }}
+{{if not (.Capabilities.APIVersions.Has "ingress.oraclecloud.com/v1beta1") }}
+{{- range $path, $bytes := .Files.Glob "crds/*.yaml" }}
+{{ $.Files.Get $path }}
+---
+{{- end }}
+{{ end }}
+{{ end }}
+
+{{- if .Values.ingressParams}}
+---
+apiVersion: "ingress.oraclecloud.com/v1beta1"
+kind: IngressClassParameters
+metadata:
+  name: {{ include "oci-native-ingress-controller.fullname" . }}-params
+  namespace: {{ .Values.namespaceOverride | default .Release.Namespace }}
+  labels:
+    {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
+spec:
+  compartmentId: "{{ .Values.compartment_id }}"
+  subnetId: "{{ .Values.subnet_id }}"
+  loadBalancerName: "{{ include "oci-native-ingress-controller.fullname" . }}"
+  isPrivate: {{ .Values.ingressParams.isPrivate | default false }}
+  minBandwidthMbps: {{ .Values.ingressParams.minBandwidthMbps | default 10 }}
+  maxBandwidthMbps: {{ .Values.ingressParams.maxBandwidthMbps | default 10 }}
+{{- end }}
