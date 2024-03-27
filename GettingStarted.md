@@ -135,8 +135,8 @@ Allow <subject> to manage certificate-associations in compartment <compartment-i
 Allow <subject> to read certificate-authorities in compartment <compartment-id>
 Allow <subject> to manage certificate-authority-associations in compartment <compartment-id>
 Allow <subject> to read certificate-authority-bundles in compartment <compartment-id>
-ALLOW <subject> native-ingress-controller to read public-ips in tenancy
-ALLOW <subject> native-ingress-controller to manage floating-ips in tenancy 
+ALLOW <subject> to read public-ips in tenancy
+ALLOW <subject> to manage floating-ips in tenancy 
 Allow <subject> to manage waf-family in compartment <compartment-id>
 Allow <subject> to read cluster-family in compartment <compartment-id>
 
