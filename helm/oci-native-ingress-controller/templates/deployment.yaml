@@ -69,7 +69,7 @@ spec:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
             - name: OCI_RESOURCE_PRINCIPAL_REGION
-              value: "us-phoenix-1"
+              value: {{ .Values.region }}
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
           ports:
