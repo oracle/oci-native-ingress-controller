@@ -4,10 +4,12 @@
 # Copyright (c) 2023 Oracle America, Inc. and its affiliates.
 # Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
 #
+{{- if not (lookup "v1" "Namespace" "" .Values.deploymentNamespace)}}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.deploymentNamespace }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
