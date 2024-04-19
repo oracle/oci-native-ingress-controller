@@ -41,6 +41,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 )
 
@@ -366,9 +367,32 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
+
 		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
+		}
+
+		// listenerSslConfig.VerifyPeerCertificate
+
+		mode, deepth := stateStore.GetMutualTlsPortConfigForListener(port)
+		mtlsPorts := stateStore.IngressGroupState.MtlsPorts
+		klog.Infof("  GetMutualTlsPortConfigForListener ********** GetMutualTlsPortConfigForListener  mtlsPorts :  %s ", mtlsPorts)
+
+		if mode == "verify" {
+			// listenerSslConfig.VerifyDepth
+			listenerSslConfig.VerifyPeerCertificate = common.Bool(true)
+			listenerSslConfig.VerifyDepth = &deepth
+			caBundleId, _ := CreateOrGetCaBundleForBackendSet(ingress.Namespace, artifact, c.defaultCompartmentId, c.client)
+			if err != nil {
+				klog.Infof(" CreateOrGetCaBundleForBackendSet ********** CreateOrGetCaBundleForBackendSet  port :  %s ", port)
+				return err
+			}
+			if caBundleId != nil {
+				caBundleIds := []string{*caBundleId}
+				listenerSslConfig.TrustedCertificateAuthorityIds = caBundleIds
+			}
+
 		}
 
 		protocol := stateStore.GetListenerProtocol(port)
@@ -480,6 +504,11 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
+	// c.
+	// mode, _ := stateStore.GetMutualTlsPortConfigForListener(int32(*listener.Port))
+	// if mode == "verify" {
+	// 	// 执行相关操作
+	// }
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
 		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client)

@@ -337,7 +337,9 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 		}
 		newCertificateId = *cId
 	}
-
+	// //TODO add VerifyPeerCertificate here
+	//   https://github.com/oracle/oci-go-sdk/blob/master/example/example_loadbalancer_test.go
+	// listenerSslConfig.VerifyPeerCertificate(common.Bool(true))
 	if newCertificateId != "" {
 		certificateIds := []string{newCertificateId}
 		listenerSslConfig = &ociloadbalancer.SslConfigurationDetails{CertificateIds: certificateIds}
