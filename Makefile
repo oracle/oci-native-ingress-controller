@@ -62,8 +62,6 @@ build: ./main.go
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go build -mod vendor -a -o dist/onic ./main.go
 
 image:
-
-	docker build --platform linux/amd64 --build-arg goos=$(GOOS) --build-arg goarch=$(GOARCH) -t ${IMAGE_PATH} -f Dockerfile .
 	docker build --build-arg goos=$(GOOS) --build-arg goarch=$(GOARCH) -t ${IMAGE_PATH} -f Dockerfile .
 
 push:
