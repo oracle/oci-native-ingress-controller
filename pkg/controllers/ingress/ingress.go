@@ -377,9 +377,10 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		mode, deepth := stateStore.GetMutualTlsPortConfigForListener(port)
 		mtlsPorts := stateStore.IngressGroupState.MtlsPorts
-		klog.Infof("  GetMutualTlsPortConfigForListener ********** GetMutualTlsPortConfigForListener  mtlsPorts :  %s ", mtlsPorts)
+		klog.Infof("  GetMutualTlsPortConfigForListener **********   mtlsPorts :  %s ", util.PrettyPrint(mtlsPorts))
 
-		if mode == "verify" {
+		klog.Infof("  GetMutualTlsPortConfigForListener **********  before :  %s ", util.PrettyPrint(listenerSslConfig))
+		if mode == util.MutualTlsAuthenticationVerify {
 			// listenerSslConfig.VerifyDepth
 			listenerSslConfig.VerifyPeerCertificate = common.Bool(true)
 			listenerSslConfig.VerifyDepth = &deepth
@@ -394,6 +395,7 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 			}
 
 		}
+		klog.Infof("  GetMutualTlsPortConfigForListener  after :  %s ", util.PrettyPrint(listenerSslConfig))
 
 		protocol := stateStore.GetListenerProtocol(port)
 		err = c.client.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, listenerSslConfig)
@@ -504,11 +506,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
-	// c.
-	// mode, _ := stateStore.GetMutualTlsPortConfigForListener(int32(*listener.Port))
-	// if mode == "verify" {
-	// 	// 执行相关操作
-	// }
+
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
 		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client)
@@ -522,6 +520,44 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 				needsUpdate = true
 			}
 		}
+
+		var port = int32(*listener.Port)
+		mode, deepth := stateStore.GetMutualTlsPortConfigForListener(port)
+		mtlsPorts := stateStore.IngressGroupState.MtlsPorts
+		klog.Infof("  syncListenerr  mtlsPorts :  %s ", util.PrettyPrint(mtlsPorts))
+
+		klog.Infof("  syncListener   before :  %s ", util.PrettyPrint(listener.SslConfiguration))
+		var modeToBool bool = false
+		if mode == util.MutualTlsAuthenticationVerify {
+			modeToBool = true
+		}
+		if *listener.SslConfiguration.VerifyPeerCertificate != modeToBool || *listener.SslConfiguration.VerifyDepth != deepth {
+			klog.Infof(" mtls port config %d needs update  mode:  %s", *listener.Name, mode)
+			needsUpdate = true
+
+			if mode == util.MutualTlsAuthenticationVerify {
+				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(true)
+				listener.SslConfiguration.VerifyDepth = &deepth
+				caBundleId, _ := CreateOrGetCaBundleForBackendSet(namespace, artifact, c.defaultCompartmentId, c.client)
+				if err != nil {
+					klog.Infof(" syncListener  CreateOrGetCaBundleForBackendSet  port :  %s ", port)
+					return err
+				}
+				if caBundleId != nil {
+					caBundleIds := []string{*caBundleId}
+					listener.SslConfiguration.TrustedCertificateAuthorityIds = caBundleIds
+				}
+
+			} else {
+				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(false)
+				listener.SslConfiguration.VerifyDepth = common.Int(1)
+				listener.SslConfiguration.TrustedCertificateAuthorityIds = nil
+
+			}
+		}
+
+		klog.Infof("  syncListener  after :  %s ", util.PrettyPrint(listener.SslConfiguration))
+
 	}
 
 	protocol := stateStore.GetListenerProtocol(int32(*listener.Port))

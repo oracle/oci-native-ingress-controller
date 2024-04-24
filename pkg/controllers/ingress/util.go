@@ -184,6 +184,8 @@ func CreateCaBundle(certificateName string, compartmentId string, certificatesCl
 		CreateCaBundleDetails: caBundleDetails,
 		OpcRetryToken:         &certificateName,
 	}
+	klog.Infof("  createCaBundleRequest  ********** certificateName %s createCaBundleRequest :  %s ", certificateName, util.PrettyPrint(createCaBundleRequest))
+
 	createCaBundle, err := certificatesClient.CreateCaBundle(context.TODO(), createCaBundleRequest)
 	if err != nil {
 		return nil, err

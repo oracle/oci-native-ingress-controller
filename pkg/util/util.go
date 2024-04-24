@@ -91,6 +91,8 @@ const (
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
 	WAFCacheMaxAgeInMinutes         = 5
+
+	MutualTlsAuthenticationVerify = "verify"
 )
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")
