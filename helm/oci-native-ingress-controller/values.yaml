@@ -97,6 +97,8 @@ webhookBindPort: 9443
 # Supported auths - instance(default), user
 authType: instance
 authSecretName: oci-config
+# Region where OKE cluster is deployed
+region: ""
 
 # objectSelector for webhook
 objectSelector:
