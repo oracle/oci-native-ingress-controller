@@ -196,27 +196,27 @@ func TestGetSSLConfigForBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	client, lb := initsUtil()
 
-	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", client)
+	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
 	// No ca bundle scenario
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", "false", client)
 	Expect(err).Should(BeNil())
 
-	_, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", client)
+	_, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", "false", client)
 	Expect(err).Should(Not(BeNil()))
 	Expect(err.Error()).Should(Equal(errorMsg))
 
@@ -227,14 +227,14 @@ func TestGetSSLConfigForListener(t *testing.T) {
 	client, _ := initsUtil()
 
 	//no listener for cert
-	sslConfig, err := GetSSLConfigForListener(namespace, nil, state.ArtifactTypeCertificate, "certificate", "", client)
+	sslConfig, err := GetSSLConfigForListener(namespace, nil, state.ArtifactTypeCertificate, "certificate", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
 	Expect(sslConfig.CertificateIds[0]).Should(Equal("certificate"))
 
 	//no listener for secret
-	sslConfig, err = GetSSLConfigForListener(namespace, nil, state.ArtifactTypeSecret, "secret", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, nil, state.ArtifactTypeSecret, "secret", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
@@ -249,14 +249,14 @@ func TestGetSSLConfigForListener(t *testing.T) {
 	listener := ociloadbalancer.Listener{
 		SslConfiguration: &customSslConfig,
 	}
-	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeCertificate, "certificate", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeCertificate, "certificate", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
 	Expect(sslConfig.CertificateIds[0]).Should(Equal("certificate"))
 
 	// Listener + secret
-	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeSecret, "secret-cert", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeSecret, "secret-cert", "", "false", client)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))

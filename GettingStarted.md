@@ -460,6 +460,7 @@ metadata:
   name: demo-tls-secret
 type: kubernetes.io/tls
 ```
+
 Ingress Format: 
 ```
 apiVersion: networking.k8s.io/v1
@@ -484,6 +485,44 @@ spec:
               number: 443
 ```
 
+If you're using cert-manager's ACME to generate your certificates, you won't have ca.crt, but the CA will be embedded into tls.crt, so you can add this notation to extract the CA from there:
+Secret format:
+```
+apiVersion: v1
+data:
+  tls.crt: <base64-encoded-server-certificate>
+  tls.key: <base64-encoded-private-key>
+kind: Secret
+metadata:
+  name: demo-tls-secret
+type: kubernetes.io/tls
+```
+
+Ingress Format: 
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-tls-secret
+  annotations:
+    oci-native-ingress.oraclecloud.com/extract-ca-from-tls-crt: "true"
+spec:
+  tls:
+  - hosts:
+      - foo.bar.com
+    secretName: tls-secret
+  rules:
+  - host: "foo.bar.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/TLSPath"
+        backend:
+          service:
+            name: tls-test
+            port:
+              number: 443
+```
 ##### Sample configuration : Using Certificate
 Certificate should have the common name of the host specified.
 ```
@@ -517,6 +556,7 @@ oci-native-ingress.oraclecloud.com/protocol
  
 // Backendset Annotations
 oci-native-ingress.oraclecloud.com/policy
+oci-native-ingress.oraclecloud.com/extract-ca-from-tls-crt
 oci-native-ingress.oraclecloud.com/healthcheck-protocol
 oci-native-ingress.oraclecloud.com/healthcheck-port
 oci-native-ingress.oraclecloud.com/healthcheck-path

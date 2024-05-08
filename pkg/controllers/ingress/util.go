@@ -11,6 +11,8 @@ package ingress
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/pem"
 	"fmt"
 	"reflect"
 	"strings"
@@ -200,14 +202,31 @@ type TLSSecretData struct {
 	PrivateKey         *string
 }
 
-func getTlsSecretContent(namespace string, secretName string, client kubernetes.Interface) (*TLSSecretData, error) {
+func getTlsSecretContent(namespace string, secretName string, extractCaFromTlsCrt string, client kubernetes.Interface) (*TLSSecretData, error) {
 	secret, err := client.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
-	caCertificateChain := string(secret.Data["ca.crt"])
-	serverCertificate := string(secret.Data["tls.crt"])
-	privateKey := string(secret.Data["tls.key"])
+	var caCertificateChain, serverCertificate, privateKey string
+	if extractCaFromTlsCrt == "true" {
+		fullChain := string(secret.Data["tls.crt"])
+		certs, err := tls.X509KeyPair([]byte(fullChain), []byte(secret.Data["tls.key"]))
+		if err != nil {
+			return nil, err
+		}
+		// Extract the server certificate
+		serverCert := certs.Certificate[0]
+		serverCertificate = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverCert}))
+		// Extract the CA certificate
+		caCert := certs.Certificate[1]
+		caCertificateChain = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert}))
+		privateKey = string(secret.Data["tls.key"])
+	} else {
+		caCertificateChain = string(secret.Data["ca.crt"])
+		serverCertificate = string(secret.Data["tls.crt"])
+		privateKey = string(secret.Data["tls.key"])
+	}
+
 	return &TLSSecretData{CaCertificateChain: &caCertificateChain, ServerCertificate: &serverCertificate, PrivateKey: &privateKey}, nil
 }
 
@@ -218,7 +237,7 @@ func getCertificateNameFromSecret(secretName string) string {
 	return fmt.Sprintf("ic-%s", secretName)
 }
 
-func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
+func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, extractCaFromTlsCrt string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
 	var backendSetSslConfig *ociloadbalancer.SslConfigurationDetails
 	createCaBundle := false
 	var caBundleId *string
@@ -244,7 +263,7 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 		}
 
 		if createCaBundle {
-			cId, err := CreateOrGetCaBundleForBackendSet(namespace, artifact, compartmentId, client)
+			cId, err := CreateOrGetCaBundleForBackendSet(namespace, artifact, compartmentId, extractCaFromTlsCrt, client)
 			if err != nil {
 				return nil, err
 			}
@@ -300,7 +319,7 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 	return backendSetSslConfig, nil
 }
 
-func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
+func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, compartmentId string, extractCaFromTlsCrt string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
 	var currentCertificateId string
 	var newCertificateId string
 	createCertificate := false
@@ -331,7 +350,7 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	}
 
 	if createCertificate {
-		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, client)
+		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, extractCaFromTlsCrt, client)
 		if err != nil {
 			return nil, err
 		}
@@ -345,7 +364,7 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	return listenerSslConfig, nil
 }
 
-func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, client *client.ClientProvider) (*string, error) {
+func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, extractCaFromTlsCrt string, client *client.ClientProvider) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
 	certificateId, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {
@@ -353,7 +372,7 @@ func CreateOrGetCertificateForListener(namespace string, secretName string, comp
 	}
 
 	if certificateId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
+		tlsSecretData, err := getTlsSecretContent(namespace, secretName, extractCaFromTlsCrt, client.GetK8Client())
 		if err != nil {
 			return nil, err
 		}
@@ -369,7 +388,7 @@ func CreateOrGetCertificateForListener(namespace string, secretName string, comp
 	return certificateId, nil
 }
 
-func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compartmentId string, client *client.ClientProvider) (*string, error) {
+func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compartmentId string, extractCaFromTlsCrt string, client *client.ClientProvider) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
 	caBundleId, err := FindCaBundleWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {
@@ -377,7 +396,7 @@ func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compa
 	}
 
 	if caBundleId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
+		tlsSecretData, err := getTlsSecretContent(namespace, secretName, extractCaFromTlsCrt, client.GetK8Client())
 		if err != nil {
 			return nil, err
 		}

@@ -326,12 +326,12 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 	}
 
 	backendSetsToCreate := desiredBackendSets.Difference(actualBackendSets)
-
+	extractCaFromTlsCrt := util.GetIngressExtractCaFromTlsCrt(ingress)
 	for _, bsName := range backendSetsToCreate.List() {
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.client)
+		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, extractCaFromTlsCrt, c.client)
 		if err != nil {
 			return err
 		}
@@ -353,7 +353,8 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 	for _, listener := range lb.Listeners {
 		actualListenerPorts.Insert(int32(*listener.Port))
 
-		err := syncListener(ingress.Namespace, stateStore, &lbId, *listener.Name, c)
+		extractCaFromTlsCrt := util.GetIngressExtractCaFromTlsCrt(ingress)
+		err := syncListener(ingress.Namespace, stateStore, &lbId, *listener.Name, extractCaFromTlsCrt, c)
 		if err != nil {
 			return err
 		}
@@ -366,7 +367,8 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client)
+		extractCaFromTlsCrt := util.GetIngressExtractCaFromTlsCrt(ingress)
+		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, extractCaFromTlsCrt, c.client)
 		if err != nil {
 			return err
 		}
@@ -466,7 +468,7 @@ func deleteListeners(actualListeners sets.Int32, desiredListeners sets.Int32, lb
 	return nil
 }
 
-func syncListener(namespace string, stateStore *state.StateStore, lbId *string, listenerName string, c *Controller) error {
+func syncListener(namespace string, stateStore *state.StateStore, lbId *string, listenerName string, extractCaFromTlsCrt string, c *Controller) error {
 	startTime := util.GetCurrentTimeInUnixMillis()
 	lb, etag, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), *lbId)
 	if err != nil {
@@ -482,7 +484,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client)
+		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, extractCaFromTlsCrt, c.client)
 		if err != nil {
 			return err
 		}
@@ -530,7 +532,8 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.client)
+	extractCaFromTlsCrt := util.GetIngressExtractCaFromTlsCrt(ingress)
+	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, extractCaFromTlsCrt, c.client)
 	if err != nil {
 		return err
 	}

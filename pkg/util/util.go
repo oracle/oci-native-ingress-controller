@@ -69,6 +69,7 @@ const (
 	IngressHealthCheckReturnCodeAnnotation           = "oci-native-ingress.oraclecloud.com/healthcheck-return-code"
 	IngressHealthCheckResponseBodyRegexAnnotation    = "oci-native-ingress.oraclecloud.com/healthcheck-response-regex"
 	IngressHealthCheckForcePlainTextAnnotation       = "oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext"
+	IngressExtractCaFromTlsCrtAnnotation             = "oci-native-ingress.oraclecloud.com/extract-ca-from-tls-crt"
 
 	ProtocolTCP                            = "TCP"
 	ProtocolHTTP                           = "HTTP"
@@ -81,6 +82,7 @@ const (
 	DefaultHealthCheckRetries              = 3
 	DefaultHealthCheckReturnCode           = 200
 	DefaultBackendSetRoutingPolicy         = "LEAST_CONNECTIONS"
+	DefaultExtractCaFromTlsCrtAnnotation   = "false"
 
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
@@ -96,7 +98,6 @@ func GetIngressClassCompartmentId(p *v1beta1.IngressClassParameters, defaultComp
 
 	return p.Spec.CompartmentId
 }
-
 func GetIngressClassLoadBalancerName(ic *networkingv1.IngressClass, p *v1beta1.IngressClassParameters) string {
 	if strings.TrimSpace(p.Spec.LoadBalancerName) != "" {
 		return p.Spec.LoadBalancerName
@@ -111,6 +112,15 @@ func GetIngressClassSubnetId(p *v1beta1.IngressClassParameters, defaultSubnet st
 	}
 
 	return p.Spec.SubnetId
+}
+
+func GetIngressExtractCaFromTlsCrt(i *networkingv1.Ingress) string {
+	value, ok := i.Annotations[IngressExtractCaFromTlsCrtAnnotation]
+	if !ok {
+		return DefaultExtractCaFromTlsCrtAnnotation
+	}
+
+	return value
 }
 
 func GetIngressPolicy(i *networkingv1.Ingress) string {
