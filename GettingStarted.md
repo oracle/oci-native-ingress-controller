@@ -485,7 +485,7 @@ spec:
               number: 443
 ```
 
-If you're using cert-manager's ACME to generate your certificates, you won't have ca.crt, but the CA will be embedded into tls.crt, so you can add this notation to extract the CA from there:
+If you're using cert-manager's ACME to generate your certificates you won't have ca.crt, but the CA will be embedded into tls.crt, so you can add ```oci-native-ingress.oraclecloud.com/extract-ca-from-tls-crt: "true"``` annotation to extract the CA from there:
 Secret format:
 ```
 apiVersion: v1
