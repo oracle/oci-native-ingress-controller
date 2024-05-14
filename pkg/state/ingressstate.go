@@ -42,9 +42,10 @@ type TlsConfig struct {
 	Type     string
 }
 type MutualTlsPortConfig struct {
-	Port  int32  `json:"port"`
-	Mode  string `json:"mode"`
-	Depth int    `json:"depth,omitempty"`
+	Port        int32  `json:"port"`
+	Mode        string `json:"mode"`
+	Depth       int    `json:"depth,omitempty"`
+	TrustCACert string `json:"trustcacert"`
 }
 type StateStore struct {
 	IngressClassLister networkinglisters.IngressClassLister
@@ -335,12 +336,12 @@ func (s *StateStore) GetTLSConfigForListener(port int32) (string, string) {
 // 	return MutualTlsPortConfig{}
 // }
 
-func (s *StateStore) GetMutualTlsPortConfigForListener(port int32) (string, int) {
+func (s *StateStore) GetMutualTlsPortConfigForListener(port int32) (string, int, string) {
 	portMtlsConfig, ok := s.IngressGroupState.MtlsPorts[port]
 	if ok {
-		return portMtlsConfig.Mode, portMtlsConfig.Depth
+		return portMtlsConfig.Mode, portMtlsConfig.Depth, portMtlsConfig.TrustCACert
 	}
-	return "", 0
+	return "", 0, ""
 }
 
 func (s *StateStore) GetTLSConfigForBackendSet(bsName string) (string, string) {

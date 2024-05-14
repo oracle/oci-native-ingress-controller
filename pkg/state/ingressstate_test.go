@@ -466,7 +466,7 @@ func TestMtlsAuthVerifyPortConfig(t *testing.T) {
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
-	mode, deepth := stateStore.GetMutualTlsPortConfigForListener(943)
+	mode, deepth, _ := stateStore.GetMutualTlsPortConfigForListener(943)
 
 	Expect(mode).Should(Equal(util.MutualTlsAuthenticationVerify))
 	Expect(deepth).Should(Equal(1))

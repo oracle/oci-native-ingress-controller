@@ -10,7 +10,7 @@ metadata:
   name: ingress-mutual-authentication-annotation-one
   namespace: default
   annotations:
-    oci-native-ingress.oraclecloud.com/mutual-tls-authentication: '[{"port": 80, "mode": "passthrough"}, {"port": 943, "mode": "verify","depth":1 }]'
+    oci-native-ingress.oraclecloud.com/mutual-tls-authentication: '[{"port": 80, "mode": "passthrough"}, {"port": 943, "mode": "verify","depth":1 ,"trustCACert" : "ocid1.cabundle.oc1.phx.amaaaaaacuco5yqaiwnnqo54ffsumwoxjxtgwtvyyau3dv7gyeisykfavzta" }]'
 spec:
   rules:
   - http:
