@@ -146,41 +146,38 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	for _, ingress := range ingresses {
 		for _, rule := range ingress.Spec.Rules {
 			for _, path := range rule.HTTP.Paths {
-				svcName, svcPort, targetPort, _, err := util.PathToServiceAndTargetPort(c.serviceLister, ingress.Namespace, path)
+				pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
 				if err != nil {
 					return err
 				}
-
+				svcName, svcPort, targetPort, err := util.PathToServiceAndTargetPort(svc, pSvc, ingress.Namespace, false)
+				if err != nil {
+					return err
+				}
 				epAddrs, err := util.GetEndpoints(c.endpointLister, ingress.Namespace, svcName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", ingress.Namespace, svcName, targetPort, err)
 				}
-
 				backends := []ociloadbalancer.BackendDetails{}
 				for _, epAddr := range epAddrs {
 					backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
 				}
-
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
 				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
-
 				backendSetHealth, err := c.client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch backendset health: %w", err)
 				}
-
 				for _, epAddr := range epAddrs {
 					pod, err := c.podLister.Pods(ingress.Namespace).Get(epAddr.TargetRef.Name)
 					if err != nil {
 						return fmt.Errorf("failed to fetch pod %s/%s: %w", ingress.Namespace, epAddr.TargetRef.Name, err)
 					}
-
 					backendName := fmt.Sprintf("%s:%d", epAddr.IP, targetPort)
 					readinessCondition := util.GetPodReadinessCondition(ingress.Name, rule.Host, path)
-
 					err = c.ensurePodReadinessCondition(pod, readinessCondition, backendSetHealth, backendName)
 					if err != nil {
 						return fmt.Errorf("%w", err)
