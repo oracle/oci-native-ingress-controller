@@ -150,7 +150,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				if err != nil {
 					return err
 				}
-
+				bsTLSEnabled := util.GetBackendTlsEnabled(ing)
 				certificateId := util.GetListenerTlsCertificateOcid(ing)
 				if certificateId != nil {
 					tlsPortDetail, ok := listenerTLSConfigMap[servicePort]
@@ -165,11 +165,12 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 						Artifact: *certificateId,
 					}
 					listenerTLSConfigMap[servicePort] = config
-					bsTLSConfigMap[bsName] = config
+					updateBackendTlsStatus(bsTLSEnabled, bsTLSConfigMap, bsName, config)
 				}
 
 				if rule.Host != "" {
 					secretName, ok := hostSecretMap[rule.Host]
+
 					if ok && secretName != "" {
 						tlsPortDetail, ok := listenerTLSConfigMap[servicePort]
 						if ok {
@@ -183,7 +184,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 							Artifact: secretName,
 						}
 						listenerTLSConfigMap[servicePort] = config
-						bsTLSConfigMap[bsName] = config
+						updateBackendTlsStatus(bsTLSEnabled, bsTLSConfigMap, bsName, config)
 					}
 				}
 			}
@@ -212,6 +213,18 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		s.metricsCollector.AddStateBuildTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
 	}
 	return nil
+}
+
+func updateBackendTlsStatus(bsTLSEnabled bool, bsTLSConfigMap map[string]TlsConfig, bsName string, config TlsConfig) {
+	if bsTLSEnabled {
+		bsTLSConfigMap[bsName] = config
+	} else {
+		config := TlsConfig{
+			Type:     "",
+			Artifact: "",
+		}
+		bsTLSConfigMap[bsName] = config
+	}
 }
 
 func validateBackendSetHealthChecker(ingressResource *networkingv1.Ingress,

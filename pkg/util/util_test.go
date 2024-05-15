@@ -11,6 +11,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	fake2 "k8s.io/client-go/kubernetes/typed/networking/v1/fake"
@@ -179,6 +181,41 @@ func TestGetListenerTlsCertificateOcid(t *testing.T) {
 
 	result = GetListenerTlsCertificateOcid(&i)
 	Expect(result).To(BeNil())
+}
+
+func TestGetBackendTlsEnabled(t *testing.T) {
+	RegisterTestingT(t)
+	i := networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "true"},
+		},
+	}
+	result := GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "false"},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(false))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: "scam"},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
+
+	i = networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{IngressBackendTlsEnabledAnnotation: ""},
+		},
+	}
+	result = GetBackendTlsEnabled(&i)
+	Expect(result).Should(Equal(true))
 }
 
 func TestGetIngressHealthCheckProtocol(t *testing.T) {
@@ -525,6 +562,82 @@ func TestIsIngressDeleting(t *testing.T) {
 
 	i.DeletionTimestamp = nil
 	Expect(IsIngressDeleting(&i)).Should(Equal(false))
+}
+
+func TestPathToServiceAndTargetPort(t *testing.T) {
+	RegisterTestingT(t)
+	namespace := "test"
+	svc := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "TestService",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"app": "multi-test"},
+			Ports: []v1.ServicePort{
+				{
+					Name:     "abcd",
+					Protocol: v1.ProtocolTCP,
+					Port:     443,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30224,
+				},
+				{
+					Name:     "efgh",
+					Protocol: v1.ProtocolTCP,
+					Port:     444,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30225,
+				},
+				{
+					Name:     "ijkl",
+					Protocol: v1.ProtocolTCP,
+					Port:     445,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30226,
+				},
+			},
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+		},
+	}
+	ingBackend1 := networkingv1.IngressServiceBackend{
+		Name: "TestService1",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 443,
+			Name:   "abcd",
+		},
+	}
+	ingBackend2 := networkingv1.IngressServiceBackend{
+		Name: "TestService2",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 444,
+			Name:   "efgh",
+		},
+	}
+	ingBackend3 := networkingv1.IngressServiceBackend{
+		Name: "TestService3",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 445,
+		},
+	}
+
+	runTests(svc, ingBackend1, namespace, "TestService1", "443", "30224")
+	runTests(svc, ingBackend2, namespace, "TestService2", "444", "30225")
+	runTests(svc, ingBackend3, namespace, "TestService3", "445", "30226")
+}
+
+func runTests(svc *v1.Service, ingBackend networkingv1.IngressServiceBackend, namespace string, expectedSvcName string, expectedPort string, np string) {
+	svcName, svcPort, nodePort, err := PathToServiceAndTargetPort(svc, ingBackend, namespace, true)
+	Expect(err == nil).Should(Equal(true))
+	Expect(svcName).Should(Equal(expectedSvcName))
+	Expect(strconv.Itoa(int(svcPort))).Should(Equal(expectedPort))
+	Expect(strconv.Itoa(int(nodePort))).Should(Equal(np))
 }
 
 func getIngressClassList() *networkingv1.IngressClassList {

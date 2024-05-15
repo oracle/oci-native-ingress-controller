@@ -50,6 +50,7 @@ const (
 	IngressControllerFinalizer = "oci.oraclecloud.com/ingress-controller-protection"
 
 	IngressListenerTlsCertificateAnnotation = "oci-native-ingress.oraclecloud.com/certificate-ocid"
+	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
 	// IngressProtocolAnntoation - HTTP only for now
 	// HTTP, HTTP2 - accepted.
@@ -162,6 +163,23 @@ func GetListenerTlsCertificateOcid(i *networkingv1.Ingress) *string {
 		return nil
 	}
 	return &value
+}
+
+func GetBackendTlsEnabled(i *networkingv1.Ingress) bool {
+	annotation := IngressBackendTlsEnabledAnnotation
+	value, ok := i.Annotations[annotation]
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return true
+	}
+
+	result, err := strconv.ParseBool(value)
+	if err != nil {
+		klog.Errorf("Error parsing value %s for flag %s as boolean. Setting the default value as 'true'", value, annotation)
+		return true
+	}
+
+	return result
 }
 
 func GetIngressHealthCheckProtocol(i *networkingv1.Ingress) string {
@@ -442,37 +460,56 @@ func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networking
 	return nil, false
 }
 
-func GetTargetPortForService(lister corelisters.ServiceLister, namespace string, name string, port int32, portName string) (int32, int32, *corev1.Service, error) {
-	svc, err := lister.Services(namespace).Get(name)
-	if err != nil {
-		return 0, 0, nil, err
-	}
-
+func GetTargetPortForService(svc *corev1.Service, namespace string, name string, port int32, portName string, isNodeportRequired bool) (int32, int32, error) {
 	for _, p := range svc.Spec.Ports {
 		if (p.Port != 0 && p.Port == port) || p.Name == portName {
-			if p.TargetPort.Type != intstr.Int {
-				return 0, 0, nil, fmt.Errorf("service %s/%s has non-integer ports: %s", namespace, name, p.Name)
+
+			if !isNodeportRequired {
+				if p.TargetPort.Type != intstr.Int {
+					return 0, 0, fmt.Errorf("service %s/%s has non-integer ports: %s", namespace, name, p.Name)
+				}
+				return p.Port, p.TargetPort.IntVal, nil
+			} else {
+				if p.NodePort == 0 {
+					return 0, 0, fmt.Errorf("service %s/%s has no nodeports: %s", namespace, name, p.Name)
+				}
+				return p.Port, p.NodePort, nil
 			}
-			return p.Port, p.TargetPort.IntVal, svc, nil
+
 		}
 	}
 
-	return 0, 0, nil, fmt.Errorf("service %s/%s does not have port: %s (%d)", namespace, name, portName, port)
+	return 0, 0, fmt.Errorf("service %s/%s does not have port: %s (%d)", namespace, name, portName, port)
 }
 
-func PathToServiceAndTargetPort(lister corelisters.ServiceLister, ingressNamespace string, path networkingv1.HTTPIngressPath) (string, int32, int32, *corev1.Service, error) {
-	if path.Backend.Service == nil {
-		return "", 0, 0, nil, fmt.Errorf("backend service is not defined for ingress")
-	}
+func PathToServiceAndTargetPort(svc *corev1.Service, svcBackend networkingv1.IngressServiceBackend, namespace string, isNodePortRequired bool) (string, int32, int32, error) {
 
-	pSvc := *path.Backend.Service
-
-	svcPort, targetPort, svc, err := GetTargetPortForService(lister, ingressNamespace, pSvc.Name, pSvc.Port.Number, pSvc.Port.Name)
+	svcPort, targetPort, err := GetTargetPortForService(svc, namespace, svcBackend.Name, svcBackend.Port.Number, svcBackend.Port.Name, isNodePortRequired)
 	if err != nil {
-		return "", 0, 0, nil, err
+		return "", 0, 0, err
+	}
+	return svcBackend.Name, svcPort, targetPort, nil
+}
+
+func ExtractServices(path networkingv1.HTTPIngressPath, svcLister corelisters.ServiceLister, ingress *networkingv1.Ingress) (networkingv1.IngressServiceBackend, *corev1.Service, error) {
+	pSvc, err := getIngressBackend(path)
+	if err != nil {
+		return networkingv1.IngressServiceBackend{}, nil, err
 	}
 
-	return pSvc.Name, svcPort, targetPort, svc, nil
+	svc, err := svcLister.Services(ingress.Namespace).Get(pSvc.Name)
+	if err != nil {
+		return networkingv1.IngressServiceBackend{}, nil, err
+	}
+	return pSvc, svc, nil
+}
+
+func getIngressBackend(path networkingv1.HTTPIngressPath) (networkingv1.IngressServiceBackend, error) {
+	if path.Backend.Service == nil {
+		return networkingv1.IngressServiceBackend{}, fmt.Errorf("backend service is not defined for ingress")
+	}
+	pSvc := *path.Backend.Service
+	return pSvc, nil
 }
 
 func GetEndpoints(lister corelisters.EndpointsLister, namespace string, service string) ([]corev1.EndpointAddress, error) {

@@ -36,10 +36,10 @@ kind: MutatingWebhookConfiguration
 metadata:
   name: oci-native-ingress-controller-webhook
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.3.0
+    helm.sh/chart: oci-native-ingress-controller-1.3.3
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.3.0"
+    app.kubernetes.io/version: "1.3.3"
     app.kubernetes.io/managed-by: Helm
   annotations:
     cert-manager.io/inject-ca-from: native-ingress-controller-system/oci-native-ingress-controller-webhook-serving-cert

@@ -46,9 +46,9 @@ This section describes steps to deploy and test OCI-Native-Ingress-Controller.
 ### Prerequisites
 Kubernetes Cluster with Native Pod Networking setup.
 Currently supported kubernetes versions are:
-- 1.26
 - 1.27
 - 1.28
+- 1.29
   
 We set up the cluster with native pod networking and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
@@ -135,8 +135,8 @@ Allow <subject> to manage certificate-associations in compartment <compartment-i
 Allow <subject> to read certificate-authorities in compartment <compartment-id>
 Allow <subject> to manage certificate-authority-associations in compartment <compartment-id>
 Allow <subject> to read certificate-authority-bundles in compartment <compartment-id>
-ALLOW <subject> native-ingress-controller to read public-ips in tenancy
-ALLOW <subject> native-ingress-controller to manage floating-ips in tenancy 
+ALLOW <subject> to read public-ips in tenancy
+ALLOW <subject> to manage floating-ips in tenancy 
 Allow <subject> to manage waf-family in compartment <compartment-id>
 Allow <subject> to read cluster-family in compartment <compartment-id>
 

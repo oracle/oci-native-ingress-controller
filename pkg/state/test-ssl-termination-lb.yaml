@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-tls
+  annotations:
+    oci-native-ingress.oraclecloud.com/protocol: HTTP2
+    oci-native-ingress.oraclecloud.com/backend-tls-enabled: "false"
+spec:
+  tls:
+    - hosts:
+        - foo.bar.com
+      secretName: secret_name
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/TLSPath"
+            backend:
+              service:
+                name: tls-test
+                port:
+                  number: 443
