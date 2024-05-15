@@ -86,7 +86,7 @@ func TestHandle(t *testing.T) {
 	wb := NewWebhook(ingressLister, serviceLister, client)
 
 	scheme := kscheme.Scheme
-	decoder, _ := admission.NewDecoder(scheme)
+	decoder := admission.NewDecoder(scheme)
 	wb.InjectDecoder(decoder)
 	tests := []struct {
 		name          string
