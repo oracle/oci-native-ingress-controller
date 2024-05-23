@@ -74,6 +74,8 @@ spec:
               value: {{ .Values.region }}
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
+            - name: OCI_REGION_METADATA
+              value: {{ squote .Values.ociRegionMetadataEnvString }}
           ports:
             - name: webhook-server
               containerPort: {{.Values.webhookBindPort}}
