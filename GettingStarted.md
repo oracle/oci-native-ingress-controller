@@ -44,14 +44,15 @@ The native ingress controller itself is lightweight process and pushes all the r
 This section describes steps to deploy and test OCI-Native-Ingress-Controller.
 
 ### Prerequisites
-Kubernetes Cluster with Native Pod Networking setup.
 Currently supported kubernetes versions are:
 - 1.27
 - 1.28
 - 1.29
   
-We set up the cluster with native pod networking and update the security rules. 
+We set up the cluster with either native pod networking or flannel CNI and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
+The documentation for Flannel : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-flannel_CNI_plugin.htm)
+
 
 Policy documentation for setting up security rules for load balancer:
  [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengnetworkconfig.htm#securitylistconfig__security_rules_for_load_balancers)
