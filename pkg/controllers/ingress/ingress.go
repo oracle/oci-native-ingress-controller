@@ -386,20 +386,18 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 			listenerSslConfig.VerifyDepth = &deepth
 
 			// check wethear the trustcacert is valid ca bundle
-			if isTrustAuthorityCaBundle(trustcacert) {
+			if mode == util.MutualTlsAuthenticationVerify && isTrustAuthorityCaBundle(trustcacert) {
 				caBundleIds := []string{trustcacert}
 				listenerSslConfig.TrustedCertificateAuthorityIds = caBundleIds
-			}
+			} else {
+				if mode == util.MutualTlsAuthenticationVerify {
+					klog.Error("verify trustcacert error, not a valid CA bundle ID: %s", util.PrettyPrint(trustcacert))
+				}
+				listenerSslConfig.VerifyPeerCertificate = common.Bool(false)
+				listenerSslConfig.VerifyDepth = common.Int(1)
+				listenerSslConfig.TrustedCertificateAuthorityIds = nil
 
-			// caBundleId, _ := CreateOrGetCaBundleForBackendSet(ingress.Namespace, artifact, c.defaultCompartmentId, c.client)
-			// if err != nil {
-			// 	klog.Infof(" CreateOrGetCaBundleForBackendSet ********** CreateOrGetCaBundleForBackendSet  port :  %s ", port)
-			// 	return err
-			// }
-			// if caBundleId != nil {
-			// 	caBundleIds := []string{*caBundleId}
-			// 	listenerSslConfig.TrustedCertificateAuthorityIds = caBundleIds
-			// }
+			}
 
 		}
 		klog.Infof("  GetMutualTlsPortConfigForListener  after :  %s ", util.PrettyPrint(listenerSslConfig))
@@ -542,27 +540,17 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 			klog.Infof(" mtls port config %d needs update  mode:  %s", *listener.Name, mode)
 			needsUpdate = true
 
-			if mode == util.MutualTlsAuthenticationVerify {
+			// check wethear the trustcacert is valid ca bundle
+			if mode == util.MutualTlsAuthenticationVerify && isTrustAuthorityCaBundle(trustcacert) {
 				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(true)
 				listener.SslConfiguration.VerifyDepth = &deepth
-
-				// check wethear the trustcacert is valid ca bundle
-				if isTrustAuthorityCaBundle(trustcacert) {
-					caBundleIds := []string{trustcacert}
-					listener.SslConfiguration.TrustedCertificateAuthorityIds = caBundleIds
-				}
-
-				// caBundleId, _ := CreateOrGetCaBundleForBackendSet(namespace, artifact, c.defaultCompartmentId, c.client)
-				// if err != nil {
-				// 	klog.Infof(" syncListener  CreateOrGetCaBundleForBackendSet  port :  %s ", port)
-				// 	return err
-				// }
-				// if caBundleId != nil {
-				// 	caBundleIds := []string{*caBundleId}
-				// 	listener.SslConfiguration.TrustedCertificateAuthorityIds = caBundleIds
-				// }
+				caBundleIds := []string{trustcacert}
+				listener.SslConfiguration.TrustedCertificateAuthorityIds = caBundleIds
 
 			} else {
+				if mode == util.MutualTlsAuthenticationVerify {
+					klog.Error("verify trustcacert error, not a valid CA bundle ID: %s", util.PrettyPrint(trustcacert))
+				}
 				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(false)
 				listener.SslConfiguration.VerifyDepth = common.Int(1)
 				listener.SslConfiguration.TrustedCertificateAuthorityIds = nil
