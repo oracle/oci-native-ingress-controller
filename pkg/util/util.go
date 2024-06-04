@@ -52,6 +52,12 @@ const (
 	IngressListenerTlsCertificateAnnotation = "oci-native-ingress.oraclecloud.com/certificate-ocid"
 	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
+	//verify client certificate , only use the lisentner bound CA certificate to verify the client certificate .
+	/*
+	 mutual-tls-authentication: '[{"port": 80, "mode": "passthrough"}, {"port": 443, "mode": "verify","depth":1 }]'
+	*/
+	IngressListenerMutualTlsVerifyAnnotation = "oci-native-ingress.oraclecloud.com/mutual-tls-authentication"
+
 	// IngressProtocolAnntoation - HTTP only for now
 	// HTTP, HTTP2 - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
@@ -85,6 +91,8 @@ const (
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
 	WAFCacheMaxAgeInMinutes         = 5
+
+	MutualTlsAuthenticationVerify = "verify"
 )
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")
@@ -617,4 +625,13 @@ func RetrievePods(endpointLister corelisters.EndpointsLister, podLister corelist
 		pods = append(pods, pod)
 	}
 	return pods, nil
+}
+
+func GetMutualTlsVerifyAnnotation(i *networkingv1.Ingress) string {
+	mtlsVerifyPorts, ok := i.Annotations[IngressListenerMutualTlsVerifyAnnotation]
+	if !ok {
+		return ""
+	}
+
+	return strings.ToLower(mtlsVerifyPorts)
 }
