@@ -283,7 +283,7 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 
 	for _, ingress := range ingresses {
 		if ingress.Spec.DefaultBackend != nil {
-			if backend != nil && backend != ingress.Spec.DefaultBackend {
+			if backend != nil && !util.IsBackendServiceEqual(backend, ingress.Spec.DefaultBackend) {
 				return nil, fmt.Errorf("conflict in default backend resource, only one is permitted")
 			}
 			backend = ingress.Spec.DefaultBackend
