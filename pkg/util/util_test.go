@@ -11,6 +11,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"strconv"
 	"strings"
 	"testing"
@@ -665,4 +666,81 @@ func TestGetTimeDifferenceInSeconds(t *testing.T) {
 	RegisterTestingT(t)
 	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009000)).Should(Equal(float64(3)))
 	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009600)).Should(Equal(3.6))
+}
+
+func TestDetermineListenerPort(t *testing.T) {
+	RegisterTestingT(t)
+	servicePort := int32(8080)
+	httpPort := int32(80)
+	httpsPort := int32(443)
+	tlsConfiguredHosts := sets.NewString("tls-configured-1", "tls-configured-2")
+	ingress := &networkingv1.Ingress{}
+	annotations := map[string]string{}
+	ingress.Annotations = annotations
+
+	listenerPort, err := DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpListenerPortAnnotation] = "80"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpPort))
+
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "tls-configured-1", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpsListenerPortAnnotation] = "443"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "tls-configured-1", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpsPort))
+
+	delete(annotations, IngressHttpsListenerPortAnnotation)
+	annotations[IngressListenerTlsCertificateAnnotation] = "oci_cert"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpsListenerPortAnnotation] = "443"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpsPort))
+}
+
+func TestIsBackendServiceEqual(t *testing.T) {
+	RegisterTestingT(t)
+	b1 := &networkingv1.IngressBackend{}
+	b2 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-1",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+	b3 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-1",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+	b4 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-2",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+
+	Expect(IsBackendServiceEqual(b2, b3)).To(BeTrue())
+
+	Expect(IsBackendServiceEqual(b1, b2)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b1, b3)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b1, b4)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b2, b4)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b3, b4)).To(BeFalse())
 }

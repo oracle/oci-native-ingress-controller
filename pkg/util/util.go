@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,8 @@ const (
 	IngressHealthCheckReturnCodeAnnotation           = "oci-native-ingress.oraclecloud.com/healthcheck-return-code"
 	IngressHealthCheckResponseBodyRegexAnnotation    = "oci-native-ingress.oraclecloud.com/healthcheck-response-regex"
 	IngressHealthCheckForcePlainTextAnnotation       = "oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext"
+	IngressHttpListenerPortAnnotation                = "oci-native-ingress.oraclecloud.com/http-listener-port"
+	IngressHttpsListenerPortAnnotation               = "oci-native-ingress.oraclecloud.com/https-listener-port"
 
 	ProtocolTCP                            = "TCP"
 	ProtocolHTTP                           = "HTTP"
@@ -76,6 +79,7 @@ const (
 	ProtocolHTTP2DefaultCipherSuite        = "oci-default-http2-ssl-cipher-suite-v1"
 	DefaultHealthCheckProtocol             = ProtocolTCP
 	DefaultHealthCheckPort                 = 0
+	ZeroPort                               = 0
 	DefaultHealthCheckTimeOutMilliSeconds  = 3000
 	DefaultHealthCheckIntervalMilliSeconds = 10000
 	DefaultHealthCheckRetries              = 3
@@ -268,6 +272,24 @@ func GetIngressHealthCheckForcePlainText(i *networkingv1.Ingress) bool {
 	}
 
 	return result
+}
+
+func GetIngressHttpListenerPort(i *networkingv1.Ingress) (int, error) {
+	value, ok := i.Annotations[IngressHttpListenerPortAnnotation]
+	if !ok {
+		return ZeroPort, nil
+	}
+
+	return strconv.Atoi(value)
+}
+
+func GetIngressHttpsListenerPort(i *networkingv1.Ingress) (int, error) {
+	value, ok := i.Annotations[IngressHttpsListenerPortAnnotation]
+	if !ok {
+		return ZeroPort, nil
+	}
+
+	return strconv.Atoi(value)
 }
 
 func PathToRoutePolicyName(ingressName string, host string, path networkingv1.HTTPIngressPath) string {
@@ -617,4 +639,39 @@ func RetrievePods(endpointLister corelisters.EndpointsLister, podLister corelist
 		pods = append(pods, pod)
 	}
 	return pods, nil
+}
+
+func DetermineListenerPort(ingress *networkingv1.Ingress, tlsConfiguredHosts *sets.String, host string, servicePort int32) (int32, error) {
+	annotatedHttpPort, err := GetIngressHttpListenerPort(ingress)
+	if err != nil {
+		return 0, fmt.Errorf("error parsing Ingress Http Listener Port: %w", err)
+	}
+	annotatedHttpsPort, err := GetIngressHttpsListenerPort(ingress)
+	if err != nil {
+		return 0, fmt.Errorf("error parsing Ingress Https Listener Port: %w", err)
+	}
+
+	isCertOcidPresent := GetListenerTlsCertificateOcid(ingress) != nil
+
+	listenerPort := servicePort
+	if isCertOcidPresent || tlsConfiguredHosts.Has(host) {
+		if annotatedHttpsPort != ZeroPort {
+			listenerPort = int32(annotatedHttpsPort)
+		}
+	} else if annotatedHttpPort != ZeroPort {
+		listenerPort = int32(annotatedHttpPort)
+	}
+
+	return listenerPort, nil
+}
+
+// b1 and b2 are assumed non-nil
+func IsBackendServiceEqual(b1 *networkingv1.IngressBackend, b2 *networkingv1.IngressBackend) bool {
+	if b1.Service == b2.Service {
+		return true
+	}
+	if b1.Service == nil || b2.Service == nil || *b1.Service != *b2.Service {
+		return false
+	}
+	return true
 }

@@ -11,6 +11,7 @@ package routingpolicy
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 	"strings"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -74,17 +75,33 @@ func PathToRoutePolicyCondition(host string, path networkingv1.HTTPIngressPath) 
 
 func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corelisters.ServiceLister, listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String) error {
 	for _, ingress := range ingresses {
+		tlsConfiguredHosts := sets.NewString()
+		for tlsIdx := range ingress.Spec.TLS {
+			ingressTls := ingress.Spec.TLS[tlsIdx]
+			for hostIdx := range ingressTls.Hosts {
+				tlsConfiguredHosts.Insert(ingressTls.Hosts[hostIdx])
+			}
+		}
+
 		for _, rule := range ingress.Spec.Rules {
+			host := rule.Host
+
 			for _, path := range rule.HTTP.Paths {
 				serviceName, servicePort, err := util.PathToServiceAndPort(ingress.Namespace, path, serviceLister)
 				if err != nil {
 					return err
 				}
+
+				listenerPort, err := util.DetermineListenerPort(ingress, &tlsConfiguredHosts, host, servicePort)
+				if err != nil {
+					return errors.Wrap(err, "error determining listener port")
+				}
+
+				listenerName := util.GenerateListenerName(listenerPort)
 				rulePath := path
-				listenerName := util.GenerateListenerName(servicePort)
 				listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
 					IngressName:    ingress.Name,
-					Host:           rule.Host,
+					Host:           host,
 					Path:           &rulePath,
 					BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
 				})
