@@ -18,10 +18,10 @@ metadata:
   name: oci-native-ingress-controller
   namespace: native-ingress-controller-system
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.3.3
+    helm.sh/chart: oci-native-ingress-controller-1.3.7
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.3.3"
+    app.kubernetes.io/version: "1.3.7"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -51,7 +51,7 @@ spec:
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 1000
-          image: "ghcr.io/oracle/oci-native-ingress-controller:v1.3.3"
+          image: "ghcr.io/oracle/oci-native-ingress-controller:v1.3.7"
           imagePullPolicy: Always
           args: 
           - --lease-lock-name=oci-native-ingress-controller
@@ -69,9 +69,11 @@ spec:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
             - name: OCI_RESOURCE_PRINCIPAL_REGION
-              value: "us-phoenix-1"
+              value: 
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
+            - name: OCI_REGION_METADATA
+              value: ''
           ports:
             - name: webhook-server
               containerPort: 9443

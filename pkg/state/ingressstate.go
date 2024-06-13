@@ -111,6 +111,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 	for _, ing := range ingressGroup {
 		hostSecretMap := make(map[string]string)
+		tlsConfiguredHosts := sets.NewString()
 		desiredPorts := sets.NewInt32()
 		// we always expect the default_ingress backendset
 		desiredBackendSets := sets.NewString(DefaultIngressName)
@@ -119,24 +120,33 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 			ingressTls := ing.Spec.TLS[ingressItem]
 			for j := range ingressTls.Hosts {
 				host := ingressTls.Hosts[j]
+				tlsConfiguredHosts.Insert(host)
 				hostSecretMap[host] = ingressTls.SecretName
 			}
 		}
 
 		for _, rule := range ing.Spec.Rules {
+			host := rule.Host
+
 			for _, path := range rule.HTTP.Paths {
 				serviceName, servicePort, err := util.PathToServiceAndPort(ing.Namespace, path, s.ServiceLister)
 				if err != nil {
 					return errors.Wrap(err, "error finding service and port")
 				}
 
-				desiredPorts.Insert(servicePort)
-				allListeners.Insert(servicePort)
+				listenerPort, err := util.DetermineListenerPort(ing, &tlsConfiguredHosts, host, servicePort)
+				if err != nil {
+					return errors.Wrap(err, "error determining listener port")
+				}
+
+				desiredPorts.Insert(listenerPort)
+				allListeners.Insert(listenerPort)
+
 				bsName := util.GenerateBackendSetName(ing.Namespace, serviceName, servicePort)
 				desiredBackendSets.Insert(bsName)
 				allBackendSets.Insert(bsName)
 
-				err = validateListenerProtocol(ing, listenerProtocolMap, servicePort)
+				err = validateListenerProtocol(ing, listenerProtocolMap, listenerPort)
 				if err != nil {
 					return err
 				}
@@ -153,9 +163,9 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				bsTLSEnabled := util.GetBackendTlsEnabled(ing)
 				certificateId := util.GetListenerTlsCertificateOcid(ing)
 				if certificateId != nil {
-					tlsPortDetail, ok := listenerTLSConfigMap[servicePort]
+					tlsPortDetail, ok := listenerTLSConfigMap[listenerPort]
 					if ok {
-						err = validatePortInUse(tlsPortDetail, "", certificateId, servicePort)
+						err = validatePortInUse(tlsPortDetail, "", certificateId, listenerPort)
 						if err != nil {
 							return errors.Wrap(err, "validating certificates")
 						}
@@ -164,17 +174,17 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 						Type:     ArtifactTypeCertificate,
 						Artifact: *certificateId,
 					}
-					listenerTLSConfigMap[servicePort] = config
+					listenerTLSConfigMap[listenerPort] = config
 					updateBackendTlsStatus(bsTLSEnabled, bsTLSConfigMap, bsName, config)
 				}
 
-				if rule.Host != "" {
-					secretName, ok := hostSecretMap[rule.Host]
+				if host != "" {
+					secretName, ok := hostSecretMap[host]
 
 					if ok && secretName != "" {
-						tlsPortDetail, ok := listenerTLSConfigMap[servicePort]
+						tlsPortDetail, ok := listenerTLSConfigMap[listenerPort]
 						if ok {
-							err = validatePortInUse(tlsPortDetail, secretName, nil, servicePort)
+							err = validatePortInUse(tlsPortDetail, secretName, nil, listenerPort)
 							if err != nil {
 								return errors.Wrap(err, "validating secrets")
 							}
@@ -183,7 +193,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 							Type:     ArtifactTypeSecret,
 							Artifact: secretName,
 						}
-						listenerTLSConfigMap[servicePort] = config
+						listenerTLSConfigMap[listenerPort] = config
 						updateBackendTlsStatus(bsTLSEnabled, bsTLSConfigMap, bsName, config)
 					}
 				}

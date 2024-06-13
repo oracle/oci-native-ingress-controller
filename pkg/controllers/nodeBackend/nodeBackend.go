@@ -169,17 +169,21 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	for _, ingress := range ingresses {
 		for _, rule := range ingress.Spec.Rules {
 			for _, path := range rule.HTTP.Paths {
-				svcName, svcPort, _, svc, err := util.PathToServiceAndTargetPort(c.serviceLister, ingress.Namespace, path)
+
+				pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
 				if err != nil {
 					return err
 				}
 
-				if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
+				svcName, svcPort, nodePort, err := util.PathToServiceAndTargetPort(svc, pSvc, ingress.Namespace, true)
+				if err != nil {
+					return err
+				}
+				if svc == nil || svc.Spec.Ports == nil || nodePort == 0 {
 					continue
 				}
 
 				var backends []ociloadbalancer.BackendDetails
-				nodePort := svc.Spec.Ports[0].NodePort
 				trafficPolicy := svc.Spec.ExternalTrafficPolicy
 				if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
 					for _, node := range nodes {
@@ -279,7 +283,7 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 
 	for _, ingress := range ingresses {
 		if ingress.Spec.DefaultBackend != nil {
-			if backend != nil && backend != ingress.Spec.DefaultBackend {
+			if backend != nil && !util.IsBackendServiceEqual(backend, ingress.Spec.DefaultBackend) {
 				return nil, fmt.Errorf("conflict in default backend resource, only one is permitted")
 			}
 			backend = ingress.Spec.DefaultBackend

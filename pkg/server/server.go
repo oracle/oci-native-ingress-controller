@@ -11,7 +11,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -148,7 +147,24 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 }
 
 func fetchCniType(id string, client *containerengine.ContainerEngineClient) (string, error) {
+	resp := getCluster(id, client)
+	return GetCniFromCluster(resp)
+}
 
+func GetCniFromCluster(resp containerengine.Cluster) (string, error) {
+	cni := resp.ClusterPodNetworkOptions
+	for _, n := range cni {
+		switch n.(type) {
+		case containerengine.OciVcnIpNativeClusterPodNetworkOptionDetails:
+			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative), nil
+		default:
+			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay), nil
+		}
+	}
+	return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay), nil
+}
+
+func getCluster(id string, client *containerengine.ContainerEngineClient) containerengine.Cluster {
 	// Create a request and dependent object(s).
 	req := containerengine.GetClusterRequest{ClusterId: common.String(id)}
 
@@ -157,20 +173,7 @@ func fetchCniType(id string, client *containerengine.ContainerEngineClient) (str
 	if err != nil {
 		klog.Fatalf("failed to get cluster details: %v", err)
 	}
-	cni := resp.Cluster.ClusterPodNetworkOptions
-
-	for _, n := range cni {
-		switch n.(type) {
-		case containerengine.FlannelOverlayClusterPodNetworkOptionDetails:
-			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay), nil
-		case containerengine.OciVcnIpNativeClusterPodNetworkOptionDetails:
-			return string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative), nil
-		default:
-			return "", fmt.Errorf("unsupported CNI found in Cluster : %v", n)
-		}
-	}
-
-	return "", fmt.Errorf("no CNI found in Cluster")
+	return resp.Cluster
 }
 
 func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset.Interface) *client.ClientProvider {
