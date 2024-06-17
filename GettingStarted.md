@@ -443,7 +443,7 @@ We will be able to configure ingress routes those are HTTPS enabled. Customers c
 - Customer can use the same credentials in their pods to make this an end to end SSL support.
 
 ##### Sample configuration : Using Secret
-We create OCI certificate service certificates and cabundles for each kubernetes secret. Hence the content of the secret (ca.crt, tls.crt, tlskey) should conform to the certificate service standards.
+We create OCI certificate service certificates and cabundles for each kubernetes secret. Hence the content of the secret (ca.crt, tls.crt, tls.key) should conform to the certificate service standards.
 Ref Documents:
 - [Validation of Certificate chain](https://docs.oracle.com/en-us/iaas/Content/certificates/invalidcertificatechain.htm)
 - [Validation of CA Bundle](https://docs.oracle.com/en-us/iaas/Content/certificates/invalidcabundlepem.htm)
@@ -461,6 +461,8 @@ metadata:
   name: demo-tls-secret
 type: kubernetes.io/tls
 ```
+Note: If `ca.crt` field is missing/empty, the entire certificate chain is expected to be present in `tls.crt`. The server certificate MUST be first, followed by chain of CAs.
+
 Ingress Format: 
 ```
 apiVersion: networking.k8s.io/v1

@@ -6,11 +6,19 @@
  * * Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
  *
  */
+
 package ingress
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -123,7 +131,7 @@ const (
 
 func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 	k8client := fakeclientset.NewSimpleClientset()
-	secret := testutil.GetSampleCertSecret()
+	secret := testutil.GetSampleCertSecret("test", "oci-cert", "chain", "cert", "key")
 	action := "get"
 	resource := "secrets"
 	obj := secret
@@ -283,6 +291,106 @@ func TestGetCertificate(t *testing.T) {
 	certificate, err = GetCertificate(&certId2, client.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
+}
+
+func TestGetTlsSecretContent(t *testing.T) {
+	RegisterTestingT(t)
+
+	testCaChain, testCert, testKey := generateTestCertsAndKey()
+
+	secretWithCaCrt := testutil.GetSampleCertSecret("test", "secretWithCaCrt", testCaChain, testCert, testKey)
+	secretWithCorrectChain := testutil.GetSampleCertSecret("test", "secretWithCorrectChain", "", testCert+testCaChain, testKey)
+	secretWithWrongChain := testutil.GetSampleCertSecret("test", "secretWithWrongChain", "", testCaChain+testCert, testKey)
+	secretWithoutCaCrt := testutil.GetSampleCertSecret("test", "secretWithoutCaCrt", "", testCert, testKey)
+
+	k8client := fakeclientset.NewSimpleClientset()
+	testutil.FakeClientGetCall(k8client, "get", "secrets", secretWithCaCrt)
+
+	secretData1, err := getTlsSecretContent("test", "secretWithCaCrt", k8client)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(*secretData1.CaCertificateChain).To(Equal(testCaChain))
+	Expect(*secretData1.ServerCertificate).To(Equal(testCert))
+	Expect(*secretData1.PrivateKey).To(Equal(testKey))
+
+	testutil.FakeClientGetCall(k8client, "get", "secrets", secretWithCorrectChain)
+	secretData2, err := getTlsSecretContent("test", "secretWithCorrectChain", k8client)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(*secretData2.CaCertificateChain).To(Equal(testCaChain))
+	Expect(*secretData2.ServerCertificate).To(Equal(testCert))
+	Expect(*secretData2.PrivateKey).To(Equal(testKey))
+
+	testutil.FakeClientGetCall(k8client, "get", "secrets", secretWithWrongChain)
+	_, err = getTlsSecretContent("test", "secretWithWrongChain", k8client)
+	Expect(err).To(HaveOccurred())
+
+	testutil.FakeClientGetCall(k8client, "get", "secrets", secretWithoutCaCrt)
+	_, err = getTlsSecretContent("test", "secretWithoutCaCrt", k8client)
+	Expect(err).To(HaveOccurred())
+}
+
+func TestSplitLeafAndCaCertChain(t *testing.T) {
+	RegisterTestingT(t)
+
+	// tls.X509KeyPair validates key against leaf cert, so need to create an actual pair
+	// Will create a CA and a test cert
+	testCaChain, testCert, testKey := generateTestCertsAndKey()
+
+	// Adding dummy intermediate certs to chain
+	testCaChain = `-----BEGIN CERTIFICATE-----
+intermediatecert
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+intermediatecert
+-----END CERTIFICATE-----
+` + testCaChain
+
+	serverCert, caCertChain, err := splitLeafAndCaCertChain([]byte(testCert+testCaChain), []byte(testKey))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(serverCert).To(Equal(testCert))
+	Expect(caCertChain).To(Equal(testCaChain))
+
+	serverCert, caCertChain, err = splitLeafAndCaCertChain([]byte(testCert), []byte(testKey))
+	Expect(err).To(HaveOccurred())
+
+	noCertString := "Has no certificates"
+	serverCert, caCertChain, err = splitLeafAndCaCertChain([]byte(noCertString), []byte(testKey))
+	Expect(err).To(HaveOccurred())
+}
+
+func generateTestCertsAndKey() (string, string, string) {
+	caCert := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"MyOrg, INC."},
+			Country:      []string{"US"},
+			Province:     []string{"CA"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caPrivKey, _ := rsa.GenerateKey(rand.Reader, 4096)
+	caBytes, _ := x509.CreateCertificate(rand.Reader, caCert, caCert, &caPrivKey.PublicKey, caPrivKey)
+	testCaChain := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caBytes}))
+
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			Organization: []string{"MyOrg, INC."},
+			Country:      []string{"US"},
+			Province:     []string{"CA"},
+		},
+		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().AddDate(10, 0, 0),
+	}
+	certPrivKey, _ := rsa.GenerateKey(rand.Reader, 4096)
+	certBytes, _ := x509.CreateCertificate(rand.Reader, cert, caCert, &certPrivKey.PublicKey, caPrivKey)
+	testCert := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certBytes}))
+	testKey := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey)}))
+
+	return testCaChain, testCert, testKey
 }
 
 func GetCertManageClient() ociclient.CertificateManagementInterface {

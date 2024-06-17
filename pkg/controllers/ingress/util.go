@@ -11,6 +11,9 @@ package ingress
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -205,10 +208,43 @@ func getTlsSecretContent(namespace string, secretName string, client kubernetes.
 	if err != nil {
 		return nil, err
 	}
-	caCertificateChain := string(secret.Data["ca.crt"])
-	serverCertificate := string(secret.Data["tls.crt"])
+
+	var serverCertificate string
 	privateKey := string(secret.Data["tls.key"])
+	caCertificateChain := string(secret.Data["ca.crt"])
+
+	if caCertificateChain != "" {
+		serverCertificate = string(secret.Data["tls.crt"])
+	} else {
+		// If ca.crt is not available, we will assume tls.crt has the entire chain, leaf first
+		serverCertificate, caCertificateChain, err = splitLeafAndCaCertChain(secret.Data["tls.crt"], secret.Data["tls.key"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &TLSSecretData{CaCertificateChain: &caCertificateChain, ServerCertificate: &serverCertificate, PrivateKey: &privateKey}, nil
+}
+
+func splitLeafAndCaCertChain(certChainPEMBlock []byte, keyPEMBlock []byte) (string, string, error) {
+	certs, err := tls.X509KeyPair(certChainPEMBlock, keyPEMBlock)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to parse cert chain, %w", err)
+	}
+
+	if len(certs.Certificate) <= 1 {
+		return "", "", errors.New("tls.crt chain has less than two certificates")
+	}
+
+	leafCertString := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certs.Certificate[0]}))
+
+	caCertChainString := ""
+	for _, cert := range certs.Certificate[1:] {
+		caCertString := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert}))
+		caCertChainString += caCertString
+	}
+
+	return leafCertString, caCertChainString, nil
 }
 
 func getCertificateNameFromSecret(secretName string) string {
