@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -19,9 +19,9 @@ import (
 
 // AccessControlRule Rule that represents Request/Response Access Control.
 // Only actions of the following types are allowed to be referenced in this rule:
-//  * CHECK
-//  * ALLOW
-//  * RETURN_HTTP_RESPONSE
+//   - CHECK
+//   - ALLOW
+//   - RETURN_HTTP_RESPONSE
 type AccessControlRule struct {
 
 	// Rule name. Must be unique within the module.
@@ -38,22 +38,22 @@ type AccessControlRule struct {
 	ConditionLanguage WebAppFirewallPolicyRuleConditionLanguageEnum `mandatory:"false" json:"conditionLanguage,omitempty"`
 }
 
-//GetName returns Name
+// GetName returns Name
 func (m AccessControlRule) GetName() *string {
 	return m.Name
 }
 
-//GetConditionLanguage returns ConditionLanguage
+// GetConditionLanguage returns ConditionLanguage
 func (m AccessControlRule) GetConditionLanguage() WebAppFirewallPolicyRuleConditionLanguageEnum {
 	return m.ConditionLanguage
 }
 
-//GetCondition returns Condition
+// GetCondition returns Condition
 func (m AccessControlRule) GetCondition() *string {
 	return m.Condition
 }
 
-//GetActionName returns ActionName
+// GetActionName returns ActionName
 func (m AccessControlRule) GetActionName() *string {
 	return m.ActionName
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -32,7 +32,7 @@ type CreateLoadBalancerDetails struct {
 	// To get a list of available shapes, use the ListShapes
 	// operation.
 	// Example: `flexible`
-	// NOTE: Starting May 2023, Fixed shapes - 10Mbps, 100Mbps, 400Mbps, 8000Mbps would be deprecated and only shape
+	// NOTE: After May 2023, Fixed shapes - 10Mbps, 100Mbps, 400Mbps, 8000Mbps would be deprecated and only shape
 	//       allowed would be `Flexible`
 	ShapeName *string `mandatory:"true" json:"shapeName"`
 
@@ -50,6 +50,13 @@ type CreateLoadBalancerDetails struct {
 	// private load balancers, see How Load Balancing Works (https://docs.cloud.oracle.com/Content/Balance/Concepts/balanceoverview.htm#how-load-balancing-works).
 	// Example: `true`
 	IsPrivate *bool `mandatory:"false" json:"isPrivate"`
+
+	// Whether or not the load balancer has delete protection enabled.
+	// If "true", the loadbalancer will be protected against deletion if configured to accept traffic.
+	// If "false", the loadbalancer will not be protected against deletion.
+	// Delete protection will not be enabled unless a value of "true" is provided.
+	// Example: `true`
+	IsDeleteProtectionEnabled *bool `mandatory:"false" json:"isDeleteProtectionEnabled"`
 
 	// Whether the load balancer has an IPv4 or IPv6 IP address.
 	// If "IPV4", the service assigns an IPv4 address and the load balancer supports IPv4 traffic.

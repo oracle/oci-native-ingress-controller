@@ -55,7 +55,7 @@ func ServeMetrics(port int, mux *http.ServeMux) {
 		}
 		err := server.ListenAndServe()
 		if err != nil {
-			klog.Fatalf("Metrics: listen and server error: %w", err)
+			klog.Fatal("Metrics: listen and server error: ", err)
 		}
 	}()
 }

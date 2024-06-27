@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -36,10 +36,10 @@ type WebAppFirewallPolicyRule interface {
 
 type webappfirewallpolicyrule struct {
 	JsonData          []byte
-	Name              *string                                       `mandatory:"true" json:"name"`
-	ActionName        *string                                       `mandatory:"true" json:"actionName"`
 	ConditionLanguage WebAppFirewallPolicyRuleConditionLanguageEnum `mandatory:"false" json:"conditionLanguage,omitempty"`
 	Condition         *string                                       `mandatory:"false" json:"condition"`
+	Name              *string                                       `mandatory:"true" json:"name"`
+	ActionName        *string                                       `mandatory:"true" json:"actionName"`
 	Type              string                                        `json:"type"`
 }
 
@@ -85,28 +85,29 @@ func (m *webappfirewallpolicyrule) UnmarshalPolymorphicJSON(data []byte) (interf
 		err = json.Unmarshal(data, &mm)
 		return mm, err
 	default:
+		common.Logf("Recieved unsupported enum value for WebAppFirewallPolicyRule: %s.", m.Type)
 		return *m, nil
 	}
 }
 
-//GetName returns Name
-func (m webappfirewallpolicyrule) GetName() *string {
-	return m.Name
-}
-
-//GetActionName returns ActionName
-func (m webappfirewallpolicyrule) GetActionName() *string {
-	return m.ActionName
-}
-
-//GetConditionLanguage returns ConditionLanguage
+// GetConditionLanguage returns ConditionLanguage
 func (m webappfirewallpolicyrule) GetConditionLanguage() WebAppFirewallPolicyRuleConditionLanguageEnum {
 	return m.ConditionLanguage
 }
 
-//GetCondition returns Condition
+// GetCondition returns Condition
 func (m webappfirewallpolicyrule) GetCondition() *string {
 	return m.Condition
+}
+
+// GetName returns Name
+func (m webappfirewallpolicyrule) GetName() *string {
+	return m.Name
+}
+
+// GetActionName returns ActionName
+func (m webappfirewallpolicyrule) GetActionName() *string {
+	return m.ActionName
 }
 
 func (m webappfirewallpolicyrule) String() string {

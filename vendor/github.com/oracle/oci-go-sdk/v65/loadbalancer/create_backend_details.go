@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -36,6 +36,10 @@ type CreateBackendDetails struct {
 	// How Load Balancing Policies Work (https://docs.cloud.oracle.com/Content/Balance/Reference/lbpolicies.htm).
 	// Example: `3`
 	Weight *int `mandatory:"false" json:"weight"`
+
+	// The maximum number of simultaneous connections the load balancer can make to the backend.
+	// Example: `300`
+	MaxConnections *int `mandatory:"false" json:"maxConnections"`
 
 	// Whether the load balancer should treat this server as a backup unit. If `true`, the load balancer forwards no ingress
 	// traffic to this backend server unless all other backend servers not marked as "backup" fail the health check policy.
