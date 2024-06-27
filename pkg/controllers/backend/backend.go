@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
-	"github.com/oracle/oci-native-ingress-controller/pkg/controllers/ingressclass"
 	"k8s.io/klog/v2"
 
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -201,7 +200,7 @@ func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.I
 		return nil
 	}
 
-	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, ingressclass.DefaultIngress, backends)
+	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
 	if err != nil {
 		return err
 	}

@@ -184,6 +184,14 @@ func GetIngressClassResourceWithLbId(name string, isDefault bool, controller str
 	}
 }
 
+func GetIngressResource(name string) *networkingv1.Ingress {
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+}
+
 func GetEndpointsResourceList(name string, namespace string, allCase bool) *v1.EndpointsList {
 	if allCase {
 		return GetEndpointsResourceListAllCase(name,
@@ -481,7 +489,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	proto := util.ProtocolHTTP
 	listener := ociloadbalancer.Listener{
 		Name:                    &routeN,
-		DefaultBackendSetName:   nil,
+		DefaultBackendSetName:   common.String(util.DefaultBackendSetName),
 		Port:                    &port,
 		Protocol:                &proto,
 		HostnameNames:           nil,

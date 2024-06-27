@@ -34,6 +34,8 @@ The native ingress controller itself is lightweight process and pushes all the r
       - [Sample configuration : Using Certificate](#sample-configuration--using-certificate)
     + [Custom Health Checker](#custom-health-checker)
     + [Web Firewall Integration](#web-firewall-integration)
+    + [Ingress Level HTTP(S) Listener Ports](#ingress-level-https-listener-ports)
+    + [TCP Listener Support](#tcp-listener-support)
   * [Dependency management](#dependency-management)
     + [How to introduce new modules or upgrade existing ones?](#how-to-introduce-new-modules-or-upgrade-existing-ones)
   * [Known Issues](#known-issues)
@@ -441,6 +443,7 @@ We will be able to configure ingress routes those are HTTPS enabled. Customers c
 - In the case of Kubernetes secret we create a certificate service certificate and a ca bundle to configure the listener and backend set appropriately.
 - In the case of certificates we use the certificate Id and certificate trust authority Id to configure listener and backend set.
 - Customer can use the same credentials in their pods to make this an end to end SSL support.
+- If the customer wishes to terminate TLS on the LB and run plain text (HTTP) backend, they can use the annotation `oci-native-ingress.oraclecloud.com/backend-tls-enabled: "false"` on the Ingress
 
 ##### Sample configuration : Using Secret
 We create OCI certificate service certificates and cabundles for each kubernetes secret. Hence the content of the secret (ca.crt, tls.crt, tls.key) should conform to the certificate service standards.
@@ -546,6 +549,60 @@ metadata:
  annotations: 
      oci-native-ingress.oraclecloud.com/waf-policy-ocid: ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3sigtz347pqyr4n3b7udo2zw4jskownbq
 ```
+
+#### Ingress Level HTTP(S) Listener Ports
+By default, NIC creates a listener port on the IngressClass backed LB for each backend service port specified in an Ingress resource.
+
+Users can use the following annotations on their Ingress resources to specify a single listener LB port for all HTTP(S) communication.
+The values for these annotations should be numeric strings, and they have no nil value, they should be removed entirely if not in use.
+These annotations are not mandatory and need not be applied together:
+```
+oci-native-ingress.oraclecloud.com/http-listener-port: "80"
+oci-native-ingress.oraclecloud.com/https-listener-port: "443"
+```
+
+##### Behaviour
+- The port configured in `oci-native-ingress.oraclecloud.com/http-listener-port` will be used for all HTTP traffic handled by the LB for the Ingress.
+  The routing policies will be configured accordingly, merging all rules specified in the Ingress resource.
+- The port configured in `oci-native-ingress.oraclecloud.com/https-listener-port` will be used for all HTTPS traffic for
+  [TLS configured hosts](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengsettingupnativeingresscontroller-configuring.htm#contengsettingupnativeingresscontroller-https_tls)
+  by the LB for the Ingress. The routing policies will be configured accordingly, merging all rules specified in the Ingress resource. Note that if a
+  [Certificate Annotation](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengsettingupnativeingresscontroller-configuring.htm#contengsettingupnativeingresscontroller-https_tls__section_certificate_yourself)
+  is used in the Ingress resource, all hosts are considered TLS configured.
+
+#### TCP Listener Support
+Users can use the annotation `oci-native-ingress.oraclecloud.com/protocol: TCP` to configure the OCI LB Listeners created by NIC to be pass-through TCP listeners.
+All TCP traffic to these listeners will be forwarded to specified backends. Note that any routing or TLS configuration for such an Ingress will be ignored.
+
+An example Ingress can be seen below. Here, all traffic to port 8080 on the IngressClass backed OCI LB will be sent to `my-first-svc:8080`
+and traffic on port 8081 of the LB will be forward to `my-second-svc:8081`.
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-pass-through
+  annotations:
+    oci-native-ingress.oraclecloud.com/protocol: TCP
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: ImplementationSpecific
+            backend:
+              service:
+                name: my-first-svc
+                port:
+                  number: 8080
+    - http:
+        paths:
+          - pathType: ImplementationSpecific
+            backend:
+              service:
+                name: my-second-svc
+                port:
+                  number: 8081
+```
+
 
 ### Dependency management
 Module [vendoring](https://go.dev/ref/mod#vendoring) is used to manage 3d-party modules in the project.

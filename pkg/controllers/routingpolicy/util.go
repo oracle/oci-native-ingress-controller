@@ -111,3 +111,22 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 	}
 	return nil
 }
+
+func filterIngressesForRoutingPolicy(ingressClass *networkingv1.IngressClass, allIngresses []*networkingv1.Ingress) []*networkingv1.Ingress {
+	var ingresses []*networkingv1.Ingress
+	for _, ingress := range allIngresses {
+		// skip if the ingress is in deleting state or if protocol is TCP
+		if util.IsIngressDeleting(ingress) || util.IsIngressProtocolTCP(ingress) {
+			continue
+		}
+		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations["ingressclass.kubernetes.io/is-default-class"] == "true" {
+			// ingress has on class name defined and our ingress class is default
+			ingresses = append(ingresses, ingress)
+		}
+		if ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName == ingressClass.Name {
+			ingresses = append(ingresses, ingress)
+		}
+	}
+
+	return ingresses
+}
