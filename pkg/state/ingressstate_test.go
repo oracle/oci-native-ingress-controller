@@ -36,6 +36,7 @@ const (
 	TestIngressStateWithPortNameFilePath      = "test-ingress-state_withportname.yaml"
 	TestIngressStateWithNamedClassesFilePath  = "test-ingress-state_withnamedclasses.yaml"
 	TestSslTerminationAtLb                    = "test-ssl-termination-lb.yaml"
+	DefaultBackendSetValidationsFilePath      = "validate-default-backend-set.yaml"
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinglisters.IngressClassLister, networkinglisters.IngressLister, corelisters.ServiceLister) {
@@ -295,7 +296,7 @@ func TestValidateHealthCheckerConfig(t *testing.T) {
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
-	defaultIngressHC := stateStore.GetBackendSetHealthChecker("default_ingress")
+	defaultIngressHC := stateStore.GetBackendSetHealthChecker(util.DefaultBackendSetName)
 	Expect(defaultIngressHC).Should(Equal(util.GetDefaultHeathChecker()))
 
 	bsName := util.GenerateBackendSetName("default", "test-health-checker-annotation", 800)
@@ -352,7 +353,7 @@ func TestValidatePolicyConfig(t *testing.T) {
 	err := stateStore.BuildState(&ingressClassList.Items[0])
 	Expect(err).NotTo(HaveOccurred())
 
-	defaultIngressPolicy := stateStore.GetBackendSetPolicy("default_ingress")
+	defaultIngressPolicy := stateStore.GetBackendSetPolicy(util.DefaultBackendSetName)
 	Expect(defaultIngressPolicy).Should(Equal(util.DefaultBackendSetRoutingPolicy))
 
 	bsName := util.GenerateBackendSetName("default", "test-policy-annotation", 900)
@@ -448,4 +449,45 @@ func TestSslTerminationAtLB(t *testing.T) {
 	lstTlsConfig := stateStore.IngressGroupState.ListenerTLSConfigMap[443]
 	Expect(lstTlsConfig.Artifact).Should(Equal(certificateId))
 	Expect(lstTlsConfig.Type).Should(Equal(ArtifactTypeCertificate))
+}
+
+func TestValidateListenerDefaultBackendSet(t *testing.T) {
+	RegisterTestingT(t)
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := testutil.GetIngressClassList()
+
+	ingressList := testutil.ReadResourceAsIngressList(DefaultBackendSetValidationsFilePath)
+
+	testService := testutil.GetServiceListResource("default", "tcp-test", 8080)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).ShouldNot(HaveOccurred())
+
+	bsName := util.GenerateBackendSetName("default", "host-es", 8080)
+	Expect(stateStore.GetListenerDefaultBackendSet(8080)).Should(Equal(bsName))
+}
+
+func TestValidateListenerDefaultBackendSetWithConflict(t *testing.T) {
+	RegisterTestingT(t)
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := testutil.GetIngressClassList()
+
+	ingressList := testutil.ReadResourceAsIngressList(DefaultBackendSetValidationsFilePath)
+
+	testService := testutil.GetServiceListResource("default", "tcp-test", 8080)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	ingressList.Items[1].Spec.Rules[0].HTTP.Paths[0].Backend.Service.Name = "tcp-test"
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).Should(HaveOccurred())
+
+	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(DefaultBackendSetConflictMessage, 8080)))
 }

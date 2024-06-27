@@ -54,7 +54,7 @@ const (
 	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
 	// IngressProtocolAnntoation - HTTP only for now
-	// HTTP, HTTP2 - accepted.
+	// HTTP, HTTP2, TCP - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
 
 	IngressPolicyAnnotation          = "oci-native-ingress.oraclecloud.com/policy"
@@ -77,6 +77,7 @@ const (
 	ProtocolHTTP                           = "HTTP"
 	ProtocolHTTP2                          = "HTTP2"
 	ProtocolHTTP2DefaultCipherSuite        = "oci-default-http2-ssl-cipher-suite-v1"
+	DefaultBackendSetName                  = "default_ingress"
 	DefaultHealthCheckProtocol             = ProtocolTCP
 	DefaultHealthCheckPort                 = 0
 	ZeroPort                               = 0
@@ -674,4 +675,8 @@ func IsBackendServiceEqual(b1 *networkingv1.IngressBackend, b2 *networkingv1.Ing
 		return false
 	}
 	return true
+}
+
+func IsIngressProtocolTCP(ingress *networkingv1.Ingress) bool {
+	return GetIngressProtocol(ingress) == ProtocolTCP
 }

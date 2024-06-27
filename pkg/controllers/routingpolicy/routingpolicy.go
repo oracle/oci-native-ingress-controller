@@ -6,6 +6,7 @@
  * * Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
  *
  */
+
 package routingpolicy
 
 import (
@@ -137,21 +138,8 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 		return err
 	}
 
-	// Filter ingresses down to this ingress class we want to sync.
-	var ingresses []*networkingv1.Ingress
-	for _, ingress := range allIngresses {
-		// skip if the ingress is in deleting state
-		if util.IsIngressDeleting(ingress) {
-			continue
-		}
-		if ingress.Spec.IngressClassName == nil && ingressClass.Annotations[util.IngressClassIsDefault] == "true" {
-			// ingress has on class name defined and our ingress class is default
-			ingresses = append(ingresses, ingress)
-		}
-		if ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName == ingressClass.Name {
-			ingresses = append(ingresses, ingress)
-		}
-	}
+	// Filter ingresses for which we want to sync routing rules
+	ingresses := filterIngressesForRoutingPolicy(ingressClass, allIngresses)
 
 	listenerPaths := map[string][]*listenerPath{}
 	desiredRoutingPolicies := sets.NewString()
@@ -214,7 +202,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 			listener, listenerFound := lb.Listeners[routingPolicyToDelete]
 			if listenerFound {
 				klog.Infof("Detaching the routing policy %s from listener.", routingPolicyToDelete)
-				err = c.client.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol)
+				err = c.client.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
 				if err != nil {
 					return err
 				}
