@@ -76,9 +76,9 @@ func TestLoadBalancerClient_CreateListener(t *testing.T) {
 
 	sslConfigDetail := getSslConfigurationDetails(id)
 
-	err := loadBalancerClient.CreateListener(context.TODO(), "id", 8080, util.ProtocolHTTP, &sslConfigDetail)
+	err := loadBalancerClient.CreateListener(context.TODO(), "id", 8080, util.ProtocolHTTP, util.DefaultBackendSetName, &sslConfigDetail)
 	Expect(err).To(BeNil())
-	err = loadBalancerClient.CreateListener(context.TODO(), "id", 8080, util.ProtocolHTTP2, &sslConfigDetail)
+	err = loadBalancerClient.CreateListener(context.TODO(), "id", 8080, util.ProtocolHTTP2, util.DefaultBackendSetName, &sslConfigDetail)
 	Expect(err).To(BeNil())
 
 }
@@ -180,9 +180,9 @@ func TestLoadBalancerClient_UpdateListener(t *testing.T) {
 		RoutingPolicyName: &pname,
 	}
 	ssConfig := getSslConfigurationDetails(id)
-	err := loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, &pname, &ssConfig, &proto)
+	err := loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, &pname, &ssConfig, &proto, nil)
 	Expect(err).To(BeNil())
-	err = loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, &pname, &ssConfig, &proto2)
+	err = loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, &pname, &ssConfig, &proto2, nil)
 	Expect(err).To(BeNil())
 }
 

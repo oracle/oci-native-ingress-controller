@@ -403,20 +403,11 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		klog.Infof("  GetMutualTlsPortConfigForListener  after :  %s ", util.PrettyPrint(listenerSslConfig))
 
 		protocol := stateStore.GetListenerProtocol(port)
-		err = c.client.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, listenerSslConfig)
+		defaultBackendSet := stateStore.GetListenerDefaultBackendSet(port)
+		err = c.client.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, defaultBackendSet, listenerSslConfig)
 		if err != nil {
 			return err
 		}
-	}
-
-	desiredBackendSets = stateStore.GetAllBackendSetForIngressClass()
-	if err != nil {
-		return err
-	}
-
-	err = deleteBackendSets(actualBackendSets, desiredBackendSets, c.client.GetLbClient(), lbId)
-	if err != nil {
-		return err
 	}
 
 	desiredListenerPorts := stateStore.GetAllListenersForIngressClass()
@@ -424,7 +415,17 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 		return err
 	}
 
-	return deleteListeners(actualListenerPorts, desiredListenerPorts, c.client.GetLbClient(), lbId)
+	err = deleteListeners(actualListenerPorts, desiredListenerPorts, c.client.GetLbClient(), lbId)
+	if err != nil {
+		return err
+	}
+
+	desiredBackendSets = stateStore.GetAllBackendSetForIngressClass()
+	if err != nil {
+		return err
+	}
+
+	return deleteBackendSets(actualBackendSets, desiredBackendSets, c.client.GetLbClient(), lbId)
 }
 
 func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass) error {
@@ -442,6 +443,16 @@ func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass)
 		return err
 	}
 
+	actualListeners := sets.NewInt32()
+	for _, listener := range lb.Listeners {
+		actualListeners.Insert(int32(*listener.Port))
+	}
+
+	err = deleteListeners(actualListeners, stateStore.GetAllListenersForIngressClass(), c.client.GetLbClient(), lbId)
+	if err != nil {
+		return err
+	}
+
 	actualBackendSets := sets.NewString()
 	for bsName := range lb.BackendSets {
 		actualBackendSets.Insert(bsName)
@@ -452,15 +463,6 @@ func handleIngressDelete(c *Controller, ingressClass *networkingv1.IngressClass)
 		return err
 	}
 
-	actualListeners := sets.NewInt32()
-	for _, listener := range lb.Listeners {
-		actualListeners.Insert(int32(*listener.Port))
-	}
-
-	err = deleteListeners(actualListeners, stateStore.GetAllListenersForIngressClass(), c.client.GetLbClient(), lbId)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -569,8 +571,15 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 		needsUpdate = true
 	}
 
+	defaultBackendSet := stateStore.GetListenerDefaultBackendSet(int32(*listener.Port))
+	defaultBackendSetExisting := listener.DefaultBackendSetName
+	if defaultBackendSet != *defaultBackendSetExisting {
+		klog.Infof("Default BackendSet for listener %d needs update, new Default Backend Set %s", *listener.Name, defaultBackendSet)
+		needsUpdate = true
+	}
+
 	if needsUpdate {
-		err := c.client.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol)
+		err := c.client.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet)
 		if err != nil {
 			return err
 		}

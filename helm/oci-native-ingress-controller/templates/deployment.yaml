@@ -4,10 +4,13 @@
 # Copyright (c) 2023 Oracle America, Inc. and its affiliates.
 # Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
 #
+{{- $ns := lookup "v1" "Namespace" "" .Values.deploymentNamespace }}
+{{- if or (not $ns) (eq (get $ns.metadata.labels "app.kubernetes.io/managed-by") "Helm") }}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.deploymentNamespace }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,9 +72,11 @@ spec:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
             - name: OCI_RESOURCE_PRINCIPAL_REGION
-              value: "us-phoenix-1"
+              value: {{ .Values.region }}
             - name: OCI_SDK_DEFAULT_RETRY_ENABLED
               value: "true"
+            - name: OCI_REGION_METADATA
+              value: {{ squote .Values.ociRegionMetadataEnvString }}
           ports:
             - name: webhook-server
               containerPort: {{.Values.webhookBindPort}}

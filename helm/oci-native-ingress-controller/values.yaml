@@ -22,11 +22,17 @@ image:
   repository: ghcr.io/oracle/oci-native-ingress-controller
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "v1.3.3"
+  tag: "v1.3.8"
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
+
+# OCI_REGION_METADATA Env variable string, to specify region metadata for regions not listed in oci-go-sdk
+# Reference - https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdk_adding_new_region_endpoints.htm#SDK_Adding_Regions_Environment_Variable
+# Example - ociRegionMetadataEnvString: '{"realmKey":"OC1","realmDomainComponent":"oraclecloud.com","regionKey":"SYD","regionIdentifier":"ap-sydney-1"}'
+# Note that single quote wrap is necessary
+ociRegionMetadataEnvString: ''
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -97,6 +103,8 @@ webhookBindPort: 9443
 # Supported auths - instance(default), user
 authType: instance
 authSecretName: oci-config
+# Region where OKE cluster is deployed
+region: ""
 
 # objectSelector for webhook
 objectSelector:

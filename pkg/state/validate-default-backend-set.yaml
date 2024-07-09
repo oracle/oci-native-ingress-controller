@@ -1,0 +1,39 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-default-backend-1
+  namespace: default
+  annotations:
+    oci-native-ingress.oraclecloud.com/protocol: "TCP"
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: Exact
+            path: "/ProtocolPath"
+            backend:
+              service:
+                name: host-es
+                port:
+                  number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-default-backend-2
+  namespace: default
+  annotations:
+    oci-native-ingress.oraclecloud.com/protocol: "TCP"
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: Prefix
+            path: "/ProtocolPathPrefix"
+            backend:
+              service:
+                name: host-es
+                port:
+                  number: 8080

@@ -184,6 +184,14 @@ func GetIngressClassResourceWithLbId(name string, isDefault bool, controller str
 	}
 }
 
+func GetIngressResource(name string) *networkingv1.Ingress {
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+}
+
 func GetEndpointsResourceList(name string, namespace string, allCase bool) *v1.EndpointsList {
 	if allCase {
 		return GetEndpointsResourceListAllCase(name,
@@ -481,7 +489,7 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	proto := util.ProtocolHTTP
 	listener := ociloadbalancer.Listener{
 		Name:                    &routeN,
-		DefaultBackendSetName:   nil,
+		DefaultBackendSetName:   common.String(util.DefaultBackendSetName),
 		Port:                    &port,
 		Protocol:                &proto,
 		HostnameNames:           nil,
@@ -548,21 +556,22 @@ func GetSampleSecret(configName string, privateKey string, data string, privateK
 	return secret
 }
 
-func GetSampleCertSecret() *v1.Secret {
-	namespace := "test"
-	name := "oci-cert"
-	s := "some-random"
+func GetSampleCertSecret(namespace, name, caChain, cert, key string) *v1.Secret {
 	secret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 			Name:      name,
 		},
 		Data: map[string][]byte{
-			"ca.crt":  []byte(s),
-			"tls.crt": []byte(s),
-			"tls.key": []byte(s),
+			"tls.crt": []byte(cert),
+			"tls.key": []byte(key),
 		},
 	}
+
+	if caChain != "" {
+		secret.Data["ca.crt"] = []byte(caChain)
+	}
+
 	return secret
 }
 

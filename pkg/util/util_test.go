@@ -11,6 +11,8 @@ package util
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,6 +23,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	fake2 "k8s.io/client-go/kubernetes/typed/networking/v1/fake"
@@ -562,6 +565,82 @@ func TestIsIngressDeleting(t *testing.T) {
 	Expect(IsIngressDeleting(&i)).Should(Equal(false))
 }
 
+func TestPathToServiceAndTargetPort(t *testing.T) {
+	RegisterTestingT(t)
+	namespace := "test"
+	svc := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "TestService",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"app": "multi-test"},
+			Ports: []v1.ServicePort{
+				{
+					Name:     "abcd",
+					Protocol: v1.ProtocolTCP,
+					Port:     443,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30224,
+				},
+				{
+					Name:     "efgh",
+					Protocol: v1.ProtocolTCP,
+					Port:     444,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30225,
+				},
+				{
+					Name:     "ijkl",
+					Protocol: v1.ProtocolTCP,
+					Port:     445,
+					TargetPort: intstr.IntOrString{
+						IntVal: 8080,
+					},
+					NodePort: 30226,
+				},
+			},
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+		},
+	}
+	ingBackend1 := networkingv1.IngressServiceBackend{
+		Name: "TestService1",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 443,
+			Name:   "abcd",
+		},
+	}
+	ingBackend2 := networkingv1.IngressServiceBackend{
+		Name: "TestService2",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 444,
+			Name:   "efgh",
+		},
+	}
+	ingBackend3 := networkingv1.IngressServiceBackend{
+		Name: "TestService3",
+		Port: networkingv1.ServiceBackendPort{
+			Number: 445,
+		},
+	}
+
+	runTests(svc, ingBackend1, namespace, "TestService1", "443", "30224")
+	runTests(svc, ingBackend2, namespace, "TestService2", "444", "30225")
+	runTests(svc, ingBackend3, namespace, "TestService3", "445", "30226")
+}
+
+func runTests(svc *v1.Service, ingBackend networkingv1.IngressServiceBackend, namespace string, expectedSvcName string, expectedPort string, np string) {
+	svcName, svcPort, nodePort, err := PathToServiceAndTargetPort(svc, ingBackend, namespace, true)
+	Expect(err == nil).Should(Equal(true))
+	Expect(svcName).Should(Equal(expectedSvcName))
+	Expect(strconv.Itoa(int(svcPort))).Should(Equal(expectedPort))
+	Expect(strconv.Itoa(int(nodePort))).Should(Equal(np))
+}
+
 func getIngressClassList() *networkingv1.IngressClassList {
 	defaultIngressClass := getIngressClassResource("default-ingress-class", true, "oci.oraclecloud.com/native-ingress-controller")
 	ingressClass := getIngressClassResource("ingress-class", false, "oci.oraclecloud.com/native-ingress-controller")
@@ -587,4 +666,81 @@ func TestGetTimeDifferenceInSeconds(t *testing.T) {
 	RegisterTestingT(t)
 	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009000)).Should(Equal(float64(3)))
 	Expect(GetTimeDifferenceInSeconds(1257894006000, 1257894009600)).Should(Equal(3.6))
+}
+
+func TestDetermineListenerPort(t *testing.T) {
+	RegisterTestingT(t)
+	servicePort := int32(8080)
+	httpPort := int32(80)
+	httpsPort := int32(443)
+	tlsConfiguredHosts := sets.NewString("tls-configured-1", "tls-configured-2")
+	ingress := &networkingv1.Ingress{}
+	annotations := map[string]string{}
+	ingress.Annotations = annotations
+
+	listenerPort, err := DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpListenerPortAnnotation] = "80"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpPort))
+
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "tls-configured-1", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpsListenerPortAnnotation] = "443"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "tls-configured-1", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpsPort))
+
+	delete(annotations, IngressHttpsListenerPortAnnotation)
+	annotations[IngressListenerTlsCertificateAnnotation] = "oci_cert"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(servicePort))
+
+	annotations[IngressHttpsListenerPortAnnotation] = "443"
+	listenerPort, err = DetermineListenerPort(ingress, &tlsConfiguredHosts, "not-tls-configured", servicePort)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(listenerPort).Should(Equal(httpsPort))
+}
+
+func TestIsBackendServiceEqual(t *testing.T) {
+	RegisterTestingT(t)
+	b1 := &networkingv1.IngressBackend{}
+	b2 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-1",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+	b3 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-1",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+	b4 := &networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{
+			Name: "default-backend-2",
+			Port: networkingv1.ServiceBackendPort{
+				Number: 80,
+			},
+		},
+	}
+
+	Expect(IsBackendServiceEqual(b2, b3)).To(BeTrue())
+
+	Expect(IsBackendServiceEqual(b1, b2)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b1, b3)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b1, b4)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b2, b4)).To(BeFalse())
+	Expect(IsBackendServiceEqual(b3, b4)).To(BeFalse())
 }

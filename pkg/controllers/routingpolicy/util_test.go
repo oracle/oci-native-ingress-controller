@@ -10,7 +10,11 @@ package routingpolicy
 
 import (
 	"fmt"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -260,4 +264,43 @@ type TestPathToRoutingPolicy struct {
 	Path     networkingv1.HTTPIngressPath
 	Host     string
 	Expected string
+}
+
+func TestFilterIngressesForRoutingPolicy(t *testing.T) {
+	RegisterTestingT(t)
+
+	defaultIngressClass := testutil.GetIngressClassResource("default_ingressclass", true, "")
+	otherIngressClass := testutil.GetIngressClassResource("other_ingressclass", false, "")
+
+	ingressWithoutIngressClass := testutil.GetIngressResource("ingress_without_ingressclass")
+	ingressWithDefaultIngressClass := testutil.GetIngressResource("ingress_with_default_ingressclass")
+	ingressWithDefaultIngressClass.Spec.IngressClassName = common.String("default_ingressclass")
+
+	ingressWithOtherIngressClass := testutil.GetIngressResource("ingress_with_other_ingressclass")
+	ingressWithOtherIngressClass.Spec.IngressClassName = common.String("other_ingressclass")
+
+	deletingIngress := testutil.GetIngressResource("deleting_ingress")
+	deletingIngress.DeletionTimestamp = &v1.Time{Time: time.Now()}
+
+	ingressWithTCP := testutil.GetIngressResource("ingress_with_tcp")
+	ingressWithTCP.Annotations = map[string]string{
+		"oci-native-ingress.oraclecloud.com/protocol": "TCP",
+	}
+
+	testHelper := func(ingressClass *networkingv1.IngressClass, ingress *networkingv1.Ingress, expectedCount int) {
+		result := filterIngressesForRoutingPolicy(ingressClass, []*networkingv1.Ingress{ingress})
+		Expect(len(result)).Should(Equal(expectedCount))
+	}
+
+	testHelper(defaultIngressClass, ingressWithoutIngressClass, 1)
+	testHelper(defaultIngressClass, ingressWithDefaultIngressClass, 1)
+	testHelper(defaultIngressClass, ingressWithOtherIngressClass, 0)
+	testHelper(defaultIngressClass, deletingIngress, 0)
+	testHelper(defaultIngressClass, ingressWithTCP, 0)
+
+	testHelper(otherIngressClass, ingressWithoutIngressClass, 0)
+	testHelper(otherIngressClass, ingressWithDefaultIngressClass, 0)
+	testHelper(otherIngressClass, ingressWithOtherIngressClass, 1)
+	testHelper(otherIngressClass, deletingIngress, 0)
+	testHelper(otherIngressClass, ingressWithTCP, 0)
 }

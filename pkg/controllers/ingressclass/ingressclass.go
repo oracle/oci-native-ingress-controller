@@ -43,8 +43,6 @@ import (
 
 var errIngressClassNotReady = errors.New("ingress class not ready")
 
-const DefaultIngress = "default_ingress"
-
 // Controller demonstrates how to implement a controller with client-go.
 type Controller struct {
 	defaultCompartmentId string
@@ -246,7 +244,7 @@ func (c *Controller) ensureLoadBalancer(ic *networkingv1.IngressClass) error {
 			SubnetIds:     []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
 			IsPrivate:     common.Bool(icp.Spec.IsPrivate),
 			BackendSets: map[string]ociloadbalancer.BackendSetDetails{
-				DefaultIngress: {
+				util.DefaultBackendSetName: {
 					Policy: common.String("LEAST_CONNECTIONS"),
 					HealthChecker: &ociloadbalancer.HealthCheckerDetails{
 						Protocol: common.String("TCP"),

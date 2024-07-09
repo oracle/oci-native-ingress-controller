@@ -575,11 +575,11 @@ func (lbc *LoadBalancerClient) setRoutingPolicyOnListener(
 		return fmt.Errorf("listener %s not found", routingPolicyName)
 	}
 
-	return lbc.UpdateListener(ctx, lb.Id, etag, l, &routingPolicyName, nil, l.Protocol)
+	return lbc.UpdateListener(ctx, lb.Id, etag, l, &routingPolicyName, nil, l.Protocol, nil)
 }
 
-func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener,
-	routingPolicyName *string, sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string) error {
+func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
+	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string, defaultBackendSet *string) error {
 
 	if sslConfigurationDetails == nil && l.SslConfiguration != nil {
 		sslConfigurationDetails = &loadbalancer.SslConfigurationDetails{
@@ -595,6 +595,10 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 		protocol = l.Protocol
 	}
 
+	if defaultBackendSet == nil || *defaultBackendSet == "" {
+		defaultBackendSet = l.DefaultBackendSetName
+	}
+
 	if *protocol == util.ProtocolHTTP2 {
 		sslConfigurationDetails.CipherSuiteName = common.String(util.ProtocolHTTP2DefaultCipherSuite)
 	}
@@ -606,7 +610,7 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 		UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
 			Port:                  l.Port,
 			Protocol:              protocol,
-			DefaultBackendSetName: l.DefaultBackendSetName,
+			DefaultBackendSetName: defaultBackendSet,
 			SslConfiguration:      sslConfigurationDetails,
 			RoutingPolicyName:     routingPolicyName,
 		},
@@ -624,7 +628,7 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 }
 
 func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, listenerPort int, listenerProtocol string,
-	sslConfig *loadbalancer.SslConfigurationDetails) error {
+	defaultBackendSet string, sslConfig *loadbalancer.SslConfigurationDetails) error {
 
 	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
@@ -646,7 +650,7 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 	createListenerRequest := loadbalancer.CreateListenerRequest{
 		LoadBalancerId: lb.Id,
 		CreateListenerDetails: loadbalancer.CreateListenerDetails{
-			DefaultBackendSetName: common.String("default_ingress"),
+			DefaultBackendSetName: common.String(defaultBackendSet),
 			Port:                  common.Int(listenerPort),
 			Protocol:              common.String(listenerProtocol),
 			Name:                  common.String(listenerName),
