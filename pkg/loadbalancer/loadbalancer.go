@@ -584,6 +584,10 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 	if sslConfigurationDetails == nil && l.SslConfiguration != nil {
 		sslConfigurationDetails = &loadbalancer.SslConfigurationDetails{
 			CertificateIds: l.SslConfiguration.CertificateIds,
+			//add for mtls verify
+			VerifyDepth:                    l.SslConfiguration.VerifyDepth,
+			VerifyPeerCertificate:          l.SslConfiguration.VerifyPeerCertificate,
+			TrustedCertificateAuthorityIds: l.SslConfiguration.TrustedCertificateAuthorityIds,
 		}
 	}
 

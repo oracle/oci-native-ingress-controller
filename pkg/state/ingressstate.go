@@ -10,6 +10,7 @@
 package state
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -40,7 +41,12 @@ type TlsConfig struct {
 	Artifact string
 	Type     string
 }
-
+type MutualTlsPortConfig struct {
+	Port        int32  `json:"port"`
+	Mode        string `json:"mode"`
+	Depth       int    `json:"depth,omitempty"`
+	TrustCACert string `json:"trustcacert"`
+}
 type StateStore struct {
 	IngressClassLister networkinglisters.IngressClassLister
 	IngressLister      networkinglisters.IngressLister
@@ -58,6 +64,7 @@ type IngressClassState struct {
 	Listeners                  sets.Int32
 	ListenerProtocolMap        map[int32]string
 	ListenerTLSConfigMap       map[int32]TlsConfig
+	MtlsPorts                  map[int32]MutualTlsPortConfig
 	ListenerDefaultBsMap       map[int32]string
 }
 
@@ -108,6 +115,12 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	allBackendSets := sets.NewString(util.DefaultBackendSetName)
 	allListeners := sets.NewInt32()
 
+	// add mtls verify configmap
+	mutualTlsPortConfigMap := make(map[int32]MutualTlsPortConfig)
+
+	bsHealthCheckerMap[DefaultIngressName] = util.GetDefaultHeathChecker()
+	bsPolicyMap[DefaultIngressName] = util.DefaultBackendSetRoutingPolicy
+
 	bsHealthCheckerMap[util.DefaultBackendSetName] = util.GetDefaultHeathChecker()
 	bsPolicyMap[util.DefaultBackendSetName] = util.DefaultBackendSetRoutingPolicy
 
@@ -115,6 +128,21 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		hostSecretMap := make(map[string]string)
 		tlsConfiguredHosts := sets.NewString()
 		desiredPorts := sets.NewInt32()
+
+		validateMtlsPortAnnotationJson, err := ParseMutualTlsAnnotationJSON(ing)
+		klog.Infof("Ingress name: %s, validateMtlsPortAnnotationJson  %s", util.PrettyPrint(ing.Name), util.PrettyPrint(validateMtlsPortAnnotationJson))
+
+		if err != nil {
+			klog.Infof("Error parsing validateMtlsPortAnnotationJson JSON:", err)
+			return nil
+		}
+
+		for _, configPort := range validateMtlsPortAnnotationJson {
+			// add new mtls port to map
+			mutualTlsPortConfigMap[configPort.Port] = configPort
+		}
+		klog.Infof(" mutualTlsPortConfigMap  %s, mutualTlsPortConfigMap  %s", util.PrettyPrint(ing.Name), util.PrettyPrint(mutualTlsPortConfigMap))
+
 		// we always expect the default_ingress backendset
 		desiredBackendSets := sets.NewString(util.DefaultBackendSetName)
 
@@ -138,6 +166,10 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				if err != nil {
 					return errors.Wrap(err, "error finding service and port")
 				}
+
+
+				desiredPorts.Insert(servicePort)
+				allListeners.Insert(servicePort)
 
 				listenerPort, err := util.DetermineListenerPort(ing, &tlsConfiguredHosts, host, servicePort)
 				if err != nil {
@@ -192,6 +224,8 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		Listeners:                  allListeners,
 		ListenerProtocolMap:        listenerProtocolMap,
 		ListenerTLSConfigMap:       listenerTLSConfigMap,
+		//add mutual tls port configmap
+		MtlsPorts: mutualTlsPortConfigMap,
 		ListenerDefaultBsMap:       listenerDefaultBsMap,
 	}
 
@@ -353,6 +387,22 @@ func (s *StateStore) GetTLSConfigForListener(port int32) (string, string) {
 	return "", ""
 }
 
+// func (s *StateStore) GetMutualTlsPortConfigForListener(port int32) MutualTlsPortConfig {
+// 	portMtlsConfig, ok := s.IngressGroupState.MtlsPorts[port]
+// 	if ok {
+// 		return portMtlsConfig
+// 	}
+// 	return MutualTlsPortConfig{}
+// }
+
+func (s *StateStore) GetMutualTlsPortConfigForListener(port int32) (string, int, string) {
+	portMtlsConfig, ok := s.IngressGroupState.MtlsPorts[port]
+	if ok {
+		return portMtlsConfig.Mode, portMtlsConfig.Depth, portMtlsConfig.TrustCACert
+	}
+	return "", 0, ""
+}
+
 func (s *StateStore) GetTLSConfigForBackendSet(bsName string) (string, string) {
 	bsTLSConfig, ok := s.IngressGroupState.BackendSetTLSConfigMap[bsName]
 	if ok {
@@ -379,4 +429,43 @@ func validatePortInUse(listenerTLSConfig TlsConfig, secretName string, certifica
 		return fmt.Errorf(PortConflictMessage, servicePort)
 	}
 	return nil
+}
+
+func ParseMutualTlsAnnotationJSON(ing *networkingv1.Ingress) ([]MutualTlsPortConfig, error) {
+
+	mtlsPortsAnnotation := util.GetMutualTlsVerifyAnnotation(ing)
+	klog.Infof("Ingress name ParseMutualTlsAnnotationJSON %s, mtlsPortsAnnotation  %s", util.PrettyPrint(ing.Name), util.PrettyPrint(mtlsPortsAnnotation))
+
+	s := mtlsPortsAnnotation
+	//check if s is empty
+	if s == "" {
+		return []MutualTlsPortConfig{}, nil
+	}
+	// Check if the string conforms to JSON format
+	if !isValidJSON(s) {
+		return nil, fmt.Errorf("Original string does not conform to JSON format")
+	}
+
+	// Parse JSON string
+	var mtls []MutualTlsPortConfig
+	err := json.Unmarshal([]byte(s), &mtls)
+	if err != nil {
+		return nil, err
+	}
+
+	// Remove sub-objects without the 'port' field
+	var validMtls []MutualTlsPortConfig
+	for _, config := range mtls {
+		if config.Port != 0 {
+			validMtls = append(validMtls, config)
+		}
+	}
+
+	return validMtls, nil
+}
+
+// Check if the string conforms to JSON format
+func isValidJSON(s string) bool {
+	var js json.RawMessage
+	return json.Unmarshal([]byte(s), &js) == nil
 }

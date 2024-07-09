@@ -36,6 +36,7 @@ const (
 	TestIngressStateWithPortNameFilePath      = "test-ingress-state_withportname.yaml"
 	TestIngressStateWithNamedClassesFilePath  = "test-ingress-state_withnamedclasses.yaml"
 	TestSslTerminationAtLb                    = "test-ssl-termination-lb.yaml"
+	TestMtlsAuthVerfify                       = "validate-mutual-tls-authentication.yaml"
 	DefaultBackendSetValidationsFilePath      = "validate-default-backend-set.yaml"
 )
 
@@ -451,12 +452,34 @@ func TestSslTerminationAtLB(t *testing.T) {
 	Expect(lstTlsConfig.Type).Should(Equal(ArtifactTypeCertificate))
 }
 
-func TestValidateListenerDefaultBackendSet(t *testing.T) {
-	RegisterTestingT(t)
+
+func TestMtlsAuthVerifyPortConfig(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ingressClassList := testutil.GetIngressClassList()
+
+	ingressList := testutil.ReadResourceAsIngressList(TestMtlsAuthVerfify)
+
+	testService := testutil.GetServiceListResource("default", "mtls-auth-verify-annotation", 943)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	mode, deepth, _ := stateStore.GetMutualTlsPortConfigForListener(943)
+
+	Expect(mode).Should(Equal(util.MutualTlsAuthenticationVerify))
+	Expect(deepth).Should(Equal(1))
+
+}
+func TestValidateListenerDefaultBackendSet(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := testutil.GetIngressClassList()
+
 
 	ingressList := testutil.ReadResourceAsIngressList(DefaultBackendSetValidationsFilePath)
 
@@ -465,6 +488,7 @@ func TestValidateListenerDefaultBackendSet(t *testing.T) {
 
 	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
 	err := stateStore.BuildState(&ingressClassList.Items[0])
+
 	Expect(err).ShouldNot(HaveOccurred())
 
 	bsName := util.GenerateBackendSetName("default", "host-es", 8080)

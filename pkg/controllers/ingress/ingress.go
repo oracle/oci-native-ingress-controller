@@ -41,6 +41,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 )
 
@@ -366,10 +367,40 @@ func (c *Controller) ensureIngress(ingress *networkingv1.Ingress, ingressClass *
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
+
 		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.client)
 		if err != nil {
 			return err
 		}
+
+		// listenerSslConfig.VerifyPeerCertificate
+
+		mode, deepth, trustcacert := stateStore.GetMutualTlsPortConfigForListener(port)
+		mtlsPorts := stateStore.IngressGroupState.MtlsPorts
+		klog.Infof("  GetMutualTlsPortConfigForListener **********   mtlsPorts :  %s ", util.PrettyPrint(mtlsPorts))
+
+		klog.Infof("  GetMutualTlsPortConfigForListener **********  before :  %s ", util.PrettyPrint(listenerSslConfig))
+		if mode == util.MutualTlsAuthenticationVerify {
+			// listenerSslConfig.VerifyDepth
+			listenerSslConfig.VerifyPeerCertificate = common.Bool(true)
+			listenerSslConfig.VerifyDepth = &deepth
+
+			// check wethear the trustcacert is valid ca bundle
+			if mode == util.MutualTlsAuthenticationVerify && isTrustAuthorityCaBundle(trustcacert) {
+				caBundleIds := []string{trustcacert}
+				listenerSslConfig.TrustedCertificateAuthorityIds = caBundleIds
+			} else {
+				if mode == util.MutualTlsAuthenticationVerify {
+					klog.Error("verify trustcacert error, not a valid CA bundle ID: %s", util.PrettyPrint(trustcacert))
+				}
+				listenerSslConfig.VerifyPeerCertificate = common.Bool(false)
+				listenerSslConfig.VerifyDepth = common.Int(1)
+				listenerSslConfig.TrustedCertificateAuthorityIds = nil
+
+			}
+
+		}
+		klog.Infof("  GetMutualTlsPortConfigForListener  after :  %s ", util.PrettyPrint(listenerSslConfig))
 
 		protocol := stateStore.GetListenerProtocol(port)
 		defaultBackendSet := stateStore.GetListenerDefaultBackendSet(port)
@@ -482,6 +513,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
+
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
 		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.client)
@@ -495,6 +527,41 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 				needsUpdate = true
 			}
 		}
+
+		var port = int32(*listener.Port)
+		mode, deepth, trustcacert := stateStore.GetMutualTlsPortConfigForListener(port)
+		mtlsPorts := stateStore.IngressGroupState.MtlsPorts
+		klog.Infof("  syncListenerr  mtlsPorts :  %s ", util.PrettyPrint(mtlsPorts))
+
+		klog.Infof("  syncListener   before :  %s ", util.PrettyPrint(listener.SslConfiguration))
+		var modeToBool bool = false
+		if mode == util.MutualTlsAuthenticationVerify {
+			modeToBool = true
+		}
+		if *listener.SslConfiguration.VerifyPeerCertificate != modeToBool || *listener.SslConfiguration.VerifyDepth != deepth {
+			klog.Infof(" mtls port config %d needs update  mode:  %s", *listener.Name, mode)
+			needsUpdate = true
+
+			// check wethear the trustcacert is valid ca bundle
+			if mode == util.MutualTlsAuthenticationVerify && isTrustAuthorityCaBundle(trustcacert) {
+				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(true)
+				listener.SslConfiguration.VerifyDepth = &deepth
+				caBundleIds := []string{trustcacert}
+				listener.SslConfiguration.TrustedCertificateAuthorityIds = caBundleIds
+
+			} else {
+				if mode == util.MutualTlsAuthenticationVerify {
+					klog.Error("verify trustcacert error, not a valid CA bundle ID: %s", util.PrettyPrint(trustcacert))
+				}
+				listener.SslConfiguration.VerifyPeerCertificate = common.Bool(false)
+				listener.SslConfiguration.VerifyDepth = common.Int(1)
+				listener.SslConfiguration.TrustedCertificateAuthorityIds = nil
+
+			}
+		}
+
+		klog.Infof("  syncListener  after :  %s ", util.PrettyPrint(listener.SslConfiguration))
+
 	}
 
 	protocol := stateStore.GetListenerProtocol(int32(*listener.Port))

@@ -187,6 +187,8 @@ func CreateCaBundle(certificateName string, compartmentId string, certificatesCl
 		CreateCaBundleDetails: caBundleDetails,
 		OpcRetryToken:         &certificateName,
 	}
+	klog.Infof("  createCaBundleRequest  ********** certificateName %s createCaBundleRequest :  %s ", certificateName, util.PrettyPrint(createCaBundleRequest))
+
 	createCaBundle, err := certificatesClient.CreateCaBundle(context.TODO(), createCaBundleRequest)
 	if err != nil {
 		return nil, err
@@ -373,7 +375,9 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 		}
 		newCertificateId = *cId
 	}
-
+	// //TODO add VerifyPeerCertificate here
+	//   https://github.com/oracle/oci-go-sdk/blob/master/example/example_loadbalancer_test.go
+	// listenerSslConfig.VerifyPeerCertificate(common.Bool(true))
 	if newCertificateId != "" {
 		certificateIds := []string{newCertificateId}
 		listenerSslConfig = &ociloadbalancer.SslConfigurationDetails{CertificateIds: certificateIds}
