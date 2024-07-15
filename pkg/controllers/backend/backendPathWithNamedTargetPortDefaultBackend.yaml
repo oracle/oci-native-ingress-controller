@@ -1,0 +1,23 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-readiness
+  namespace: default
+spec:
+  defaultBackend:
+    service:
+      name: service-with-named-target-port
+      port:
+        number: 8081
+  rules:
+    - host: "foo.bar.com"
+      http:
+        paths:
+          - pathType: Exact
+            path: "/testecho1"
+            backend:
+              service:
+                name: testecho1
+                port:
+                  number: 80

@@ -12,7 +12,7 @@ import (
 	"context"
 	"fmt"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"strconv"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"strings"
 	"testing"
 
@@ -567,78 +567,81 @@ func TestIsIngressDeleting(t *testing.T) {
 
 func TestPathToServiceAndTargetPort(t *testing.T) {
 	RegisterTestingT(t)
+
+	serviceName1 := "service-with-single-port"
+	serviceName2 := "service-with-multiple-ports"
 	namespace := "test"
-	svc := &v1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "TestService",
-			Namespace: namespace,
-		},
-		Spec: v1.ServiceSpec{
-			Selector: map[string]string{"app": "multi-test"},
-			Ports: []v1.ServicePort{
-				{
-					Name:     "abcd",
-					Protocol: v1.ProtocolTCP,
-					Port:     443,
-					TargetPort: intstr.IntOrString{
-						IntVal: 8080,
-					},
-					NodePort: 30224,
-				},
-				{
-					Name:     "efgh",
-					Protocol: v1.ProtocolTCP,
-					Port:     444,
-					TargetPort: intstr.IntOrString{
-						IntVal: 8080,
-					},
-					NodePort: 30225,
-				},
-				{
-					Name:     "ijkl",
-					Protocol: v1.ProtocolTCP,
-					Port:     445,
-					TargetPort: intstr.IntOrString{
-						IntVal: 8080,
-					},
-					NodePort: 30226,
-				},
-			},
-			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
-		},
-	}
-	ingBackend1 := networkingv1.IngressServiceBackend{
-		Name: "TestService1",
-		Port: networkingv1.ServiceBackendPort{
-			Number: 443,
-			Name:   "abcd",
-		},
-	}
-	ingBackend2 := networkingv1.IngressServiceBackend{
-		Name: "TestService2",
-		Port: networkingv1.ServiceBackendPort{
-			Number: 444,
-			Name:   "efgh",
-		},
-	}
-	ingBackend3 := networkingv1.IngressServiceBackend{
-		Name: "TestService3",
-		Port: networkingv1.ServiceBackendPort{
-			Number: 445,
+
+	svcWithSinglePort := GetServiceResource(namespace, serviceName1, []v1.ServicePort{
+		GetServicePortResource("", 443, intstr.FromInt(1000), 30224),
+	})
+
+	svcWithMultiplePorts := GetServiceResource(namespace, serviceName2, []v1.ServicePort{
+		GetServicePortResource("first_svc_port", 443, intstr.FromInt(1000), 30225),
+		GetServicePortResource("second_svc_port", 444, intstr.FromString("port_name_for_2000"), 30226),
+		GetServicePortResource("third_svc_port", 445, intstr.FromInt(3000), 30227),
+		GetServicePortResource("fourth_svc_port", 446, intstr.FromString("port_name_for_4000"), 30228),
+	})
+
+	endpointsList := &v1.EndpointsList{
+		Items: []v1.Endpoints{
+			GetEndpointsResource(namespace, serviceName1, []v1.EndpointPort{{Port: 1000}}),
+			GetEndpointsResource(namespace, serviceName2, []v1.EndpointPort{
+				{Port: 1000, Name: "first_svc_port"},
+				{Port: 2000, Name: "second_svc_port"},
+			}),
 		},
 	}
 
-	runTests(svc, ingBackend1, namespace, "TestService1", "443", "30224")
-	runTests(svc, ingBackend2, namespace, "TestService2", "444", "30225")
-	runTests(svc, ingBackend3, namespace, "TestService3", "445", "30226")
+	endpointsLister := GetEndpointsListerResource(endpointsList)
+
+	ingBackend1 := GetIngressServiceBackendResource(serviceName1, "", 443)
+	runTests(endpointsLister, svcWithSinglePort, ingBackend1, namespace, false, serviceName1, 443, 1000, 30224)
+
+	ingBackend2 := GetIngressServiceBackendResource(serviceName2, "", 443)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend2, namespace, false, serviceName2, 443, 1000, 30225)
+
+	ingBackend3 := GetIngressServiceBackendResource(serviceName2, "first_svc_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend3, namespace, false, serviceName2, 443, 1000, 30225)
+
+	ingBackend4 := GetIngressServiceBackendResource(serviceName2, "", 444)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend4, namespace, false, serviceName2, 444, 2000, 30226)
+
+	ingBackend5 := GetIngressServiceBackendResource(serviceName2, "second_svc_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend5, namespace, false, serviceName2, 444, 2000, 30226)
+
+	ingBackend6 := GetIngressServiceBackendResource(serviceName2, "", 445)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend6, namespace, false, serviceName2, 445, 3000, 30227)
+
+	ingBackend7 := GetIngressServiceBackendResource(serviceName2, "third_svc_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend7, namespace, false, serviceName2, 445, 3000, 30227)
+
+	ingBackend8 := GetIngressServiceBackendResource(serviceName2, "", 446)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend8, namespace, false, serviceName2, 446, 0, 30228)
+
+	ingBackend9 := GetIngressServiceBackendResource(serviceName2, "fourth_svc_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend9, namespace, false, serviceName2, 446, 0, 30228)
+
+	ingBackend10 := GetIngressServiceBackendResource(serviceName2, "non_existent_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend10, namespace, true, "", 0, 0, 0)
+
+	ingBackend11 := GetIngressServiceBackendResource("non_existent_service", "non_existent_port", 0)
+	runTests(endpointsLister, svcWithMultiplePorts, ingBackend11, namespace, true, "", 0, 0, 0)
 }
 
-func runTests(svc *v1.Service, ingBackend networkingv1.IngressServiceBackend, namespace string, expectedSvcName string, expectedPort string, np string) {
-	svcName, svcPort, nodePort, err := PathToServiceAndTargetPort(svc, ingBackend, namespace, true)
-	Expect(err == nil).Should(Equal(true))
+func runTests(endpointsLister corelisters.EndpointsLister, svc *v1.Service, ingBackend networkingv1.IngressServiceBackend,
+	namespace string, expectError bool, expectedSvcName string, expectedPort int32, expectedTargetPort int32, expectedNodePort int32) {
+	svcName, svcPort, targetPort, err := PathToServiceAndTargetPort(endpointsLister, svc, ingBackend, namespace, true)
+	Expect(err != nil).Should(Equal(expectError))
 	Expect(svcName).Should(Equal(expectedSvcName))
-	Expect(strconv.Itoa(int(svcPort))).Should(Equal(expectedPort))
-	Expect(strconv.Itoa(int(nodePort))).Should(Equal(np))
+	Expect(svcPort).Should(Equal(expectedPort))
+	Expect(targetPort).Should(Equal(expectedNodePort))
+
+	svcName, svcPort, targetPort, err = PathToServiceAndTargetPort(endpointsLister, svc, ingBackend, namespace, false)
+	Expect(err != nil).Should(Equal(expectError))
+	Expect(svcName).Should(Equal(expectedSvcName))
+	Expect(svcPort).Should(Equal(expectedPort))
+	Expect(targetPort).Should(Equal(expectedTargetPort))
 }
 
 func getIngressClassList() *networkingv1.IngressClassList {

@@ -173,7 +173,7 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 					return err
 				}
 
-				svcName, svcPort, nodePort, err := util.PathToServiceAndTargetPort(svc, pSvc, ingress.Namespace, true)
+				svcName, svcPort, nodePort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, true)
 				if err != nil {
 					return err
 				}

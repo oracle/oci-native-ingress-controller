@@ -483,15 +483,18 @@ func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networking
 	return nil, false
 }
 
-func GetTargetPortForService(svc *corev1.Service, namespace string, name string, port int32, portName string, isNodeportRequired bool) (int32, int32, error) {
+func GetTargetPortForService(endpointLister corelisters.EndpointsLister, svc *corev1.Service, namespace string, name string, port int32,
+	portName string, isNodeportRequired bool) (int32, int32, error) {
 	for _, p := range svc.Spec.Ports {
 		if (p.Port != 0 && p.Port == port) || p.Name == portName {
 
 			if !isNodeportRequired {
-				if p.TargetPort.Type != intstr.Int {
-					return 0, 0, fmt.Errorf("service %s/%s has non-integer ports: %s", namespace, name, p.Name)
+				if p.TargetPort.Type == intstr.String {
+					targetPort, err := getNumericTargetPortFromPortName(endpointLister, namespace, name, p.Name)
+					return p.Port, targetPort, err
+				} else {
+					return p.Port, p.TargetPort.IntVal, nil
 				}
-				return p.Port, p.TargetPort.IntVal, nil
 			} else {
 				if p.NodePort == 0 {
 					return 0, 0, fmt.Errorf("service %s/%s has no nodeports: %s", namespace, name, p.Name)
@@ -505,13 +508,38 @@ func GetTargetPortForService(svc *corev1.Service, namespace string, name string,
 	return 0, 0, fmt.Errorf("service %s/%s does not have port: %s (%d)", namespace, name, portName, port)
 }
 
-func PathToServiceAndTargetPort(svc *corev1.Service, svcBackend networkingv1.IngressServiceBackend, namespace string, isNodePortRequired bool) (string, int32, int32, error) {
+func PathToServiceAndTargetPort(endpointLister corelisters.EndpointsLister, svc *corev1.Service, svcBackend networkingv1.IngressServiceBackend,
+	namespace string, isNodePortRequired bool) (string, int32, int32, error) {
 
-	svcPort, targetPort, err := GetTargetPortForService(svc, namespace, svcBackend.Name, svcBackend.Port.Number, svcBackend.Port.Name, isNodePortRequired)
+	svcPort, targetPort, err := GetTargetPortForService(endpointLister, svc, namespace, svcBackend.Name, svcBackend.Port.Number, svcBackend.Port.Name, isNodePortRequired)
 	if err != nil {
 		return "", 0, 0, err
 	}
 	return svcBackend.Name, svcPort, targetPort, nil
+}
+
+func getNumericTargetPortFromPortName(lister corelisters.EndpointsLister, namespace string, svcName string, svcPortName string) (int32, error) {
+	endpoints, err := lister.Endpoints(namespace).Get(svcName)
+	if err != nil {
+		return 0, err
+	}
+
+	/* If a single port is present, svcPortName may not be set.
+	   Still, both svcPortName and endpoint's PortName should be "" in this case */
+	for _, endpoint := range endpoints.Subsets {
+		for _, port := range endpoint.Ports {
+			if svcPortName == port.Name {
+				return port.Port, nil
+			}
+		}
+	}
+
+	/* We don't error out here because of the following scenario:
+	   If there are no pods serving for the service, no ports will show up in endpoints object. Returning an error here
+	   will break backend reconciliation for all ingresses. We return a 0 for port as it won't be used up the call chain
+	   since no corresponding IP Address will be found in service endpoints. */
+	klog.Infof("cannot find corresponding numeric target port for %s:%s/%s", namespace, svcName, svcPortName)
+	return 0, nil
 }
 
 func ExtractServices(path networkingv1.HTTPIngressPath, svcLister corelisters.ServiceLister, ingress *networkingv1.Ingress) (networkingv1.IngressServiceBackend, *corev1.Service, error) {
