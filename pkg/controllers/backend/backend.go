@@ -149,7 +149,7 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 				if err != nil {
 					return err
 				}
-				svcName, svcPort, targetPort, err := util.PathToServiceAndTargetPort(svc, pSvc, ingress.Namespace, false)
+				svcName, svcPort, targetPort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, false)
 				if err != nil {
 					return err
 				}
@@ -235,8 +235,16 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 
 	}
 
-	svcName := backend.Service.Name
-	targetPort := backend.Service.Port.Number
+	svc, err := c.serviceLister.Services(namespace).Get(backend.Service.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	svcName, _, targetPort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, *backend.Service, namespace, false)
+	if err != nil {
+		return nil, err
+	}
+
 	epAdrress, err := util.GetEndpoints(c.endpointLister, namespace, svcName)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", namespace, svcName, targetPort, err)

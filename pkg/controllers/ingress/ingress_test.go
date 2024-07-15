@@ -258,7 +258,10 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 }
 
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {
-	return ociloadbalancer.DeleteBackendSetResponse{}, nil
+	return ociloadbalancer.DeleteBackendSetResponse{
+		OpcRequestId:     common.String("OpcRequestId"),
+		OpcWorkRequestId: common.String("OpcWorkRequestId"),
+	}, nil
 }
 
 func (m MockLoadBalancerClient) GetBackendSetHealth(ctx context.Context, request ociloadbalancer.GetBackendSetHealthRequest) (ociloadbalancer.GetBackendSetHealthResponse, error) {

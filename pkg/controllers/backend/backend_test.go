@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	backendPath                   = "backendPath.yaml"
-	backendPathWithDefaultBackend = "backendPathWithDefaultBackend.yaml"
-	namespace                     = "default"
+	backendPath                                  = "backendPath.yaml"
+	backendPathWithDefaultBackend                = "backendPathWithDefaultBackend.yaml"
+	backendPathWithNamedTargetPortService        = "backendPathWithNamedTargetPortService.yaml"
+	backendPathWithNamedTargetPortDefaultBackend = "backendPathWithNamedTargetPortDefaultBackend.yaml"
+	namespace                                    = "default"
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, *fakeclientset.Clientset) {
@@ -126,6 +128,7 @@ func TestNoDefaultBackends(t *testing.T) {
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(backends)).Should(Equal(0))
 }
+
 func TestDefaultBackends(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,6 +139,28 @@ func TestDefaultBackends(t *testing.T) {
 	backends, err := c.getDefaultBackends(ingresses)
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(backends)).Should(Equal(1))
+}
+
+func TestDefaultBackendsWithNamedTargetPort(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList, backendPathWithNamedTargetPortDefaultBackend)
+	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
+	backends, err := c.getDefaultBackends(ingresses)
+	Expect(err == nil).Should(Equal(true))
+	Expect(len(backends)).Should(Equal(1))
+}
+
+func TestEnsureBackendWithNamedTargetPort(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList, backendPathWithNamedTargetPortService)
+	err := c.ensureBackends(&ingressClassList.Items[0], "id")
+	Expect(err == nil).Should(Equal(true))
 }
 
 func TestEnsurePodReadinessConditionWithExistingReadiness(t *testing.T) {

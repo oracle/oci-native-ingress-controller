@@ -1,8 +1,13 @@
 package util
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/informers"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"log"
 	"os"
 	"strings"
@@ -87,14 +92,42 @@ func GetServiceListResource(namespace string, name string, port int32) *v1.Servi
 			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
 		},
 	}
+	testService3 := v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "service-with-named-target-port",
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: map[string]string{"app": name},
+			Ports: []v1.ServicePort{
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       8081,
+					NodePort:   30225,
+					TargetPort: intstr.FromString("test_port_name"),
+					Name:       "port_8081",
+				},
+				{
+					Protocol:   v1.ProtocolTCP,
+					Port:       8082,
+					NodePort:   30226,
+					TargetPort: intstr.FromInt(1001),
+					Name:       "port_8082",
+				},
+			},
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+		},
+	}
 	var services []v1.Service
 	services = append(services, testService)
 	services = append(services, testService2)
+	services = append(services, testService3)
 
 	return &v1.ServiceList{
 		Items: services,
 	}
 }
+
 func GetServiceListResourceWithPortName(namespace string, name string, port int32, portName string) *v1.ServiceList {
 	testService := v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -239,10 +272,32 @@ func GetEndpointsResourceList(name string, namespace string, allCase bool) *v1.E
 			Ports: []v1.EndpointPort{{Port: 1000}},
 		}},
 	}
+	endpoint3 := v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "service-with-named-target-port",
+			Namespace:       namespace,
+			ResourceVersion: "1",
+		},
+		Subsets: []v1.EndpointSubset{{
+			Addresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.9",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod",
+					UID:       "999",
+				},
+			}},
+			Ports: []v1.EndpointPort{{Port: 1000, Name: "port_8081"}, {Port: 1001, Name: "port_8082"}},
+		}},
+	}
 
 	var endpoints []v1.Endpoints
 	endpoints = append(endpoints, endpoint)
 	endpoints = append(endpoints, endpoint2)
+	endpoints = append(endpoints, endpoint3)
 
 	return &v1.EndpointsList{
 		Items: endpoints,
@@ -326,11 +381,33 @@ func GetEndpointsResourceListAllCase(name string, namespace string) *v1.Endpoint
 			}},
 		}},
 	}
+	endpoint4 := v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "service-with-named-target-port",
+			Namespace:       namespace,
+			ResourceVersion: "1",
+		},
+		Subsets: []v1.EndpointSubset{{
+			Addresses: []v1.EndpointAddress{{
+				IP:       "6.7.8.9",
+				Hostname: "",
+				NodeName: &emptyNodeName,
+				TargetRef: &v1.ObjectReference{
+					Kind:      "Pod",
+					Namespace: "default",
+					Name:      "testpod",
+					UID:       "999",
+				},
+			}},
+			Ports: []v1.EndpointPort{{Port: 1000, Name: "port_8081"}, {Port: 1001, Name: "port_8082"}},
+		}},
+	}
 
 	var endpoints []v1.Endpoints
 	endpoints = append(endpoints, endpoint)
 	endpoints = append(endpoints, endpoint2)
 	endpoints = append(endpoints, endpoint3)
+	endpoints = append(endpoints, endpoint4)
 
 	return &v1.EndpointsList{
 		Items: endpoints,
@@ -432,6 +509,8 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 	etag := "testTag"
 	lbId := "id"
 	backendSetName := GenerateBackendSetName("default", "testecho1", 80)
+	backendSetName2 := GenerateBackendSetName("default", "service-with-named-target-port", 8081)
+	backendSetName3 := GenerateBackendSetName("default", "service-with-named-target-port", 8082)
 	name := "testecho1-999"
 	port := 80
 	ip := "127.89.90.90"
@@ -512,6 +591,24 @@ func SampleLoadBalancerResponse() ociloadbalancer.GetLoadBalancerResponse {
 			BackendSets: map[string]ociloadbalancer.BackendSet{
 				backendSetName: {
 					Name:                                    &backendSetName,
+					Policy:                                  &policy,
+					Backends:                                backends,
+					HealthChecker:                           healthChecker,
+					SslConfiguration:                        nil,
+					SessionPersistenceConfiguration:         nil,
+					LbCookieSessionPersistenceConfiguration: nil,
+				},
+				backendSetName2: {
+					Name:                                    &backendSetName2,
+					Policy:                                  &policy,
+					Backends:                                backends,
+					HealthChecker:                           healthChecker,
+					SslConfiguration:                        nil,
+					SessionPersistenceConfiguration:         nil,
+					LbCookieSessionPersistenceConfiguration: nil,
+				},
+				backendSetName3: {
+					Name:                                    &backendSetName3,
 					Policy:                                  &policy,
 					Backends:                                backends,
 					HealthChecker:                           healthChecker,
@@ -672,4 +769,67 @@ func GetNodesList() *v1.NodeList {
 		},
 		Items: nodes,
 	}
+}
+
+func GetServicePortResource(name string, port int32, targetPort intstr.IntOrString, nodePort int32) v1.ServicePort {
+	return v1.ServicePort{
+		Name:       name,
+		Port:       port,
+		TargetPort: targetPort,
+		NodePort:   nodePort,
+	}
+}
+
+func GetServiceResource(namespace string, name string, ports []v1.ServicePort) *v1.Service {
+	return &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector:              map[string]string{"app": name},
+			Ports:                 ports,
+			ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeLocal,
+		},
+	}
+}
+
+func GetEndpointsResource(namespace string, name string, ports []v1.EndpointPort) v1.Endpoints {
+	var emptyNodeName string
+	return v1.Endpoints{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       namespace,
+			ResourceVersion: "1",
+		},
+		Subsets: []v1.EndpointSubset{{
+			Addresses: []v1.EndpointAddress{{IP: "6.7.8.9", NodeName: &emptyNodeName}},
+			Ports:     ports,
+		}},
+	}
+}
+
+func GetIngressServiceBackendResource(name string, portName string, portNumber int32) networkingv1.IngressServiceBackend {
+	return networkingv1.IngressServiceBackend{
+		Name: name,
+		Port: networkingv1.ServiceBackendPort{
+			Name:   portName,
+			Number: portNumber,
+		},
+	}
+}
+
+func GetEndpointsListerResource(endpointsList *v1.EndpointsList) corelisters.EndpointsLister {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := fakeclientset.NewSimpleClientset()
+	UpdateFakeClientCall(client, "list", "endpoints", endpointsList)
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	endpointInformer := informerFactory.Core().V1().Endpoints()
+	endpointsLister := endpointInformer.Lister()
+	informerFactory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(), endpointInformer.Informer().HasSynced)
+
+	return endpointsLister
 }
