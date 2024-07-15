@@ -14,9 +14,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	kscheme "k8s.io/client-go/kubernetes/scheme"
 
@@ -80,8 +81,8 @@ func TestHandle(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressList := testutil.ReadResourceAsIngressList(podReadinessPath)
-	testService := testutil.GetServiceListResource("default", "testecho1", 80)
+	ingressList := util.ReadResourceAsIngressList(podReadinessPath)
+	testService := util.GetServiceListResource("default", "testecho1", 80)
 	ingressLister, serviceLister, client := setUp(ctx, ingressList, testService)
 	wb := NewWebhook(ingressLister, serviceLister, client)
 
@@ -175,7 +176,7 @@ func TestHandle(t *testing.T) {
 							Image: "echoserver",
 						},
 					},
-					ReadinessGates: testutil.GetPodReadinessGates("ingress-readiness", "foo.bar.com"),
+					ReadinessGates: util.GetPodReadinessGates("ingress-readiness", "foo.bar.com"),
 				},
 			},
 			op:            admissionv1.Create,

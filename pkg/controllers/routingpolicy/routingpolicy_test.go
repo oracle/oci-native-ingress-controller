@@ -11,7 +11,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +28,7 @@ func TestEnsureRoutingRules(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, "routePath.yaml")
 
 	err := c.ensureRoutingRules(&ingressClassList.Items[0])
@@ -38,7 +38,7 @@ func TestProcessRoutingPolicy(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, "routePath.yaml")
 
 	listenerPaths := map[string][]*listenerPath{}
@@ -133,7 +133,7 @@ func TestRunPusher(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, "routePath.yaml")
 
 	c.runPusher()
@@ -142,8 +142,8 @@ func TestRunPusher(t *testing.T) {
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string) *Controller {
 
-	ingressList := testutil.ReadResourceAsIngressList(yamlPath)
-	testService := testutil.GetServiceListResource("test", "testecho1", 80)
+	ingressList := util.ReadResourceAsIngressList(yamlPath)
+	testService := util.GetServiceListResource("test", "testecho1", 80)
 	lbClient := getLoadBalancerClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
@@ -163,9 +163,9 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	testutil.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	testutil.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	testutil.UpdateFakeClientCall(client, action, "services", testService)
+	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(client, action, "services", testService)
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -192,7 +192,7 @@ type MockLoadBalancerClient struct {
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
-	res := testutil.SampleLoadBalancerResponse()
+	res := util.SampleLoadBalancerResponse()
 	return res, nil
 }
 

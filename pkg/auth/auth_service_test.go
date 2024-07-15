@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
+	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 )
@@ -24,7 +24,7 @@ func setUp(secret *v1.Secret, setClient bool) *fakeclientset.Clientset {
 		action := "get"
 		resource := "secrets"
 		obj := secret
-		testutil.FakeClientGetCall(client, action, resource, obj)
+		util.FakeClientGetCall(client, action, resource, obj)
 	}
 	return client
 }
@@ -38,7 +38,7 @@ func TestGetConfigurationProviderSuccess(t *testing.T) {
 	}
 	configName := "config"
 	privateKey := "private-key"
-	secret := testutil.GetSampleSecret(configName, privateKey, data, PrivateKey)
+	secret := util.GetSampleSecret(configName, privateKey, data, PrivateKey)
 	client := setUp(secret, true)
 
 	auth, err := GetConfigurationProvider(ctx, opts, client)
@@ -53,7 +53,7 @@ func TestGetConfigurationProviderFailSecret(t *testing.T) {
 		AuthType:       "user",
 		AuthSecretName: "oci-config",
 	}
-	secret := testutil.GetSampleSecret("test", "error", data, PrivateKey)
+	secret := util.GetSampleSecret("test", "error", data, PrivateKey)
 
 	client := setUp(secret, false)
 	auth, err := GetConfigurationProvider(ctx, opts, client)
@@ -67,14 +67,14 @@ func TestGetConfigurationProviderFailSecret(t *testing.T) {
 	Expect(err != nil).Should(BeTrue())
 	Expect(err.Error()).Should(Equal("auth config data is empty: oci-config"))
 
-	secret = testutil.GetSampleSecret("config", "error", data, PrivateKey)
+	secret = util.GetSampleSecret("config", "error", data, PrivateKey)
 	client = setUp(secret, true)
 	auth, err = GetConfigurationProvider(ctx, opts, client)
 	Expect(auth == nil).Should(BeTrue())
 	Expect(err != nil).Should(BeTrue())
 	Expect(err.Error()).Should(Equal("missing auth config data: invalid user auth config data: oci-config"))
 
-	secret = testutil.GetSampleSecret("configs", "error", data, PrivateKey)
+	secret = util.GetSampleSecret("configs", "error", data, PrivateKey)
 	client = setUp(secret, true)
 	auth, err = GetConfigurationProvider(ctx, opts, client)
 	Expect(auth == nil).Should(BeTrue())
@@ -108,7 +108,7 @@ func TestParseAuthConfig(t *testing.T) {
 	RegisterTestingT(t)
 	configName := "config"
 	privateKey := "private-key"
-	secret := testutil.GetSampleSecret(configName, privateKey, data, PrivateKey)
+	secret := util.GetSampleSecret(configName, privateKey, data, PrivateKey)
 	authCfg, err := ParseAuthConfig(secret, "oci-config")
 	Expect(err == nil).Should(BeTrue())
 	Expect(authCfg.TenancyID).Should(Equal("ocid1.tenancy.oc1..aaaaaaaa_example"))
@@ -121,12 +121,12 @@ func TestParseAuthConfig(t *testing.T) {
 
 func TestParseAuthConfigWithError(t *testing.T) {
 	RegisterTestingT(t)
-	secret := testutil.GetSampleSecret("error", "", data, PrivateKey)
+	secret := util.GetSampleSecret("error", "", data, PrivateKey)
 	_, err := ParseAuthConfig(secret, "oci-configs")
 	Expect(err != nil).Should(BeTrue())
 	Expect(err.Error()).Should(Equal("invalid auth config data: oci-configs"))
 
-	secret = testutil.GetSampleSecret("config", "", data, PrivateKey)
+	secret = util.GetSampleSecret("config", "", data, PrivateKey)
 	_, err = ParseAuthConfig(secret, "oci-configs")
 	Expect(err != nil).Should(BeTrue())
 	Expect(err.Error()).Should(Equal("invalid user auth config data: oci-configs"))

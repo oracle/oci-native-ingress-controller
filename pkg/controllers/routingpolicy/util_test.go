@@ -11,7 +11,6 @@ package routingpolicy
 import (
 	"fmt"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"testing"
 	"time"
@@ -269,20 +268,20 @@ type TestPathToRoutingPolicy struct {
 func TestFilterIngressesForRoutingPolicy(t *testing.T) {
 	RegisterTestingT(t)
 
-	defaultIngressClass := testutil.GetIngressClassResource("default_ingressclass", true, "")
-	otherIngressClass := testutil.GetIngressClassResource("other_ingressclass", false, "")
+	defaultIngressClass := util.GetIngressClassResource("default_ingressclass", true, "")
+	otherIngressClass := util.GetIngressClassResource("other_ingressclass", false, "")
 
-	ingressWithoutIngressClass := testutil.GetIngressResource("ingress_without_ingressclass")
-	ingressWithDefaultIngressClass := testutil.GetIngressResource("ingress_with_default_ingressclass")
+	ingressWithoutIngressClass := util.GetIngressResource("ingress_without_ingressclass")
+	ingressWithDefaultIngressClass := util.GetIngressResource("ingress_with_default_ingressclass")
 	ingressWithDefaultIngressClass.Spec.IngressClassName = common.String("default_ingressclass")
 
-	ingressWithOtherIngressClass := testutil.GetIngressResource("ingress_with_other_ingressclass")
+	ingressWithOtherIngressClass := util.GetIngressResource("ingress_with_other_ingressclass")
 	ingressWithOtherIngressClass.Spec.IngressClassName = common.String("other_ingressclass")
 
-	deletingIngress := testutil.GetIngressResource("deleting_ingress")
+	deletingIngress := util.GetIngressResource("deleting_ingress")
 	deletingIngress.DeletionTimestamp = &v1.Time{Time: time.Now()}
 
-	ingressWithTCP := testutil.GetIngressResource("ingress_with_tcp")
+	ingressWithTCP := util.GetIngressResource("ingress_with_tcp")
 	ingressWithTCP.Annotations = map[string]string{
 		"oci-native-ingress.oraclecloud.com/protocol": "TCP",
 	}
