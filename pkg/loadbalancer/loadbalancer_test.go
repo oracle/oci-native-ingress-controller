@@ -8,7 +8,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -213,7 +212,7 @@ func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
-	res := testutil.SampleLoadBalancerResponse()
+	res := util.SampleLoadBalancerResponse()
 	return res, nil
 }
 

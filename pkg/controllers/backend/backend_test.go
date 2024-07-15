@@ -13,7 +13,6 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
-	"github.com/oracle/oci-native-ingress-controller/pkg/testutil"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -36,11 +35,11 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	testutil.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	testutil.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	testutil.UpdateFakeClientCall(client, action, "services", testService)
-	testutil.UpdateFakeClientCall(client, action, "endpoints", endpoints)
-	testutil.UpdateFakeClientCall(client, action, "pods", pod)
+	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(client, action, "services", testService)
+	util.UpdateFakeClientCall(client, action, "endpoints", endpoints)
+	util.UpdateFakeClientCall(client, action, "pods", pod)
 
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
@@ -71,7 +70,7 @@ func TestEnsureBackend(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 
 	err := c.ensureBackends(&ingressClassList.Items[0], "id")
@@ -82,7 +81,7 @@ func TestRunPusher(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 
 	c.runPusher()
@@ -93,7 +92,7 @@ func TestProcessNextItem(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 
 	c.queue.Add("default-ingress-class")
@@ -107,7 +106,7 @@ func TestProcessNextItemWithNginx(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassListWithNginx()
+	ingressClassList := util.GetIngressClassListWithNginx()
 	c := inits(ctx, ingressClassList, backendPath)
 
 	c.queue.Add("nginx-ingress-class")
@@ -120,7 +119,7 @@ func TestNoDefaultBackends(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
@@ -131,7 +130,7 @@ func TestDefaultBackends(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	backends, err := c.getDefaultBackends(ingresses)
@@ -143,7 +142,7 @@ func TestEnsurePodReadinessConditionWithExistingReadiness(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPathWithDefaultBackend)
 	ingresses, _ := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	ingress := ingresses[0]
@@ -170,17 +169,17 @@ func TestEnsurePodReadinessConditionWithExistingReadiness(t *testing.T) {
 		Reason: "backend is healthy",
 	})
 
-	err := c.ensurePodReadinessCondition(testutil.GetPodResourceWithReadiness("testecho1", "echoserver", "ingress-readiness", "foo.bar.com", condition), readinessCondition, &backendHealth, "testecho1")
+	err := c.ensurePodReadinessCondition(util.GetPodResourceWithReadiness("testecho1", "echoserver", "ingress-readiness", "foo.bar.com", condition), readinessCondition, &backendHealth, "testecho1")
 
 	Expect(err == nil).Should(Equal(true))
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string) *Controller {
 
-	ingressList := testutil.ReadResourceAsIngressList(yamlPath)
-	testService := testutil.GetServiceListResource(namespace, "testecho1", 80)
-	endpoints := testutil.GetEndpointsResourceList("testecho1", namespace, false)
-	pod := testutil.GetPodResourceList("testpod", "echoserver")
+	ingressList := util.ReadResourceAsIngressList(yamlPath)
+	testService := util.GetServiceListResource(namespace, "testecho1", 80)
+	endpoints := util.GetEndpointsResourceList("testecho1", namespace, false)
+	pod := util.GetPodResourceList("testpod", "echoserver")
 	lbClient := getLoadBalancerClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
@@ -199,7 +198,7 @@ func TestGetIngressesForClass(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := testutil.GetIngressClassList()
+	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 	ic, err := util.GetIngressesForClass(c.ingressLister, &ingressClassList.Items[0])
 	Expect(err == nil).Should(Equal(true))
@@ -257,7 +256,7 @@ func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
-	res := testutil.SampleLoadBalancerResponse()
+	res := util.SampleLoadBalancerResponse()
 	return res, nil
 }
 
