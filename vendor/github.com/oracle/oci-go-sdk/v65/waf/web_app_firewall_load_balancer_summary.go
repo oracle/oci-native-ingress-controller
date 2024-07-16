@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -61,57 +61,57 @@ type WebAppFirewallLoadBalancerSummary struct {
 	LifecycleState WebAppFirewallLifecycleStateEnum `mandatory:"true" json:"lifecycleState"`
 }
 
-//GetId returns Id
+// GetId returns Id
 func (m WebAppFirewallLoadBalancerSummary) GetId() *string {
 	return m.Id
 }
 
-//GetDisplayName returns DisplayName
+// GetDisplayName returns DisplayName
 func (m WebAppFirewallLoadBalancerSummary) GetDisplayName() *string {
 	return m.DisplayName
 }
 
-//GetCompartmentId returns CompartmentId
+// GetCompartmentId returns CompartmentId
 func (m WebAppFirewallLoadBalancerSummary) GetCompartmentId() *string {
 	return m.CompartmentId
 }
 
-//GetWebAppFirewallPolicyId returns WebAppFirewallPolicyId
+// GetWebAppFirewallPolicyId returns WebAppFirewallPolicyId
 func (m WebAppFirewallLoadBalancerSummary) GetWebAppFirewallPolicyId() *string {
 	return m.WebAppFirewallPolicyId
 }
 
-//GetTimeCreated returns TimeCreated
+// GetTimeCreated returns TimeCreated
 func (m WebAppFirewallLoadBalancerSummary) GetTimeCreated() *common.SDKTime {
 	return m.TimeCreated
 }
 
-//GetTimeUpdated returns TimeUpdated
+// GetTimeUpdated returns TimeUpdated
 func (m WebAppFirewallLoadBalancerSummary) GetTimeUpdated() *common.SDKTime {
 	return m.TimeUpdated
 }
 
-//GetLifecycleState returns LifecycleState
+// GetLifecycleState returns LifecycleState
 func (m WebAppFirewallLoadBalancerSummary) GetLifecycleState() WebAppFirewallLifecycleStateEnum {
 	return m.LifecycleState
 }
 
-//GetLifecycleDetails returns LifecycleDetails
+// GetLifecycleDetails returns LifecycleDetails
 func (m WebAppFirewallLoadBalancerSummary) GetLifecycleDetails() *string {
 	return m.LifecycleDetails
 }
 
-//GetFreeformTags returns FreeformTags
+// GetFreeformTags returns FreeformTags
 func (m WebAppFirewallLoadBalancerSummary) GetFreeformTags() map[string]string {
 	return m.FreeformTags
 }
 
-//GetDefinedTags returns DefinedTags
+// GetDefinedTags returns DefinedTags
 func (m WebAppFirewallLoadBalancerSummary) GetDefinedTags() map[string]map[string]interface{} {
 	return m.DefinedTags
 }
 
-//GetSystemTags returns SystemTags
+// GetSystemTags returns SystemTags
 func (m WebAppFirewallLoadBalancerSummary) GetSystemTags() map[string]map[string]interface{} {
 	return m.SystemTags
 }

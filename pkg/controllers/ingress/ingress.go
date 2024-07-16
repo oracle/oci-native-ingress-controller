@@ -500,7 +500,7 @@ func syncListener(namespace string, stateStore *state.StateStore, lbId *string, 
 	protocol := stateStore.GetListenerProtocol(int32(*listener.Port))
 	protocolExisting := listener.Protocol
 	if protocol != "" && protocol != *protocolExisting {
-		klog.Infof("Protocol for listener %d needs update, new protocol %s", *listener.Name, protocol)
+		klog.Infof("Protocol for listener %s needs update, new protocol %s", *listener.Name, protocol)
 		needsUpdate = true
 	}
 
