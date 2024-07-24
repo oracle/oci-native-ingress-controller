@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	networkingListers "k8s.io/client-go/listers/networking/v1"
 	"strings"
 	"testing"
 
@@ -463,27 +464,10 @@ func TestGetPodReadinessCondition(t *testing.T) {
 
 func TestGetIngressClass(t *testing.T) {
 	RegisterTestingT(t)
-	client := fakeclientset.NewSimpleClientset()
 
-	ingressClassList := getIngressClassList()
-
-	client.NetworkingV1().(*fake2.FakeNetworkingV1).
-		PrependReactor("list", "ingressclasses", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-			return true, ingressClassList, nil
-		})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
-	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
-	ingressClassLister := ingressClassInformer.Lister()
-
-	informerFactory.Start(ctx.Done())
-	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
+	ingressClassLister := getIngressClassLister(getIngressClassList())
 
 	ingressClassName := "ingress-class"
-
 	i := networkingv1.Ingress{
 		TypeMeta: metav1.TypeMeta{},
 		Spec: networkingv1.IngressSpec{
@@ -502,7 +486,34 @@ func TestGetIngressClass(t *testing.T) {
 
 	i.Spec.IngressClassName = common.String("unknownIngress")
 	ic, err = GetIngressClass(&i, ingressClassLister)
-	Expect(err).To(HaveOccurred())
+	Expect(err).NotTo(HaveOccurred())
+	Expect(ic).To(BeNil())
+
+	ingressClassLister = getIngressClassLister(&networkingv1.IngressClassList{Items: []networkingv1.IngressClass{}})
+
+	i.Spec.IngressClassName = nil
+	ic, err = GetIngressClass(&i, ingressClassLister)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(ic).To(BeNil())
+}
+
+func getIngressClassLister(ingressClassList *networkingv1.IngressClassList) networkingListers.IngressClassLister {
+	client := fakeclientset.NewSimpleClientset()
+
+	client.NetworkingV1().(*fake2.FakeNetworkingV1).
+		PrependReactor("list", "ingressclasses", func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
+			return true, ingressClassList, nil
+		})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
+	ingressClassLister := ingressClassInformer.Lister()
+	informerFactory.Start(ctx.Done())
+	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
+	return ingressClassLister
 }
 
 func TestGetHealthChecker(t *testing.T) {

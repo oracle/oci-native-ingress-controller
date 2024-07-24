@@ -321,6 +321,7 @@ func GetPodReadinessCondition(ingressName string, host string, path networkingv1
 	return corev1.PodConditionType(fmt.Sprintf("%s/%s", PodReadinessConditionPrefix, PathToRoutePolicyName(ingressName, host, path)))
 }
 
+// GetIngressClass returns non-nil error only if it's unable to list IngressClass resources. Returns (nil, nil) if no matching IngressClass found.
 func GetIngressClass(ingress *networkingv1.Ingress, ingressClassLister networkinglisters.IngressClassLister) (*networkingv1.IngressClass, error) {
 	icList, err := ingressClassLister.List(labels.Everything())
 	if err != nil {
@@ -336,6 +337,7 @@ func GetIngressClass(ingress *networkingv1.Ingress, ingressClassLister networkin
 			}
 		}
 
+		klog.V(4).Infof("no IngressClassName set for %s, and no default IngressClass found", ingress.Name)
 		return nil, nil
 	}
 
@@ -345,7 +347,8 @@ func GetIngressClass(ingress *networkingv1.Ingress, ingressClassLister networkin
 		}
 	}
 
-	return nil, errors.New("ingress class not found for ingress")
+	klog.V(4).Infof("for Ingress %s, set IngressClass %s not found", ingress.Name, *ingress.Spec.IngressClassName)
+	return nil, nil
 }
 
 func PathToServiceAndPort(ingressNamespace string, path networkingv1.HTTPIngressPath, serviceLister corelisters.ServiceLister) (string, int32, error) {
