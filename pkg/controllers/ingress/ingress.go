@@ -201,7 +201,13 @@ func (c *Controller) sync(key string) error {
 
 	if ingressClass == nil || ingressClass.Spec.Controller != c.controllerClass {
 		klog.V(4).InfoS("skipping ingress class, not for this controller", "ingress", klog.KRef(namespace, name))
-		// skipping since ingress class is not applicable to this controller
+		// skipping since ingress class is not applicable to this controller, we remove our finalizer if it exists
+		deleteFinalizerErr := c.deleteFinalizer(ingress)
+		if deleteFinalizerErr != nil {
+			klog.V(4).Infof("Found Ingress %s/%s with finalizer %s, but not managed by this controller. Unable to delete"+
+				" finalizer due to error: %s", ingress.Namespace, ingress.Name, util.IngressControllerFinalizer, deleteFinalizerErr.Error())
+		}
+
 		return nil
 	}
 
