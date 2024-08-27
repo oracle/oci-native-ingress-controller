@@ -254,7 +254,7 @@ func getCertificateNameFromSecret(secretName string) string {
 	return fmt.Sprintf("ic-%s", secretName)
 }
 
-func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
+func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string, compartmentId string, client *client.WrapperClient) (*ociloadbalancer.SslConfigurationDetails, error) {
 	var backendSetSslConfig *ociloadbalancer.SslConfigurationDetails
 	createCaBundle := false
 	var caBundleId *string
@@ -336,7 +336,7 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 	return backendSetSslConfig, nil
 }
 
-func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, compartmentId string, client *client.ClientProvider) (*ociloadbalancer.SslConfigurationDetails, error) {
+func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listener, artifactType string, artifact string, compartmentId string, client *client.WrapperClient) (*ociloadbalancer.SslConfigurationDetails, error) {
 	var currentCertificateId string
 	var newCertificateId string
 	createCertificate := false
@@ -381,7 +381,7 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	return listenerSslConfig, nil
 }
 
-func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, client *client.ClientProvider) (*string, error) {
+func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, client *client.WrapperClient) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
 	certificateId, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {
@@ -405,7 +405,7 @@ func CreateOrGetCertificateForListener(namespace string, secretName string, comp
 	return certificateId, nil
 }
 
-func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compartmentId string, client *client.ClientProvider) (*string, error) {
+func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compartmentId string, client *client.WrapperClient) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
 	caBundleId, err := FindCaBundleWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {

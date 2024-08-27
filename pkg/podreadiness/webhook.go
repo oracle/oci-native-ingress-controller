@@ -12,6 +12,7 @@ package podreadiness
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/client-go/kubernetes/scheme"
 	"net/http"
 
 	"k8s.io/klog/v2"
@@ -45,6 +46,7 @@ func NewWebhook(
 		ingressLister: ingressLister,
 		serviceLister: serviceLister,
 		client:        client,
+		decoder:       admission.NewDecoder(scheme.Scheme),
 	}
 }
 

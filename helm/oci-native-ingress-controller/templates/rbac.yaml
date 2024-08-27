@@ -36,6 +36,9 @@ rules:
 - apiGroups: [""]
   resources: [pods/status]
   verbs: [patch]
+- apiGroups: [""]
+  resources: [serviceaccounts]
+  verbs: [list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

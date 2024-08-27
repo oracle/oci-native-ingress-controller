@@ -50,6 +50,12 @@ const (
 
 	IngressControllerFinalizer = "oci.oraclecloud.com/ingress-controller-protection"
 
+	// IngressClassParameter annotation to select service account to be used to exchange
+	// for Workload Identity Token which can then be used to communicate to OCI APIs
+	IngressClassServiceAccountName = "oci.oraclecloud.com/workload-service-account"
+
+	ParentRPTURL = "opc-parent-rpt-url"
+
 	IngressListenerTlsCertificateAnnotation = "oci-native-ingress.oraclecloud.com/certificate-ocid"
 	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 
@@ -90,6 +96,8 @@ const (
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
 	WAFCacheMaxAgeInMinutes         = 5
+	OciClientNotFoundInContextError = "oci client not found in the context"
+	WrapperClient                   = "wrapperClient"
 )
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")

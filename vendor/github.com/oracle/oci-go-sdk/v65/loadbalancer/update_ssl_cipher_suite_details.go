@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -22,6 +22,12 @@ type UpdateSslCipherSuiteDetails struct {
 
 	// A list of SSL ciphers the load balancer must support for HTTPS or SSL connections.
 	// The following ciphers are valid values for this property:
+	// *  __TLSv1.3 ciphers__
+	//         "TLS_AES_128_GCM_SHA256"
+	//         "TLS_AES_256_GCM_SHA384"
+	//         "TLS_CHACHA20_POLY1305_SHA256"
+	//         "TLS_AES_128_CCM_SHA256"
+	//         "TLS_AES_128_CCM_8_SHA256"
 	// *  __TLSv1.2 ciphers__
 	//         "AES128-GCM-SHA256"
 	//         "AES128-SHA256"

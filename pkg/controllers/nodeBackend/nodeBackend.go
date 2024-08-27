@@ -3,6 +3,7 @@ package nodeBackend
 import (
 	"context"
 	"fmt"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -39,13 +40,14 @@ type Controller struct {
 	podLister          corelisters.PodLister
 	nodeLister         corelisters.NodeLister
 	endpointLister     corelisters.EndpointsLister
+	saLister           corelisters.ServiceAccountLister
 
 	queue workqueue.RateLimitingInterface
 
 	client *client.ClientProvider
 }
 
-func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
+func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
 	client *client.ClientProvider) *Controller {
 
 	c := &Controller{
@@ -56,6 +58,7 @@ func NewController(controllerClass string, ingressClassInformer networkinginform
 		endpointLister:     endpointLister,
 		podLister:          podLister,
 		nodeLister:         nodeLister,
+		saLister:           saInformer.Lister(),
 		client:             client,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -84,16 +87,16 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
 		return err
 	}
 
 	startTime := time.Now()
-	klog.V(4).InfoS("Started syncing backends for ingress class", "ingressClass", klog.KRef("", name), "startTime", startTime)
+	klog.V(4).InfoS("Started syncing backends for ingress class", "ingressClass", klog.KRef(namespace, name), "startTime", startTime)
 	defer func() {
-		klog.V(4).InfoS("Finished syncing backends for ingress class", "ingressClass", klog.KRef("", name), "duration", time.Since(startTime))
+		klog.V(4).InfoS("Finished syncing backends for ingress class", "ingressClass", klog.KRef(namespace, name), "duration", time.Since(startTime))
 	}()
 
 	ingressClass, err := c.ingressClassLister.Get(name)
@@ -116,7 +119,12 @@ func (c *Controller) sync(key string) error {
 		return util.ErrIngressClassNotReady
 	}
 
-	err = c.ensureBackends(ingressClass, lbID)
+	ctx, err := client.GetClientContext(ingressClass, c.saLister, c.client, namespace, name)
+	if err != nil {
+		return err
+	}
+
+	err = c.ensureBackends(ctx, ingressClass, lbID)
 	if err != nil {
 		return err
 	}
@@ -149,7 +157,7 @@ func getNodeConditionPredicate() NodeConditionPredicate {
 	}
 }
 
-func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbID string) error {
+func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkingv1.IngressClass, lbID string) error {
 
 	ingresses, err := util.GetIngressesForClass(c.ingressLister, ingressClass)
 	if err != nil {
@@ -162,6 +170,11 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 	// If there are no available nodes.
 	if len(nodes) == 0 {
 		return fmt.Errorf("error: %s due to : %s", "UnAvailableNodes", "There are no available provisioned nodes")
+	}
+
+	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 
 	for _, ingress := range ingresses {
@@ -194,7 +207,7 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 					}
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
@@ -202,7 +215,7 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 		}
 	}
 	// Sync default backends
-	c.syncDefaultBackend(lbID, ingresses)
+	c.syncDefaultBackend(ctx, lbID, ingresses)
 	return nil
 }
 
@@ -255,7 +268,7 @@ func filterNodes(nodeLister corelisters.NodeLister) ([]*corev1.Node, error) {
 	return filtered, nil
 }
 
-func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.Ingress) error {
+func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingresses []*networkingv1.Ingress) error {
 	klog.V(4).InfoS("Syncing default backend")
 
 	// if no backend then update
@@ -264,8 +277,11 @@ func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.I
 		klog.ErrorS(err, "Error processing default backend sync")
 		return nil
 	}
-
-	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
+	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+	err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
 	if err != nil {
 		return err
 	}

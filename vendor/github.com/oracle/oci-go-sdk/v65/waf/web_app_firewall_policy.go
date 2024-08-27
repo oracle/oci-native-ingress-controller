@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -21,13 +21,14 @@ import (
 // incoming/outgoing HTTP message parameters and execution of actions, based on results of rules execution.
 // In policy, rules are grouped into modules by their functionality. Modules can be further divided by the type
 // of HTTP messages they handle:
-//   Modules that inspect incoming HTTP request. These modules are executed in the order they are enumerated here:
-//     * requestAccessControl
-//     * requestRateLimiting
-//     * requestProtection
-//  Modules that inspect outgoing HTTP responses. These modules are executed in the order they are enumerated here:
-//    * responseAccessControl
-//    * responseProtection
+//
+//	 Modules that inspect incoming HTTP request. These modules are executed in the order they are enumerated here:
+//	   * requestAccessControl
+//	   * requestRateLimiting
+//	   * requestProtection
+//	Modules that inspect outgoing HTTP responses. These modules are executed in the order they are enumerated here:
+//	  * responseAccessControl
+//	  * responseProtection
 type WebAppFirewallPolicy struct {
 
 	// The OCID (https://docs.cloud.oracle.com/Content/General/Concepts/identifiers.htm) of the WebAppFirewallPolicy.
@@ -141,7 +142,6 @@ func (m *WebAppFirewallPolicy) UnmarshalJSON(data []byte) (e error) {
 			m.Actions[i] = nil
 		}
 	}
-
 	m.RequestAccessControl = model.RequestAccessControl
 
 	m.RequestRateLimiting = model.RequestRateLimiting

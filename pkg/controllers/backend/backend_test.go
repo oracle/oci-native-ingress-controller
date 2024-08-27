@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"context"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sync"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ const (
 	namespace                                    = "default"
 )
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, *fakeclientset.Clientset) {
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, *fakeclientset.Clientset) {
 	client := fakeclientset.NewSimpleClientset()
 
 	action := "list"
@@ -59,13 +60,15 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	podInformer := informerFactory.Core().V1().Pods()
 	podLister := podInformer.Lister()
 
+	saInformer := informerFactory.Core().V1().ServiceAccounts()
+
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), serviceInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), endpointInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), podInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client
 }
 
 func TestEnsureBackend(t *testing.T) {
@@ -75,7 +78,7 @@ func TestEnsureBackend(t *testing.T) {
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath)
 
-	err := c.ensureBackends(&ingressClassList.Items[0], "id")
+	err := c.ensureBackends(getContextWithClient(c, ctx), &ingressClassList.Items[0], "id")
 	Expect(err == nil).Should(Equal(true))
 }
 
@@ -159,7 +162,7 @@ func TestEnsureBackendWithNamedTargetPort(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPathWithNamedTargetPortService)
-	err := c.ensureBackends(&ingressClassList.Items[0], "id")
+	err := c.ensureBackends(getContextWithClient(c, ctx), &ingressClassList.Items[0], "id")
 	Expect(err == nil).Should(Equal(true))
 }
 
@@ -194,7 +197,7 @@ func TestEnsurePodReadinessConditionWithExistingReadiness(t *testing.T) {
 		Reason: "backend is healthy",
 	})
 
-	err := c.ensurePodReadinessCondition(util.GetPodResourceWithReadiness("testecho1", "echoserver", "ingress-readiness", "foo.bar.com", condition), readinessCondition, &backendHealth, "testecho1")
+	err := c.ensurePodReadinessCondition(context.TODO(), util.GetPodResourceWithReadiness("testecho1", "echoserver", "ingress-readiness", "foo.bar.com", condition), readinessCondition, &backendHealth, "testecho1")
 
 	Expect(err == nil).Should(Equal(true))
 }
@@ -213,9 +216,14 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod)
-	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, client)
+	ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod)
+	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
+	client := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client)
 	return c
 }
 
@@ -263,6 +271,13 @@ func TestBuildPodConditionPatch(t *testing.T) {
 	patch, err := BuildPodConditionPatch(pod, newCondition)
 	Expect(err == nil).Should(Equal(true))
 	Expect(bytes.Equal(patch, []byte("{\"status\":{\"conditions\":[{\"lastProbeTime\":null,\"lastTransitionTime\":null,\"status\":\"True\",\"type\":\"ContainersReady\"}]}}"))).Should(Equal(true))
+}
+
+func getContextWithClient(c *Controller, ctx context.Context) context.Context {
+	wc, err := c.client.GetClient(&MockConfigGetter{})
+	Expect(err).To(BeNil())
+	ctx = context.WithValue(ctx, util.WrapperClient, wc)
+	return ctx
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {
@@ -367,4 +382,72 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
 	return ociloadbalancer.DeleteListenerResponse{}, nil
+}
+
+// MockConfigGetter is a mock implementation of the ConfigGetter interface for testing purposes.
+type MockConfigGetter struct {
+	ConfigurationProvider common.ConfigurationProvider
+	Key                   string
+	Error                 error
+}
+
+// NewMockConfigGetter creates a new instance of MockConfigGetter.
+func NewMockConfigGetter(configurationProvider common.ConfigurationProvider, key string, err error) *MockConfigGetter {
+	return &MockConfigGetter{
+		ConfigurationProvider: configurationProvider,
+		Key:                   key,
+		Error:                 err,
+	}
+}
+func (m *MockConfigGetter) GetConfigurationProvider() (common.ConfigurationProvider, error) {
+	return m.ConfigurationProvider, m.Error
+}
+func (m *MockConfigGetter) GetKey() string {
+	return m.Key
+}
+
+type MockCacheStore struct {
+	client *client.WrapperClient
+}
+
+func (m *MockCacheStore) Add(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Update(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Delete(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) List() []interface{} {
+	return nil
+}
+
+func (m *MockCacheStore) ListKeys() []string {
+	return nil
+}
+
+func (m *MockCacheStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	return nil, true, nil
+}
+
+func (m *MockCacheStore) Replace(i []interface{}, s string) error {
+	return nil
+}
+
+func (m *MockCacheStore) Resync() error {
+	return nil
+}
+
+func NewMockCacheStore(client *client.WrapperClient) *MockCacheStore {
+	return &MockCacheStore{
+		client: client,
+	}
+}
+
+func (m *MockCacheStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	return m.client, true, nil
 }

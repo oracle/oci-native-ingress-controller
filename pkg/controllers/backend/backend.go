@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -45,6 +46,7 @@ type Controller struct {
 	serviceLister      corelisters.ServiceLister
 	podLister          corelisters.PodLister
 	endpointLister     corelisters.EndpointsLister
+	saLister           corelisters.ServiceAccountLister
 
 	queue  workqueue.RateLimitingInterface
 	client *client.ClientProvider
@@ -54,6 +56,7 @@ func NewController(
 	controllerClass string,
 	ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer,
+	saInformer coreinformers.ServiceAccountInformer,
 	serviceLister corelisters.ServiceLister,
 	endpointLister corelisters.EndpointsLister,
 	podLister corelisters.PodLister,
@@ -67,6 +70,7 @@ func NewController(
 		serviceLister:      serviceLister,
 		endpointLister:     endpointLister,
 		podLister:          podLister,
+		saLister:           saInformer.Lister(),
 		client:             client,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
@@ -95,7 +99,7 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
 		return err
@@ -121,13 +125,18 @@ func (c *Controller) sync(key string) error {
 		return nil
 	}
 
+	ctx, err := client.GetClientContext(ingressClass, c.saLister, c.client, namespace, name)
+	if err != nil {
+		return err
+	}
+
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
 	if lbID == "" {
 		// Still waiting on the ingress class controller to provision the load balancer.
 		return util.ErrIngressClassNotReady
 	}
 
-	err = c.ensureBackends(ingressClass, lbID)
+	err = c.ensureBackends(ctx, ingressClass, lbID)
 	if err != nil {
 		return err
 	}
@@ -135,11 +144,16 @@ func (c *Controller) sync(key string) error {
 	return nil
 }
 
-func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbID string) error {
+func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkingv1.IngressClass, lbID string) error {
 
 	ingresses, err := util.GetIngressesForClass(c.ingressLister, ingressClass)
 	if err != nil {
 		return err
+	}
+
+	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 
 	for _, ingress := range ingresses {
@@ -162,11 +176,11 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 					backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
-				backendSetHealth, err := c.client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
+				backendSetHealth, err := client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch backendset health: %w", err)
 				}
@@ -177,7 +191,7 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 					}
 					backendName := fmt.Sprintf("%s:%d", epAddr.IP, targetPort)
 					readinessCondition := util.GetPodReadinessCondition(ingress.Name, rule.Host, path)
-					err = c.ensurePodReadinessCondition(pod, readinessCondition, backendSetHealth, backendName)
+					err = c.ensurePodReadinessCondition(ctx, pod, readinessCondition, backendSetHealth, backendName)
 					if err != nil {
 						return fmt.Errorf("%w", err)
 					}
@@ -186,11 +200,11 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 		}
 	}
 	// Sync default backends
-	c.syncDefaultBackend(lbID, ingresses)
+	c.syncDefaultBackend(ctx, lbID, ingresses)
 	return nil
 }
 
-func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.Ingress) error {
+func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingresses []*networkingv1.Ingress) error {
 	klog.V(4).InfoS("Syncing default backend")
 
 	// if no backend then update
@@ -200,7 +214,12 @@ func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.I
 		return nil
 	}
 
-	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
+	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+
+	err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
 	if err != nil {
 		return err
 	}
@@ -275,7 +294,7 @@ func getPodCondition(pod *corev1.Pod, conditionType corev1.PodConditionType) (co
 	return corev1.PodCondition{}, false
 }
 
-func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate corev1.PodConditionType, backendSetHealth *ociloadbalancer.BackendSetHealth, backendName string) error {
+func (c *Controller) ensurePodReadinessCondition(ctx context.Context, pod *corev1.Pod, readinessGate corev1.PodConditionType, backendSetHealth *ociloadbalancer.BackendSetHealth, backendName string) error {
 	klog.InfoS("validating pod readiness gate status", "pod", klog.KObj(pod), "gate", readinessGate)
 
 	if !hasReadinessGate(pod, readinessGate) {
@@ -337,7 +356,12 @@ func (c *Controller) ensurePodReadinessCondition(pod *corev1.Pod, readinessGate 
 		return fmt.Errorf("unable to build pod condition for %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
 
-	_, err = c.client.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+
+	_, err = client.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if err != nil {
 		return fmt.Errorf("unable to remove readiness gate %s from pod %s/%s: %w", readinessGate, pod.Namespace, pod.Name, err)
 	}

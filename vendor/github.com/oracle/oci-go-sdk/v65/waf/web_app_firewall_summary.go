@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -60,6 +60,8 @@ type WebAppFirewallSummary interface {
 
 type webappfirewallsummary struct {
 	JsonData               []byte
+	TimeUpdated            *common.SDKTime                   `mandatory:"false" json:"timeUpdated"`
+	LifecycleDetails       *string                           `mandatory:"false" json:"lifecycleDetails"`
 	Id                     *string                           `mandatory:"true" json:"id"`
 	DisplayName            *string                           `mandatory:"true" json:"displayName"`
 	CompartmentId          *string                           `mandatory:"true" json:"compartmentId"`
@@ -69,8 +71,6 @@ type webappfirewallsummary struct {
 	FreeformTags           map[string]string                 `mandatory:"true" json:"freeformTags"`
 	DefinedTags            map[string]map[string]interface{} `mandatory:"true" json:"definedTags"`
 	SystemTags             map[string]map[string]interface{} `mandatory:"true" json:"systemTags"`
-	TimeUpdated            *common.SDKTime                   `mandatory:"false" json:"timeUpdated"`
-	LifecycleDetails       *string                           `mandatory:"false" json:"lifecycleDetails"`
 	BackendType            string                            `json:"backendType"`
 }
 
@@ -115,63 +115,64 @@ func (m *webappfirewallsummary) UnmarshalPolymorphicJSON(data []byte) (interface
 		err = json.Unmarshal(data, &mm)
 		return mm, err
 	default:
+		common.Logf("Recieved unsupported enum value for WebAppFirewallSummary: %s.", m.BackendType)
 		return *m, nil
 	}
 }
 
-//GetId returns Id
-func (m webappfirewallsummary) GetId() *string {
-	return m.Id
-}
-
-//GetDisplayName returns DisplayName
-func (m webappfirewallsummary) GetDisplayName() *string {
-	return m.DisplayName
-}
-
-//GetCompartmentId returns CompartmentId
-func (m webappfirewallsummary) GetCompartmentId() *string {
-	return m.CompartmentId
-}
-
-//GetWebAppFirewallPolicyId returns WebAppFirewallPolicyId
-func (m webappfirewallsummary) GetWebAppFirewallPolicyId() *string {
-	return m.WebAppFirewallPolicyId
-}
-
-//GetTimeCreated returns TimeCreated
-func (m webappfirewallsummary) GetTimeCreated() *common.SDKTime {
-	return m.TimeCreated
-}
-
-//GetLifecycleState returns LifecycleState
-func (m webappfirewallsummary) GetLifecycleState() WebAppFirewallLifecycleStateEnum {
-	return m.LifecycleState
-}
-
-//GetFreeformTags returns FreeformTags
-func (m webappfirewallsummary) GetFreeformTags() map[string]string {
-	return m.FreeformTags
-}
-
-//GetDefinedTags returns DefinedTags
-func (m webappfirewallsummary) GetDefinedTags() map[string]map[string]interface{} {
-	return m.DefinedTags
-}
-
-//GetSystemTags returns SystemTags
-func (m webappfirewallsummary) GetSystemTags() map[string]map[string]interface{} {
-	return m.SystemTags
-}
-
-//GetTimeUpdated returns TimeUpdated
+// GetTimeUpdated returns TimeUpdated
 func (m webappfirewallsummary) GetTimeUpdated() *common.SDKTime {
 	return m.TimeUpdated
 }
 
-//GetLifecycleDetails returns LifecycleDetails
+// GetLifecycleDetails returns LifecycleDetails
 func (m webappfirewallsummary) GetLifecycleDetails() *string {
 	return m.LifecycleDetails
+}
+
+// GetId returns Id
+func (m webappfirewallsummary) GetId() *string {
+	return m.Id
+}
+
+// GetDisplayName returns DisplayName
+func (m webappfirewallsummary) GetDisplayName() *string {
+	return m.DisplayName
+}
+
+// GetCompartmentId returns CompartmentId
+func (m webappfirewallsummary) GetCompartmentId() *string {
+	return m.CompartmentId
+}
+
+// GetWebAppFirewallPolicyId returns WebAppFirewallPolicyId
+func (m webappfirewallsummary) GetWebAppFirewallPolicyId() *string {
+	return m.WebAppFirewallPolicyId
+}
+
+// GetTimeCreated returns TimeCreated
+func (m webappfirewallsummary) GetTimeCreated() *common.SDKTime {
+	return m.TimeCreated
+}
+
+// GetLifecycleState returns LifecycleState
+func (m webappfirewallsummary) GetLifecycleState() WebAppFirewallLifecycleStateEnum {
+	return m.LifecycleState
+}
+
+// GetFreeformTags returns FreeformTags
+func (m webappfirewallsummary) GetFreeformTags() map[string]string {
+	return m.FreeformTags
+}
+
+// GetDefinedTags returns DefinedTags
+func (m webappfirewallsummary) GetDefinedTags() map[string]map[string]interface{} {
+	return m.DefinedTags
+}
+
+// GetSystemTags returns SystemTags
+func (m webappfirewallsummary) GetSystemTags() map[string]map[string]interface{} {
+	return m.SystemTags
 }
 
 func (m webappfirewallsummary) String() string {

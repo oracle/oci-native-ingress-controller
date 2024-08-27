@@ -195,13 +195,20 @@ func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 		RuleSets:                nil,
 		RoutingPolicies:         nil,
 	}
-	client := client.NewWrapperClient(k8client, nil, nil, certificatesClient, nil)
+	wrapperClient := client.NewWrapperClient(k8client, nil, nil, certificatesClient, nil)
+	client := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
 	return client, lb
 }
 
 func TestGetSSLConfigForBackendSet(t *testing.T) {
 	RegisterTestingT(t)
-	client, lb := initsUtil()
+	c, lb := initsUtil()
+	client, err := c.GetClient(&MockConfigGetter{})
+	Expect(err).Should(BeNil())
 
 	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", client)
 	Expect(err).Should(BeNil())
@@ -231,7 +238,9 @@ func TestGetSSLConfigForBackendSet(t *testing.T) {
 
 func TestGetSSLConfigForListener(t *testing.T) {
 	RegisterTestingT(t)
-	client, _ := initsUtil()
+	c, _ := initsUtil()
+	client, err := c.GetClient(&MockConfigGetter{})
+	Expect(err).Should(BeNil())
 
 	//no listener for cert
 	sslConfig, err := GetSSLConfigForListener(namespace, nil, state.ArtifactTypeCertificate, "certificate", "", client)
@@ -273,7 +282,9 @@ func TestGetSSLConfigForListener(t *testing.T) {
 
 func TestGetCertificate(t *testing.T) {
 	RegisterTestingT(t)
-	client, _ := initsUtil()
+	c, _ := initsUtil()
+	client, err := c.GetClient(&MockConfigGetter{})
+	Expect(err).Should(BeNil())
 
 	certId := "id"
 	certId2 := "id2"
