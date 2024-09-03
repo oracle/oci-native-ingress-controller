@@ -213,11 +213,11 @@ func (c *Controller) getLoadBalancer(ctx context.Context, ic *networkingv1.Ingre
 		klog.Errorf("LB id not set for ingressClass: %s", ic.Name)
 		return nil, nil // LoadBalancer ID not set, Trigger new LB creation
 	}
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return nil, fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	lb, _, err := client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		klog.Errorf("Error while fetching LB %s for ingressClass: %s, err: %s", lbID, ic.Name, err.Error())
 
@@ -253,7 +253,7 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 		}
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
@@ -295,7 +295,7 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 			CreateLoadBalancerDetails: createDetails,
 		}
 		klog.Infof("Create lb request: %s", util.PrettyPrint(createLbRequest))
-		lb, err = client.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
+		lb, err = wrapperClient.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
 		if err != nil {
 			return err
 		}
@@ -305,14 +305,14 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
 		klog.InfoS("Adding load balancer id to ingress class", "lbId", *lb.Id, "ingressClass", klog.KObj(ic))
-		patchError, done := util.PatchIngressClassWithAnnotation(client.GetK8Client(), ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
+		patchError, done := util.PatchIngressClassWithAnnotation(wrapperClient.GetK8Client(), ic, util.IngressClassLoadBalancerIdAnnotation, *lb.Id)
 		if done {
 			return patchError
 		}
 	}
 
 	// Add Web Application Firewall to LB
-	if client.GetWafClient() != nil {
+	if wrapperClient.GetWafClient() != nil {
 		err = c.setupWebApplicationFirewall(ctx, ic, compartmentId, lb.Id)
 		if err != nil {
 			return err
@@ -324,17 +324,17 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 }
 
 func (c *Controller) setupWebApplicationFirewall(ctx context.Context, ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	firewall, conflictError, throwableError, updateRequired := client.GetWafClient().GetFireWallId(client.GetK8Client(), ic, compartmentId, lbId)
+	firewall, conflictError, throwableError, updateRequired := wrapperClient.GetWafClient().GetFireWallId(wrapperClient.GetK8Client(), ic, compartmentId, lbId)
 	if !updateRequired {
 		return throwableError
 	}
 	// update to ingressclass
 	if conflictError == nil && firewall.GetId() != nil {
-		patchError, done := util.PatchIngressClassWithAnnotation(client.GetK8Client(), ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
+		patchError, done := util.PatchIngressClassWithAnnotation(wrapperClient.GetK8Client(), ic, util.IngressClassFireWallIdAnnotation, *firewall.GetId())
 		if done {
 			return patchError
 		}
@@ -345,7 +345,7 @@ func (c *Controller) setupWebApplicationFirewall(ctx context.Context, ic *networ
 func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, lb *ociloadbalancer.LoadBalancer, ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters) error {
 	// check LoadBalancerName AND  MinBandwidthMbps ,MaxBandwidthMbps
 	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
@@ -361,7 +361,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, l
 		}
 
 		klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
-		_, err := client.GetLbClient().UpdateLoadBalancer(context.Background(), req)
+		_, err := wrapperClient.GetLbClient().UpdateLoadBalancer(context.Background(), req)
 		if err != nil {
 			return err
 		}
@@ -384,7 +384,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, l
 			OpcRetryToken: common.String(fmt.Sprintf("update-lb-shape-%s", ic.UID)),
 		}
 		klog.Infof("Update lb shape request: %s", util.PrettyPrint(req))
-		_, err := client.GetLbClient().UpdateLoadBalancerShape(context.Background(), req)
+		_, err := wrapperClient.GetLbClient().UpdateLoadBalancerShape(context.Background(), req)
 		if err != nil {
 			return err
 		}
@@ -414,11 +414,11 @@ func (c *Controller) deleteLoadBalancer(ctx context.Context, ic *networkingv1.In
 		return nil
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	return client.GetLbClient().DeleteLoadBalancer(context.Background(), lbID)
+	return wrapperClient.GetLbClient().DeleteLoadBalancer(context.Background(), lbID)
 }
 
 func isIngressControllerDeleting(ic *networkingv1.IngressClass) bool {
@@ -457,11 +457,11 @@ func (c *Controller) ensureFinalizer(ctx context.Context, ic *networkingv1.Ingre
 			return err
 		}
 
-		client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+		wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 		if !ok {
 			return fmt.Errorf(util.OciClientNotFoundInContextError)
 		}
-		_, err = client.GetK8Client().NetworkingV1().IngressClasses().Patch(ctx, ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = wrapperClient.GetK8Client().NetworkingV1().IngressClasses().Patch(ctx, ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 
@@ -488,11 +488,11 @@ func (c *Controller) deleteFinalizer(ctx context.Context, ic *networkingv1.Ingre
 			return err
 		}
 
-		client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+		wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 		if !ok {
 			return fmt.Errorf(util.OciClientNotFoundInContextError)
 		}
-		_, err = client.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+		_, err = wrapperClient.GetK8Client().NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.MergePatchType, patch, metav1.PatchOptions{})
 		return err
 	})
 

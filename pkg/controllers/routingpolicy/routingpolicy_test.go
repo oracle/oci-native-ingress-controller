@@ -156,25 +156,25 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 
 	ingressClassInformer, ingressInformer, saInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
 	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
-	client := &client.ClientProvider{
+	mockClient := &client.ClientProvider{
 		K8sClient:           k8client,
 		DefaultConfigGetter: &MockConfigGetter{},
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller",
-		ingressClassInformer, ingressInformer, saInformer, serviceLister, client)
+		ingressClassInformer, ingressInformer, saInformer, serviceLister, mockClient)
 	return c
 }
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
+	util.UpdateFakeClientCall(fakeClient, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(fakeClient, action, "services", testService)
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -190,7 +190,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), serviceInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, saInformer, serviceLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, fakeClient
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {

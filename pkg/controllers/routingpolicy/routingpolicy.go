@@ -161,7 +161,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
 
 	errorSyncing := false
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
@@ -183,7 +183,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 			})
 		}
 
-		err = client.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
+		err = wrapperClient.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
 		if err != nil {
 			// we purposefully only log here then return an error at the end, so we can attempt to sync all listeners.
 			klog.ErrorS(err, "unable to ensure route policy", "ingressClass", klog.KObj(ingressClass), "listenerName", listenerName)
@@ -192,7 +192,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 		}
 	}
 
-	lb, _, err := client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 	if len(routingPoliciesToDelete) > 0 {
 		klog.Infof("Following routing policies are eligible for deletion: %s", util.PrettyPrint(routingPoliciesToDelete))
 		for routingPolicyToDelete := range routingPoliciesToDelete {
-			lb, etag, err := client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
@@ -215,20 +215,20 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 			listener, listenerFound := lb.Listeners[routingPolicyToDelete]
 			if listenerFound {
 				klog.Infof("Detaching the routing policy %s from listener.", routingPolicyToDelete)
-				err = client.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
+				err = wrapperClient.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
 				if err != nil {
 					return err
 				}
 			}
 
-			lb, etag, err = client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err = wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
 
 			_, routingPolicyFound := lb.RoutingPolicies[routingPolicyToDelete]
 			if routingPolicyFound {
-				err = client.GetLbClient().DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
+				err = wrapperClient.GetLbClient().DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
 				if err != nil {
 					return err
 				}

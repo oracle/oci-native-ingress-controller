@@ -196,41 +196,41 @@ func initsUtil() (*client.ClientProvider, ociloadbalancer.LoadBalancer) {
 		RoutingPolicies:         nil,
 	}
 	wrapperClient := client.NewWrapperClient(k8client, nil, nil, certificatesClient, nil)
-	client := &client.ClientProvider{
+	mockClient := &client.ClientProvider{
 		K8sClient:           k8client,
 		DefaultConfigGetter: &MockConfigGetter{},
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
-	return client, lb
+	return mockClient, lb
 }
 
 func TestGetSSLConfigForBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	c, lb := initsUtil()
-	client, err := c.GetClient(&MockConfigGetter{})
+	mockClient, err := c.GetClient(&MockConfigGetter{})
 	Expect(err).Should(BeNil())
 
-	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", client)
-	Expect(err).Should(BeNil())
-	Expect(config != nil).Should(BeTrue())
-
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err := GetSSLConfigForBackendSet(namespace, state.ArtifactTypeSecret, "oci-config", &lb, "testecho1", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeIssuedByInternalCa), &lb, "testecho1", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeManagedExternallyIssuedByInternalCa), &lb, "testecho1", "", mockClient)
+	Expect(err).Should(BeNil())
+	Expect(config != nil).Should(BeTrue())
+
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, string(certificatesmanagement.CertificateConfigTypeImported), &lb, "testecho1", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(config != nil).Should(BeTrue())
 
 	// No ca bundle scenario
-	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", client)
+	config, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, errorImportCert, &lb, "testecho1", "", mockClient)
 	Expect(err).Should(BeNil())
 
-	_, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", client)
+	_, err = GetSSLConfigForBackendSet(namespace, state.ArtifactTypeCertificate, "error", &lb, "testecho1", "", mockClient)
 	Expect(err).Should(Not(BeNil()))
 	Expect(err.Error()).Should(Equal(errorMsg))
 
@@ -239,18 +239,18 @@ func TestGetSSLConfigForBackendSet(t *testing.T) {
 func TestGetSSLConfigForListener(t *testing.T) {
 	RegisterTestingT(t)
 	c, _ := initsUtil()
-	client, err := c.GetClient(&MockConfigGetter{})
+	mockClient, err := c.GetClient(&MockConfigGetter{})
 	Expect(err).Should(BeNil())
 
 	//no listener for cert
-	sslConfig, err := GetSSLConfigForListener(namespace, nil, state.ArtifactTypeCertificate, "certificate", "", client)
+	sslConfig, err := GetSSLConfigForListener(namespace, nil, state.ArtifactTypeCertificate, "certificate", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
 	Expect(sslConfig.CertificateIds[0]).Should(Equal("certificate"))
 
 	//no listener for secret
-	sslConfig, err = GetSSLConfigForListener(namespace, nil, state.ArtifactTypeSecret, "secret", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, nil, state.ArtifactTypeSecret, "secret", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
@@ -265,14 +265,14 @@ func TestGetSSLConfigForListener(t *testing.T) {
 	listener := ociloadbalancer.Listener{
 		SslConfiguration: &customSslConfig,
 	}
-	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeCertificate, "certificate", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeCertificate, "certificate", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
 	Expect(sslConfig.CertificateIds[0]).Should(Equal("certificate"))
 
 	// Listener + secret
-	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeSecret, "secret-cert", "", client)
+	sslConfig, err = GetSSLConfigForListener(namespace, &listener, state.ArtifactTypeSecret, "secret-cert", "", mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(len(sslConfig.CertificateIds)).Should(Equal(1))
@@ -283,22 +283,22 @@ func TestGetSSLConfigForListener(t *testing.T) {
 func TestGetCertificate(t *testing.T) {
 	RegisterTestingT(t)
 	c, _ := initsUtil()
-	client, err := c.GetClient(&MockConfigGetter{})
+	mockClient, err := c.GetClient(&MockConfigGetter{})
 	Expect(err).Should(BeNil())
 
 	certId := "id"
 	certId2 := "id2"
 
-	certificate, err := GetCertificate(&certId, client.GetCertClient())
+	certificate, err := GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
 	// cache fetch
-	certificate, err = GetCertificate(&certId, client.GetCertClient())
+	certificate, err = GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
-	certificate, err = GetCertificate(&certId2, client.GetCertClient())
+	certificate, err = GetCertificate(&certId2, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 }

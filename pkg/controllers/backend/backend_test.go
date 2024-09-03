@@ -35,16 +35,16 @@ const (
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
-	util.UpdateFakeClientCall(client, action, "endpoints", endpoints)
-	util.UpdateFakeClientCall(client, action, "pods", pod)
+	util.UpdateFakeClientCall(fakeClient, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(fakeClient, action, "services", testService)
+	util.UpdateFakeClientCall(fakeClient, action, "endpoints", endpoints)
+	util.UpdateFakeClientCall(fakeClient, action, "pods", pod)
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -68,7 +68,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	cache.WaitForCacheSync(ctx.Done(), serviceInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), endpointInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), podInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, fakeClient
 }
 
 func TestEnsureBackend(t *testing.T) {

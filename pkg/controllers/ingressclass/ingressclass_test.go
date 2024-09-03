@@ -169,9 +169,9 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	client, err := c.client.GetClient(&MockConfigGetter{})
+	mockClient, err := c.client.GetClient(&MockConfigGetter{})
 	Expect(err).To(BeNil())
-	loadBalancer, _, _ := client.GetLbClient().GetLoadBalancer(context.TODO(), "id")
+	loadBalancer, _, _ := mockClient.GetLbClient().GetLoadBalancer(context.TODO(), "id")
 	icp := v1beta1.IngressClassParameters{
 		Spec: v1beta1.IngressClassParametersSpec{
 			CompartmentId:    "",
@@ -237,22 +237,22 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 
 	ingressClassInformer, saInformer, k8client := setUp(ctx, ingressClassList)
 	wrapperClient := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil, nil)
-	client := &client.ClientProvider{
+	mockClient := &client.ClientProvider{
 		K8sClient:           k8client,
 		DefaultConfigGetter: &MockConfigGetter{},
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
-	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, saInformer, client, nil)
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, saInformer, mockClient, nil)
 	return c
 }
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList) (networkinginformers.IngressClassInformer, coreinformers.ServiceAccountInformer, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewSimpleClientset()
 
-	util.UpdateFakeClientCall(client, "list", "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, "patch", "ingressclasses", &ingressClassList.Items[0])
+	util.UpdateFakeClientCall(fakeClient, "list", "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, "patch", "ingressclasses", &ingressClassList.Items[0])
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -261,7 +261,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 
-	return ingressClassInformer, saInformer, client
+	return ingressClassInformer, saInformer, fakeClient
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {

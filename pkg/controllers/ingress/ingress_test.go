@@ -30,17 +30,17 @@ const (
 )
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+	fakeClient := fakeclientset.NewSimpleClientset()
 	action := "list"
 
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, "get", "ingresses", &ingressList.Items[0])
-	util.UpdateFakeClientCall(client, "update", "ingresses", &ingressList.Items[0])
-	util.UpdateFakeClientCall(client, "patch", "ingresses", &ingressList.Items[0])
-	util.UpdateFakeClientCall(client, action, "services", testService)
+	util.UpdateFakeClientCall(fakeClient, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(fakeClient, "get", "ingresses", &ingressList.Items[0])
+	util.UpdateFakeClientCall(fakeClient, "update", "ingresses", &ingressList.Items[0])
+	util.UpdateFakeClientCall(fakeClient, "patch", "ingresses", &ingressList.Items[0])
+	util.UpdateFakeClientCall(fakeClient, action, "services", testService)
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -55,7 +55,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, saInformer, serviceLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, fakeClient
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList) *Controller {
@@ -80,13 +80,13 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 
 	ingressClassInformer, ingressInformer, saInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
 	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, certificatesClient, nil)
-	client := &client.ClientProvider{
+	fakeClient := &client.ClientProvider{
 		K8sClient:           k8client,
 		DefaultConfigGetter: &MockConfigGetter{},
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, client, nil)
+		ingressInformer, saInformer, serviceLister, fakeClient, nil)
 	return c
 }
 

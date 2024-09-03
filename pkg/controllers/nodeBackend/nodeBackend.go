@@ -172,7 +172,7 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 		return fmt.Errorf("error: %s due to : %s", "UnAvailableNodes", "There are no available provisioned nodes")
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
@@ -207,7 +207,7 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 					}
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
@@ -277,11 +277,11 @@ func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingres
 		klog.ErrorS(err, "Error processing default backend sync")
 		return nil
 	}
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
+	err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
 	if err != nil {
 		return err
 	}

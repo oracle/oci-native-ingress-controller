@@ -151,7 +151,7 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 		return err
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
@@ -176,11 +176,11 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 					backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
-				backendSetHealth, err := client.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
+				backendSetHealth, err := wrapperClient.GetLbClient().GetBackendSetHealth(context.TODO(), lbID, backendSetName)
 				if err != nil {
 					return fmt.Errorf("unable to fetch backendset health: %w", err)
 				}
@@ -214,12 +214,12 @@ func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingres
 		return nil
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 
-	err = client.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
+	err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, util.DefaultBackendSetName, backends)
 	if err != nil {
 		return err
 	}
@@ -356,12 +356,12 @@ func (c *Controller) ensurePodReadinessCondition(ctx context.Context, pod *corev
 		return fmt.Errorf("unable to build pod condition for %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
 
-	client, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 
-	_, err = client.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+	_, err = wrapperClient.GetK8Client().CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	if err != nil {
 		return fmt.Errorf("unable to remove readiness gate %s from pod %s/%s: %w", readinessGate, pod.Namespace, pod.Name, err)
 	}
