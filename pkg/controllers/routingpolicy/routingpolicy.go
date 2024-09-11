@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sort"
 	"time"
 
@@ -45,6 +46,7 @@ type Controller struct {
 	ingressClassLister networkinglisters.IngressClassLister
 	ingressLister      networkinglisters.IngressLister
 	serviceLister      corelisters.ServiceLister
+	saLister           corelisters.ServiceAccountLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
 	client             *client.ClientProvider
@@ -55,6 +57,7 @@ func NewController(
 	controllerClass string,
 	ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer,
+	saInformer coreinformers.ServiceAccountInformer,
 	serviceLister corelisters.ServiceLister,
 	client *client.ClientProvider,
 ) *Controller {
@@ -64,6 +67,7 @@ func NewController(
 		ingressClassLister: ingressClassInformer.Lister(),
 		ingressLister:      ingressInformer.Lister(),
 		serviceLister:      serviceLister,
+		saLister:           saInformer.Lister(),
 		informer:           ingressInformer,
 
 		client: client,
@@ -94,7 +98,7 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
 		return err
@@ -124,7 +128,12 @@ func (c *Controller) sync(key string) error {
 		return errIngressClassNotReady
 	}
 
-	err = c.ensureRoutingRules(ingressClass)
+	ctx, err := client.GetClientContext(ingressClass, c.saLister, c.client, namespace, name)
+	if err != nil {
+		return err
+	}
+
+	err = c.ensureRoutingRules(ctx, ingressClass)
 	if err != nil {
 		return err
 	}
@@ -132,7 +141,7 @@ func (c *Controller) sync(key string) error {
 	return nil
 }
 
-func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass) error {
+func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *networkingv1.IngressClass) error {
 	allIngresses, err := c.ingressLister.List(labels.Everything())
 	if err != nil {
 		return err
@@ -152,6 +161,10 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
 
 	errorSyncing := false
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
 	for listenerName, paths := range listenerPaths {
 		var rules []ociloadbalancer.RoutingRule
 		// Sort the listener paths based on the actual path values so that the specific ones come first
@@ -170,7 +183,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 			})
 		}
 
-		err = c.client.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
+		err = wrapperClient.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
 		if err != nil {
 			// we purposefully only log here then return an error at the end, so we can attempt to sync all listeners.
 			klog.ErrorS(err, "unable to ensure route policy", "ingressClass", klog.KObj(ingressClass), "listenerName", listenerName)
@@ -179,7 +192,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 		}
 	}
 
-	lb, _, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+	lb, _, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		return err
 	}
@@ -194,7 +207,7 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 	if len(routingPoliciesToDelete) > 0 {
 		klog.Infof("Following routing policies are eligible for deletion: %s", util.PrettyPrint(routingPoliciesToDelete))
 		for routingPolicyToDelete := range routingPoliciesToDelete {
-			lb, etag, err := c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
@@ -202,20 +215,20 @@ func (c *Controller) ensureRoutingRules(ingressClass *networkingv1.IngressClass)
 			listener, listenerFound := lb.Listeners[routingPolicyToDelete]
 			if listenerFound {
 				klog.Infof("Detaching the routing policy %s from listener.", routingPolicyToDelete)
-				err = c.client.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
+				err = wrapperClient.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
 				if err != nil {
 					return err
 				}
 			}
 
-			lb, etag, err = c.client.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+			lb, etag, err = wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 			if err != nil {
 				return err
 			}
 
 			_, routingPolicyFound := lb.RoutingPolicies[routingPolicyToDelete]
 			if routingPolicyFound {
-				err = c.client.GetLbClient().DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
+				err = wrapperClient.GetLbClient().DeleteRoutingPolicy(context.TODO(), lbID, routingPolicyToDelete)
 				if err != nil {
 					return err
 				}

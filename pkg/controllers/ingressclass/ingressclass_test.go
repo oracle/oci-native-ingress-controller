@@ -3,6 +3,7 @@ package ingressclass
 import (
 	"context"
 	"fmt"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sync"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestEnsureLoadBalancer(t *testing.T) {
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
 
-	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
+	err := c.ensureLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
 }
 
@@ -45,7 +46,7 @@ func TestEnsureLoadBalancerWithLbIdSet(t *testing.T) {
 	ingressClassList := util.GetIngressClassListWithLBSet("id")
 	c := inits(ctx, ingressClassList)
 
-	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
+	err := c.ensureLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
 }
 
@@ -57,7 +58,7 @@ func TestEnsureLoadBalancerWithNotFound(t *testing.T) {
 	c := inits(ctx, ingressClassList)
 
 	ic := &ingressClassList.Items[0]
-	err := c.ensureLoadBalancer(ic)
+	err := c.ensureLoadBalancer(getContextWithClient(c, ctx), ic)
 	Expect(err).Should(BeNil())
 
 }
@@ -69,7 +70,7 @@ func TestEnsureLoadBalancerWithNetworkError(t *testing.T) {
 	ingressClassList := util.GetIngressClassListWithLBSet("networkerror")
 	c := inits(ctx, ingressClassList)
 
-	err := c.ensureLoadBalancer(&ingressClassList.Items[0])
+	err := c.ensureLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(Not(BeNil()))
 	Expect(err.Error()).Should(Equal("Failure due to network error"))
 }
@@ -112,7 +113,7 @@ func TestDeleteIngressClass(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	err := c.deleteIngressClass(&ingressClassList.Items[0])
+	err := c.deleteIngressClass(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
 }
 
@@ -122,7 +123,7 @@ func TestDeleteLoadBalancer(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	err := c.deleteLoadBalancer(&ingressClassList.Items[0])
+	err := c.deleteLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
 }
 
@@ -132,7 +133,7 @@ func TestEnsureFinalizer(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	err := c.ensureFinalizer(&ingressClassList.Items[0])
+	err := c.ensureFinalizer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
 }
 
@@ -145,7 +146,7 @@ func TestSetupWebApplicationFirewall_WithPolicySet(t *testing.T) {
 	annotations := map[string]string{util.IngressClassIsDefault: fmt.Sprint(false), util.IngressClassWafPolicyAnnotation: "ocid1.webappfirewallpolicy.oc1.phx.amaaaaaah4gjgpya3siqywzdmre3mv4op3rzpo"}
 	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingressclass-withPolicy", annotations, "oci.oraclecloud.com/native-ingress-controller")
 	c := inits(ctx, ingressClassList)
-	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	err := c.setupWebApplicationFirewall(getContextWithClient(c, ctx), &ingressClassList.Items[0], &compartmentId, &id)
 	Expect(err).Should(BeNil())
 }
 
@@ -158,7 +159,7 @@ func TestSetupWebApplicationFirewall_NoPolicySet(t *testing.T) {
 
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	err := c.setupWebApplicationFirewall(&ingressClassList.Items[0], &compartmentId, &id)
+	err := c.setupWebApplicationFirewall(getContextWithClient(c, ctx), &ingressClassList.Items[0], &compartmentId, &id)
 	Expect(err).Should(BeNil())
 }
 
@@ -168,7 +169,9 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 	defer cancel()
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList)
-	loadBalancer, _, _ := c.client.GetLbClient().GetLoadBalancer(context.TODO(), "id")
+	mockClient, err := c.client.GetClient(&MockConfigGetter{})
+	Expect(err).To(BeNil())
+	loadBalancer, _, _ := mockClient.GetLbClient().GetLoadBalancer(context.TODO(), "id")
 	icp := v1beta1.IngressClassParameters{
 		Spec: v1beta1.IngressClassParametersSpec{
 			CompartmentId:    "",
@@ -179,7 +182,7 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 			MaxBandwidthMbps: 400,
 		},
 	}
-	err := c.checkForIngressClassParameterUpdates(loadBalancer, &ingressClassList.Items[0], &icp)
+	err = c.checkForIngressClassParameterUpdates(getContextWithClient(c, ctx), loadBalancer, &ingressClassList.Items[0], &icp)
 	Expect(err).Should(BeNil())
 }
 
@@ -202,10 +205,17 @@ func TestDeleteFinalizer(t *testing.T) {
 			Controller: "controller",
 		},
 	}
-	err := c.deleteFinalizer(ingressClass) // with finalizer
+	err := c.deleteFinalizer(getContextWithClient(c, ctx), ingressClass) // with finalizer
 	Expect(err).Should(BeNil())
-	err = c.deleteFinalizer(&ingressClassList.Items[0])
+	err = c.deleteFinalizer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err).Should(BeNil())
+}
+
+func getContextWithClient(c *Controller, ctx context.Context) context.Context {
+	wc, err := c.client.GetClient(&MockConfigGetter{})
+	Expect(err).To(BeNil())
+	ctx = context.WithValue(ctx, util.WrapperClient, wc)
+	return ctx
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList) *Controller {
@@ -225,26 +235,33 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 		Cache:     map[string]*WAF.CacheObj{},
 	}
 
-	ingressClassInformer, k8client := setUp(ctx, ingressClassList)
-	client := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil, nil)
-	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, client, nil)
+	ingressClassInformer, saInformer, k8client := setUp(ctx, ingressClassList)
+	wrapperClient := client.NewWrapperClient(k8client, firewallClient, loadBalancerClient, nil, nil)
+	mockClient := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, saInformer, mockClient, nil)
 	return c
 }
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList) (networkinginformers.IngressClassInformer, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList) (networkinginformers.IngressClassInformer, coreinformers.ServiceAccountInformer, *fakeclientset.Clientset) {
+	fakeClient := fakeclientset.NewSimpleClientset()
 
-	util.UpdateFakeClientCall(client, "list", "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, "patch", "ingressclasses", &ingressClassList.Items[0])
+	util.UpdateFakeClientCall(fakeClient, "list", "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, "patch", "ingressclasses", &ingressClassList.Items[0])
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
+
+	saInformer := informerFactory.Core().V1().ServiceAccounts()
 
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 
-	return ingressClassInformer, client
+	return ingressClassInformer, saInformer, fakeClient
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {
@@ -402,4 +419,72 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
 	return ociloadbalancer.DeleteListenerResponse{}, nil
+}
+
+// MockConfigGetter is a mock implementation of the ConfigGetter interface for testing purposes.
+type MockConfigGetter struct {
+	ConfigurationProvider common.ConfigurationProvider
+	Key                   string
+	Error                 error
+}
+
+// NewMockConfigGetter creates a new instance of MockConfigGetter.
+func NewMockConfigGetter(configurationProvider common.ConfigurationProvider, key string, err error) *MockConfigGetter {
+	return &MockConfigGetter{
+		ConfigurationProvider: configurationProvider,
+		Key:                   key,
+		Error:                 err,
+	}
+}
+func (m *MockConfigGetter) GetConfigurationProvider() (common.ConfigurationProvider, error) {
+	return m.ConfigurationProvider, m.Error
+}
+func (m *MockConfigGetter) GetKey() string {
+	return m.Key
+}
+
+type MockCacheStore struct {
+	client *client.WrapperClient
+}
+
+func (m *MockCacheStore) Add(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Update(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Delete(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) List() []interface{} {
+	return nil
+}
+
+func (m *MockCacheStore) ListKeys() []string {
+	return nil
+}
+
+func (m *MockCacheStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	return nil, true, nil
+}
+
+func (m *MockCacheStore) Replace(i []interface{}, s string) error {
+	return nil
+}
+
+func (m *MockCacheStore) Resync() error {
+	return nil
+}
+
+func NewMockCacheStore(client *client.WrapperClient) *MockCacheStore {
+	return &MockCacheStore{
+		client: client,
+	}
+}
+
+func (m *MockCacheStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	return m.client, true, nil
 }

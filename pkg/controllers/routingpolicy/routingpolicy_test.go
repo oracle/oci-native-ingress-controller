@@ -2,6 +2,8 @@ package routingpolicy
 
 import (
 	"context"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sort"
 	"sync"
 	"testing"
@@ -31,7 +33,7 @@ func TestEnsureRoutingRules(t *testing.T) {
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, "routePath.yaml")
 
-	err := c.ensureRoutingRules(&ingressClassList.Items[0])
+	err := c.ensureRoutingRules(getContextWithClient(c, ctx), &ingressClassList.Items[0])
 	Expect(err == nil).Should(Equal(true))
 }
 func TestProcessRoutingPolicy(t *testing.T) {
@@ -152,22 +154,27 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
-	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
+	ingressClassInformer, ingressInformer, saInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
+	mockClient := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller",
-		ingressClassInformer, ingressInformer, serviceLister, client)
+		ingressClassInformer, ingressInformer, saInformer, serviceLister, mockClient)
 	return c
 }
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
+	fakeClient := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
+	util.UpdateFakeClientCall(fakeClient, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(fakeClient, action, "services", testService)
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -177,15 +184,24 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	serviceInformer := informerFactory.Core().V1().Services()
 	serviceLister := serviceInformer.Lister()
 
+	saInformer := informerFactory.Core().V1().ServiceAccounts()
+
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), serviceInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, serviceLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, fakeClient
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
+}
+
+func getContextWithClient(c *Controller, ctx context.Context) context.Context {
+	wc, err := c.client.GetClient(&MockConfigGetter{})
+	Expect(err).To(BeNil())
+	ctx = context.WithValue(ctx, util.WrapperClient, wc)
+	return ctx
 }
 
 type MockLoadBalancerClient struct {
@@ -275,4 +291,72 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
 	return ociloadbalancer.DeleteListenerResponse{}, nil
+}
+
+// MockConfigGetter is a mock implementation of the ConfigGetter interface for testing purposes.
+type MockConfigGetter struct {
+	ConfigurationProvider common.ConfigurationProvider
+	Key                   string
+	Error                 error
+}
+
+// NewMockConfigGetter creates a new instance of MockConfigGetter.
+func NewMockConfigGetter(configurationProvider common.ConfigurationProvider, key string, err error) *MockConfigGetter {
+	return &MockConfigGetter{
+		ConfigurationProvider: configurationProvider,
+		Key:                   key,
+		Error:                 err,
+	}
+}
+func (m *MockConfigGetter) GetConfigurationProvider() (common.ConfigurationProvider, error) {
+	return m.ConfigurationProvider, m.Error
+}
+func (m *MockConfigGetter) GetKey() string {
+	return m.Key
+}
+
+type MockCacheStore struct {
+	client *client.WrapperClient
+}
+
+func (m *MockCacheStore) Add(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Update(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Delete(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) List() []interface{} {
+	return nil
+}
+
+func (m *MockCacheStore) ListKeys() []string {
+	return nil
+}
+
+func (m *MockCacheStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	return nil, true, nil
+}
+
+func (m *MockCacheStore) Replace(i []interface{}, s string) error {
+	return nil
+}
+
+func (m *MockCacheStore) Resync() error {
+	return nil
+}
+
+func NewMockCacheStore(client *client.WrapperClient) *MockCacheStore {
+	return &MockCacheStore{
+		client: client,
+	}
+}
+
+func (m *MockCacheStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	return m.client, true, nil
 }

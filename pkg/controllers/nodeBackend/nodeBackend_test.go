@@ -2,6 +2,7 @@ package nodeBackend
 
 import (
 	"context"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sync"
 	"testing"
 	"time"
@@ -29,20 +30,20 @@ const (
 	namespace                     = "default"
 )
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList, nodes *corev1.NodeList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, corelisters.NodeLister, *fakeclientset.Clientset) {
-	client := fakeclientset.NewSimpleClientset()
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *corev1.ServiceList, endpoints *corev1.EndpointsList, pod *corev1.PodList, nodes *corev1.NodeList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, corelisters.EndpointsLister, corelisters.PodLister, corelisters.NodeLister, *fakeclientset.Clientset) {
+	fakeClient := fakeclientset.NewSimpleClientset()
 
 	action := "list"
-	util.UpdateFakeClientCall(client, action, "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(client, action, "ingresses", ingressList)
-	util.UpdateFakeClientCall(client, action, "services", testService)
-	util.UpdateFakeClientCall(client, action, "endpoints", endpoints)
-	util.UpdateFakeClientCall(client, "get", "endpoints", endpoints)
-	util.UpdateFakeClientCall(client, action, "pods", pod)
-	util.UpdateFakeClientCall(client, action, "nodes", nodes)
-	util.UpdateFakeClientCall(client, "get", "nodes", &nodes.Items[0])
+	util.UpdateFakeClientCall(fakeClient, action, "ingressclasses", ingressClassList)
+	util.UpdateFakeClientCall(fakeClient, action, "ingresses", ingressList)
+	util.UpdateFakeClientCall(fakeClient, action, "services", testService)
+	util.UpdateFakeClientCall(fakeClient, action, "endpoints", endpoints)
+	util.UpdateFakeClientCall(fakeClient, "get", "endpoints", endpoints)
+	util.UpdateFakeClientCall(fakeClient, action, "pods", pod)
+	util.UpdateFakeClientCall(fakeClient, action, "nodes", nodes)
+	util.UpdateFakeClientCall(fakeClient, "get", "nodes", &nodes.Items[0])
 
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	ingressClassInformer.Lister()
 
@@ -51,6 +52,8 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 
 	serviceInformer := informerFactory.Core().V1().Services()
 	serviceLister := serviceInformer.Lister()
+
+	saInformer := informerFactory.Core().V1().ServiceAccounts()
 
 	endpointInformer := informerFactory.Core().V1().Endpoints()
 	endpointLister := endpointInformer.Lister()
@@ -68,7 +71,7 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	cache.WaitForCacheSync(ctx.Done(), endpointInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), podInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), nodeInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, client
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, fakeClient
 }
 
 func TestEnsureBackend(t *testing.T) {
@@ -78,7 +81,7 @@ func TestEnsureBackend(t *testing.T) {
 	ingressClassList := util.GetIngressClassList()
 	c := inits(ctx, ingressClassList, backendPath, false)
 
-	err := c.ensureBackends(&ingressClassList.Items[0], "id")
+	err := c.ensureBackends(getContextWithClient(c, ctx), &ingressClassList.Items[0], "id")
 	Expect(err == nil).Should(Equal(true))
 }
 
@@ -176,9 +179,14 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:    map[string]*lb.LbCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod, nodes)
-	client := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, serviceLister, endpointLister, podLister, nodeLister, client)
+	ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, k8client := setUp(ctx, ingressClassList, ingressList, testService, endpoints, pod, nodes)
+	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, nil, nil)
+	mockClient := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, mockClient)
 	return c
 }
 
@@ -216,6 +224,13 @@ func TestGetIngressesForClass(t *testing.T) {
 	}
 	Expect(count).Should(Equal(1))
 
+}
+
+func getContextWithClient(c *Controller, ctx context.Context) context.Context {
+	wc, err := c.client.GetClient(&MockConfigGetter{})
+	Expect(err).To(BeNil())
+	ctx = context.WithValue(ctx, util.WrapperClient, wc)
+	return ctx
 }
 
 func getLoadBalancerClient() ociclient.LoadBalancerInterface {
@@ -320,4 +335,72 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
 	return ociloadbalancer.DeleteListenerResponse{}, nil
+}
+
+// MockConfigGetter is a mock implementation of the ConfigGetter interface for testing purposes.
+type MockConfigGetter struct {
+	ConfigurationProvider common.ConfigurationProvider
+	Key                   string
+	Error                 error
+}
+
+// NewMockConfigGetter creates a new instance of MockConfigGetter.
+func NewMockConfigGetter(configurationProvider common.ConfigurationProvider, key string, err error) *MockConfigGetter {
+	return &MockConfigGetter{
+		ConfigurationProvider: configurationProvider,
+		Key:                   key,
+		Error:                 err,
+	}
+}
+func (m *MockConfigGetter) GetConfigurationProvider() (common.ConfigurationProvider, error) {
+	return m.ConfigurationProvider, m.Error
+}
+func (m *MockConfigGetter) GetKey() string {
+	return m.Key
+}
+
+type MockCacheStore struct {
+	client *client.WrapperClient
+}
+
+func (m *MockCacheStore) Add(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Update(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) Delete(obj interface{}) error {
+	return nil
+}
+
+func (m *MockCacheStore) List() []interface{} {
+	return nil
+}
+
+func (m *MockCacheStore) ListKeys() []string {
+	return nil
+}
+
+func (m *MockCacheStore) Get(obj interface{}) (item interface{}, exists bool, err error) {
+	return nil, true, nil
+}
+
+func (m *MockCacheStore) Replace(i []interface{}, s string) error {
+	return nil
+}
+
+func (m *MockCacheStore) Resync() error {
+	return nil
+}
+
+func NewMockCacheStore(client *client.WrapperClient) *MockCacheStore {
+	return &MockCacheStore{
+		client: client,
+	}
+}
+
+func (m *MockCacheStore) GetByKey(key string) (item interface{}, exists bool, err error) {
+	return m.client, true, nil
 }

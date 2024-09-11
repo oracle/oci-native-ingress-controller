@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -24,6 +24,13 @@ type UpdateLoadBalancerDetails struct {
 	// Avoid entering confidential information.
 	// Example: `example_load_balancer`
 	DisplayName *string `mandatory:"false" json:"displayName"`
+
+	// Whether or not the load balancer has delete protection enabled.
+	// If "true", the loadbalancer will be protected against deletion if configured to accept traffic.
+	// If "false", the loadbalancer will not be protected against deletion.
+	// If null or unset, the value for delete protection will not be changed.
+	// Example: `true`
+	IsDeleteProtectionEnabled *bool `mandatory:"false" json:"isDeleteProtectionEnabled"`
 
 	// Free-form tags for this resource. Each tag is a simple key-value pair with no predefined name, type, or namespace.
 	// For more information, see Resource Tags (https://docs.cloud.oracle.com/Content/General/Concepts/resourcetags.htm).

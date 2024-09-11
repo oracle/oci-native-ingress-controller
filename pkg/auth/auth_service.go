@@ -29,6 +29,35 @@ import (
 
 const httpClientTimeout = 20 * time.Second
 
+var _ ConfigGetter = &defaultOCIConfigGetter{}
+
+type defaultOCIConfigGetter struct {
+	ctx    context.Context
+	opts   types.IngressOpts
+	client kubernetes.Interface
+}
+
+func DefaultOCIConfigGetter(ctx context.Context, opts types.IngressOpts, client kubernetes.Interface) *defaultOCIConfigGetter {
+	return &defaultOCIConfigGetter{
+		ctx:    ctx,
+		opts:   opts,
+		client: client,
+	}
+}
+
+func (o *defaultOCIConfigGetter) GetConfigurationProvider() (common.ConfigurationProvider, error) {
+	auth, err := RetrieveAuthConfig(o.ctx, o.opts, o.opts.LeaseLockNamespace, o.client)
+	if err != nil {
+		klog.Error("Unable to handle authentication parameters", err)
+		return nil, err
+	}
+	return getConfProviderFromAuth(auth)
+}
+
+func (o *defaultOCIConfigGetter) GetKey() string {
+	return "default_key"
+}
+
 func GetConfigurationProvider(ctx context.Context, opts types.IngressOpts, client kubernetes.Interface) (common.ConfigurationProvider, error) {
 	auth, err := RetrieveAuthConfig(ctx, opts, opts.LeaseLockNamespace, client)
 	if err != nil {

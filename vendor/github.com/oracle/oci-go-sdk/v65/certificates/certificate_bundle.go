@@ -1,4 +1,4 @@
-// Copyright (c) 2016, 2018, 2023, Oracle and/or its affiliates.  All rights reserved.
+// Copyright (c) 2016, 2018, 2024, Oracle and/or its affiliates.  All rights reserved.
 // This software is dual-licensed to you under the Universal Permissive License (UPL) 1.0 as shown at https://oss.oracle.com/licenses/upl or Apache License 2.0 as shown at http://www.apache.org/licenses/LICENSE-2.0. You may choose either license.
 // Code generated. DO NOT EDIT.
 
@@ -55,6 +55,10 @@ type CertificateBundle interface {
 
 type certificatebundle struct {
 	JsonData              []byte
+	CertificatePem        *string            `mandatory:"false" json:"certificatePem"`
+	CertChainPem          *string            `mandatory:"false" json:"certChainPem"`
+	VersionName           *string            `mandatory:"false" json:"versionName"`
+	RevocationStatus      *RevocationStatus  `mandatory:"false" json:"revocationStatus"`
 	CertificateId         *string            `mandatory:"true" json:"certificateId"`
 	CertificateName       *string            `mandatory:"true" json:"certificateName"`
 	VersionNumber         *int64             `mandatory:"true" json:"versionNumber"`
@@ -62,10 +66,6 @@ type certificatebundle struct {
 	TimeCreated           *common.SDKTime    `mandatory:"true" json:"timeCreated"`
 	Validity              *Validity          `mandatory:"true" json:"validity"`
 	Stages                []VersionStageEnum `mandatory:"true" json:"stages"`
-	CertificatePem        *string            `mandatory:"false" json:"certificatePem"`
-	CertChainPem          *string            `mandatory:"false" json:"certChainPem"`
-	VersionName           *string            `mandatory:"false" json:"versionName"`
-	RevocationStatus      *RevocationStatus  `mandatory:"false" json:"revocationStatus"`
 	CertificateBundleType string             `json:"certificateBundleType"`
 }
 
@@ -114,63 +114,64 @@ func (m *certificatebundle) UnmarshalPolymorphicJSON(data []byte) (interface{}, 
 		err = json.Unmarshal(data, &mm)
 		return mm, err
 	default:
+		common.Logf("Recieved unsupported enum value for CertificateBundle: %s.", m.CertificateBundleType)
 		return *m, nil
 	}
 }
 
-//GetCertificateId returns CertificateId
-func (m certificatebundle) GetCertificateId() *string {
-	return m.CertificateId
-}
-
-//GetCertificateName returns CertificateName
-func (m certificatebundle) GetCertificateName() *string {
-	return m.CertificateName
-}
-
-//GetVersionNumber returns VersionNumber
-func (m certificatebundle) GetVersionNumber() *int64 {
-	return m.VersionNumber
-}
-
-//GetSerialNumber returns SerialNumber
-func (m certificatebundle) GetSerialNumber() *string {
-	return m.SerialNumber
-}
-
-//GetTimeCreated returns TimeCreated
-func (m certificatebundle) GetTimeCreated() *common.SDKTime {
-	return m.TimeCreated
-}
-
-//GetValidity returns Validity
-func (m certificatebundle) GetValidity() *Validity {
-	return m.Validity
-}
-
-//GetStages returns Stages
-func (m certificatebundle) GetStages() []VersionStageEnum {
-	return m.Stages
-}
-
-//GetCertificatePem returns CertificatePem
+// GetCertificatePem returns CertificatePem
 func (m certificatebundle) GetCertificatePem() *string {
 	return m.CertificatePem
 }
 
-//GetCertChainPem returns CertChainPem
+// GetCertChainPem returns CertChainPem
 func (m certificatebundle) GetCertChainPem() *string {
 	return m.CertChainPem
 }
 
-//GetVersionName returns VersionName
+// GetVersionName returns VersionName
 func (m certificatebundle) GetVersionName() *string {
 	return m.VersionName
 }
 
-//GetRevocationStatus returns RevocationStatus
+// GetRevocationStatus returns RevocationStatus
 func (m certificatebundle) GetRevocationStatus() *RevocationStatus {
 	return m.RevocationStatus
+}
+
+// GetCertificateId returns CertificateId
+func (m certificatebundle) GetCertificateId() *string {
+	return m.CertificateId
+}
+
+// GetCertificateName returns CertificateName
+func (m certificatebundle) GetCertificateName() *string {
+	return m.CertificateName
+}
+
+// GetVersionNumber returns VersionNumber
+func (m certificatebundle) GetVersionNumber() *int64 {
+	return m.VersionNumber
+}
+
+// GetSerialNumber returns SerialNumber
+func (m certificatebundle) GetSerialNumber() *string {
+	return m.SerialNumber
+}
+
+// GetTimeCreated returns TimeCreated
+func (m certificatebundle) GetTimeCreated() *common.SDKTime {
+	return m.TimeCreated
+}
+
+// GetValidity returns Validity
+func (m certificatebundle) GetValidity() *Validity {
+	return m.Validity
+}
+
+// GetStages returns Stages
+func (m certificatebundle) GetStages() []VersionStageEnum {
+	return m.Stages
 }
 
 func (m certificatebundle) String() string {
