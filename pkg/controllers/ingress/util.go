@@ -11,7 +11,10 @@ package ingress
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -59,7 +62,15 @@ func compareHttpHealthCheckerAttributes(healthCheckerDetails *ociloadbalancer.He
 
 // SSL UTILS
 
-func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, compartmentId string,
+func GetCertificateHash(certificate *certificatesmanagement.CertificateSummary) *string {
+	hashPtr, ok := certificate.FreeformTags["oci-native-ingress-controller-certificate-hash"]
+	if ok {
+		return &hashPtr
+	}
+	return nil
+}
+
+func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, certificateHash *string, compartmentId string,
 	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
 	configDetails := certificatesmanagement.CreateCertificateByImportingConfigDetails{
 		CertChainPem:   caCertificatesChain,
@@ -71,6 +82,9 @@ func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificat
 		Name:              &certificateName,
 		CertificateConfig: configDetails,
 		CompartmentId:     &compartmentId,
+		FreeformTags: map[string]string{
+			"oci-native-ingress-controller-certificate-hash": *certificateHash,
+		},
 	}
 	createCertificateRequest := certificatesmanagement.CreateCertificateRequest{
 		CreateCertificateDetails: certificateDetails,
@@ -85,6 +99,35 @@ func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificat
 	certificatesClient.SetCertCache(createCertificate)
 	klog.Infof("Created a certificate with ocid %s", *createCertificate.Id)
 	return createCertificate, nil
+}
+
+func UpdateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, certificateHash *string, compartmentId string,
+	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
+	configDetails := certificatesmanagement.UpdateCertificateByImportingConfigDetails{
+		CertChainPem:   caCertificatesChain,
+		CertificatePem: serverCertificate,
+		PrivateKeyPem:  privateKey,
+	}
+
+	certificateDetails := certificatesmanagement.UpdateCertificateDetails{
+		CertificateConfig: configDetails,
+		FreeformTags: map[string]string{
+			"oci-native-ingress-controller-certificate-hash": *certificateHash,
+		},
+	}
+	updateCertificateRequest := certificatesmanagement.UpdateCertificateRequest{
+		UpdateCertificateDetails: certificateDetails,
+		IfMatch:                  &certificateName,
+	}
+
+	updateCertificate, err := certificatesClient.UpdateCertificate(context.TODO(), updateCertificateRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	certificatesClient.SetCertCache(updateCertificate)
+	klog.Infof("Update a certificate with ocid %s", *updateCertificate.Id)
+	return updateCertificate, nil
 }
 
 func GetCertificate(certificateId *string, certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
@@ -108,7 +151,7 @@ func GetCertificate(certificateId *string, certificatesClient *certificate.Certi
 }
 
 func FindCertificateWithName(certificateName string, compartmentId string,
-	certificatesClient *certificate.CertificatesClient) (*string, error) {
+	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.CertificateSummary, error) {
 	listCertificatesRequest := certificatesmanagement.ListCertificatesRequest{
 		Name:           &certificateName,
 		CompartmentId:  &compartmentId,
@@ -125,7 +168,7 @@ func FindCertificateWithName(certificateName string, compartmentId string,
 		numberOfCertificates := len(listCertificates.Items)
 		klog.Infof("Found %d certificates with name %s in compartment %s.", numberOfCertificates, certificateName, compartmentId)
 		if numberOfCertificates > 0 {
-			return listCertificates.Items[0].Id, nil
+			return &listCertificates.Items[0], nil
 		}
 	}
 	klog.Infof("Found no certificates with name %s in compartment %s.", certificateName, compartmentId)
@@ -201,6 +244,19 @@ type TLSSecretData struct {
 	CaCertificateChain *string
 	ServerCertificate  *string
 	PrivateKey         *string
+}
+
+func HashTLSSecretData(tlsData *TLSSecretData) (*string, error) {
+	data, err := json.Marshal(*tlsData)
+	if err != nil {
+		return nil, err
+	}
+
+	hash := sha256.New()
+	hash.Write(data)
+	hashString := hex.EncodeToString(hash.Sum(nil))
+
+	return &hashString, nil
 }
 
 func getTlsSecretContent(namespace string, secretName string, client kubernetes.Interface) (*TLSSecretData, error) {
@@ -383,24 +439,38 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 
 func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, client *client.WrapperClient) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
-	certificateId, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
+	certificate, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {
 		return nil, err
 	}
 
+	tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
+	if err != nil {
+		return nil, err
+	}
+	tlsHash, err := HashTLSSecretData(tlsSecretData)
+	if err != nil {
+		return nil, err
+	}
+
+	certificateId := certificate.Id
 	if certificateId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
-		if err != nil {
-			return nil, err
-		}
-
 		createCertificate, err := CreateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
-			tlsSecretData.PrivateKey, certificateName, compartmentId, client.GetCertClient())
+			tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
 		if err != nil {
 			return nil, err
 		}
-
 		certificateId = createCertificate.Id
+	} else {
+		certificateHash := GetCertificateHash(certificate)
+		if certificateHash == nil || tlsHash != certificateHash {
+			updateCertificate, err := UpdateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
+				tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
+			if err != nil {
+				return nil, err
+			}
+			certificateId = updateCertificate.Id
+		}
 	}
 	return certificateId, nil
 }

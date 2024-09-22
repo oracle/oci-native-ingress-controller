@@ -422,6 +422,18 @@ func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, req
 	}, nil
 }
 
+func (m MockCertificateManagerClient) UpdateCertificate(ctx context.Context, request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error) {
+	id := "id"
+	return certificatesmanagement.UpdateCertificateResponse{
+		RawResponse: nil,
+		Certificate: certificatesmanagement.Certificate{
+			Id: &id,
+		},
+		Etag:         nil,
+		OpcRequestId: &id,
+	}, nil
+}
+
 func (m MockCertificateManagerClient) GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error) {
 
 	if *request.CertificateId == "error" {

@@ -77,6 +77,17 @@ func (certificatesClient *CertificatesClient) CreateCertificate(ctx context.Cont
 	return &resp.Certificate, nil
 }
 
+func (certificatesClient *CertificatesClient) UpdateCertificate(ctx context.Context,
+	req certificatesmanagement.UpdateCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	resp, err := certificatesClient.ManagementClient.UpdateCertificate(ctx, req)
+	if err != nil {
+		klog.Errorf("Error updating certificate %s, %s ", *req.CertificateId, err.Error())
+		return nil, err
+	}
+
+	return &resp.Certificate, nil
+}
+
 func (certificatesClient *CertificatesClient) CreateCaBundle(ctx context.Context,
 	req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
 	resp, err := certificatesClient.ManagementClient.CreateCaBundle(ctx, req)

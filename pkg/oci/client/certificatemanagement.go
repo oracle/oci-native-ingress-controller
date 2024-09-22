@@ -8,6 +8,7 @@ import (
 
 type CertificateManagementInterface interface {
 	CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error)
+	UpdateCertificate(ctx context.Context, request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error)
 	GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error)
 	ListCertificates(ctx context.Context, request certificatesmanagement.ListCertificatesRequest) (certificatesmanagement.ListCertificatesResponse, error)
 	ScheduleCertificateDeletion(ctx context.Context, request certificatesmanagement.ScheduleCertificateDeletionRequest) (certificatesmanagement.ScheduleCertificateDeletionResponse, error)
@@ -30,6 +31,11 @@ func NewCertificateManagementClient(managementClient *certificatesmanagement.Cer
 func (client CertificateManagementClient) CreateCertificate(ctx context.Context,
 	request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
 	return client.managementClient.CreateCertificate(ctx, request)
+}
+
+func (client CertificateManagementClient) UpdateCertificate(ctx context.Context,
+	request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error) {
+	return client.managementClient.UpdateCertificate(ctx, request)
 }
 
 func (client CertificateManagementClient) GetCertificate(ctx context.Context,
