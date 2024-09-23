@@ -14,7 +14,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -113,6 +112,10 @@ func UpdateImportedTypeCertificate(certificateId *string, caCertificatesChain *s
 	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
 
 	_, etag, err := GetCertificate(certificateId, certificatesClient)
+
+	if err != nil {
+		return nil, err
+	}
 
 	configDetails := certificatesmanagement.UpdateCertificateByImportingConfigDetails{
 		CertChainPem:   caCertificatesChain,
@@ -259,13 +262,12 @@ type TLSSecretData struct {
 }
 
 func HashTLSSecretData(tlsData *TLSSecretData) (*string, error) {
-	data, err := json.Marshal(*tlsData)
-	if err != nil {
-		return nil, err
-	}
-
 	hash := sha256.New()
-	hash.Write(data)
+	ca := ""
+	if tlsData.CaCertificateChain != nil {
+		ca = *tlsData.CaCertificateChain
+	}
+	hash.Write([]byte(ca + *tlsData.PrivateKey + *tlsData.ServerCertificate))
 	hashString := hex.EncodeToString(hash.Sum(nil))
 
 	return &hashString, nil
@@ -447,14 +449,14 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 			return nil, err
 		}
 		certificateHash := GetCertificateHash(certificate)
-		if certificateHash == nil || tlsHash != certificateHash {
-			klog.V(2).InfoS("listener certificate differs from the one in Kubernetes", "listener", listener.Name)
+		if certificateHash == nil || *tlsHash != *certificateHash {
+			klog.V(2).InfoS("listener certificate differs from the one in Kubernetes", "listener", *listener.Name)
 			tlsSecretDiffers = true
 		}
 	}
 
 	if createCertificate || tlsSecretDiffers {
-		klog.V(2).InfoS("getting certificate listener", "listener", listener.Name)
+		klog.V(2).InfoS("getting certificate listener", "listener", *listener.Name)
 		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, client)
 		if err != nil {
 			return nil, err
@@ -485,8 +487,8 @@ func CreateOrGetCertificateForListener(namespace string, secretName string, comp
 		return nil, err
 	}
 
-	certificateId := certificate.Id
-	if certificateId == nil {
+	var certificateId *string
+	if certificate == nil {
 		createCertificate, err := CreateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
 			tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
 		if err != nil {
@@ -494,14 +496,15 @@ func CreateOrGetCertificateForListener(namespace string, secretName string, comp
 		}
 		certificateId = createCertificate.Id
 	} else {
+		certificateId = certificate.Id
 		certificateHash := GetCertificateSummaryHash(certificate)
-		if certificateHash == nil || tlsHash != certificateHash {
-			updateCertificate, err := UpdateImportedTypeCertificate(certificateId, tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
+		if certificateHash == nil || *tlsHash != *certificateHash {
+			klog.Infof("Certificate hash differs, updating the certificate. Certificate hash is: '%s' and Secret hash is '%s'", *certificateHash, *tlsHash)
+			_, err := UpdateImportedTypeCertificate(certificateId, tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
 				tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
 			if err != nil {
 				return nil, err
 			}
-			certificateId = updateCertificate.Id
 		}
 	}
 	return certificateId, nil

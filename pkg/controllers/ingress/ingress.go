@@ -114,7 +114,6 @@ func (c *Controller) enqueueIngress(ingress *networkingv1.Ingress) {
 
 func (c *Controller) secretAdd(obj interface{}) {
 	secret := obj.(*corev1.Secret)
-	klog.V(4).InfoS("Adding secret", "ingress", klog.KObj(secret))
 	ingresses, err := c.ingressLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("Error listing ingresses: %v", err)
@@ -133,7 +132,6 @@ func (c *Controller) secretAdd(obj interface{}) {
 
 func (c *Controller) secretUpdate(old, new interface{}) {
 	secret := new.(*corev1.Secret)
-	klog.V(4).InfoS("Updating secret", "ingress", klog.KObj(secret))
 	ingresses, err := c.ingressLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("Error listing ingresses: %v", err)
@@ -573,6 +571,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 
 		if sslConfig != nil {
 			if !reflect.DeepEqual(listener.SslConfiguration.CertificateIds, sslConfig.CertificateIds) {
+				klog.Infof("SSL config of LB is %s", util.PrettyPrint(listener.SslConfiguration))
 				klog.Infof("SSL config for listener update is %s", util.PrettyPrint(sslConfig))
 				needsUpdate = true
 			}
