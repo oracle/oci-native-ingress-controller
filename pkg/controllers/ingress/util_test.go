@@ -289,16 +289,16 @@ func TestGetCertificate(t *testing.T) {
 	certId := "id"
 	certId2 := "id2"
 
-	certificate, err := GetCertificate(&certId, mockClient.GetCertClient())
+	certificate, _, err := GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
 	// cache fetch
-	certificate, err = GetCertificate(&certId, mockClient.GetCertClient())
+	certificate, _, err = GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
-	certificate, err = GetCertificate(&certId2, mockClient.GetCertClient())
+	certificate, _, err = GetCertificate(&certId2, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 }

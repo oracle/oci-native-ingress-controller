@@ -38,7 +38,7 @@ func TestCertificatesClient_Cache(t *testing.T) {
 		OpcRetryToken:            nil,
 		RequestMetadata:          common.RequestMetadata{},
 	}
-	cert, err := client.CreateCertificate(context.TODO(), request)
+	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -54,7 +54,7 @@ func TestCertificatesClient_CreateCertificate(t *testing.T) {
 		OpcRetryToken:            nil,
 		RequestMetadata:          common.RequestMetadata{},
 	}
-	cert, err := client.CreateCertificate(context.TODO(), request)
+	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -84,7 +84,7 @@ func TestCertificatesClient_GetCertificate(t *testing.T) {
 		OpcRequestId:    nil,
 		RequestMetadata: common.RequestMetadata{},
 	}
-	cert, err := client.GetCertificate(context.TODO(), request)
+	cert, _, err := client.GetCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -216,6 +216,10 @@ type MockCertificateManagerClient struct {
 
 func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
 	return certificatesmanagement.CreateCertificateResponse{}, nil
+}
+
+func (m MockCertificateManagerClient) UpdateCertificate(ctx context.Context, request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error) {
+	return certificatesmanagement.UpdateCertificateResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error) {

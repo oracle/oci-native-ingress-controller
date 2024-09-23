@@ -13,9 +13,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 	"reflect"
 	"time"
+
+	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,7 +28,9 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	"k8s.io/apimachinery/pkg/labels"
 
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +68,7 @@ type Controller struct {
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
-	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister,
+	saInformer coreinformers.ServiceAccountInformer, secretInformer coreinformers.SecretInformer, serviceLister corelisters.ServiceLister,
 	client *client.ClientProvider,
 	reg *prometheus.Registry) *Controller {
 
@@ -90,6 +93,13 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		},
 	)
 
+	secretInformer.Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc:    c.secretAdd,
+			UpdateFunc: c.secretUpdate,
+		},
+	)
+
 	return c
 }
 
@@ -100,6 +110,44 @@ func (c *Controller) enqueueIngress(ingress *networkingv1.Ingress) {
 		return
 	}
 	c.queue.Add(key)
+}
+
+func (c *Controller) secretAdd(obj interface{}) {
+	secret := obj.(*corev1.Secret)
+	klog.V(4).InfoS("Adding secret", "ingress", klog.KObj(secret))
+	ingresses, err := c.ingressLister.List(labels.Everything())
+	if err != nil {
+		klog.Errorf("Error listing ingresses: %v", err)
+		return
+	}
+
+	for _, ingress := range ingresses {
+		for _, tls := range ingress.Spec.TLS {
+			if tls.SecretName == secret.Name {
+				klog.V(4).InfoS("Matching secret found for ingress", "ingress", klog.KObj(ingress), "secret", secret.Name)
+				c.enqueueIngress(ingress)
+			}
+		}
+	}
+}
+
+func (c *Controller) secretUpdate(old, new interface{}) {
+	secret := new.(*corev1.Secret)
+	klog.V(4).InfoS("Updating secret", "ingress", klog.KObj(secret))
+	ingresses, err := c.ingressLister.List(labels.Everything())
+	if err != nil {
+		klog.Errorf("Error listing ingresses: %v", err)
+		return
+	}
+
+	for _, ingress := range ingresses {
+		for _, tls := range ingress.Spec.TLS {
+			if tls.SecretName == secret.Name {
+				klog.V(4).InfoS("Matching secret found for ingress", "ingress", klog.KObj(ingress), "secret", secret.Name)
+				c.enqueueIngress(ingress)
+			}
+		}
+	}
 }
 
 func (c *Controller) ingressAdd(obj interface{}) {
@@ -374,6 +422,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	// Determine listeners... This is based off path ports.
 	actualListenerPorts := sets.NewInt32()
 	for _, listener := range lb.Listeners {
+		klog.V(2).InfoS("syncing listener for ingress", "ingress", klog.KObj(ingress), "port", int32(*listener.Port))
 		actualListenerPorts.Insert(int32(*listener.Port))
 
 		err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, c)
@@ -516,6 +565,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
+		klog.V(2).InfoS("getting SSL config for listener", "listener", *listener.Name)
 		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, wrapperClient)
 		if err != nil {
 			return err

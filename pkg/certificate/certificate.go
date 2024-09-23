@@ -42,9 +42,9 @@ func New(managementClient CertificateManagementInterface,
 	}
 }
 
-func (certificatesClient *CertificatesClient) SetCertCache(cert *certificatesmanagement.Certificate) {
+func (certificatesClient *CertificatesClient) SetCertCache(cert *certificatesmanagement.Certificate, etag string) {
 	certificatesClient.certMu.Lock()
-	certificatesClient.CertCache[*cert.Id] = &CertCacheObj{Cert: cert, Age: time.Now()}
+	certificatesClient.CertCache[*cert.Id] = &CertCacheObj{Cert: cert, Age: time.Now(), ETag: etag}
 	certificatesClient.certMu.Unlock()
 }
 
@@ -67,25 +67,25 @@ func (certificatesClient *CertificatesClient) GetFromCaBundleCache(id string) *C
 }
 
 func (certificatesClient *CertificatesClient) CreateCertificate(ctx context.Context,
-	req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	resp, err := certificatesClient.ManagementClient.CreateCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error creating certificate %s, %s ", *req.Name, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.Certificate, nil
+	return &resp.Certificate, *resp.Etag, nil
 }
 
 func (certificatesClient *CertificatesClient) UpdateCertificate(ctx context.Context,
-	req certificatesmanagement.UpdateCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	req certificatesmanagement.UpdateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	resp, err := certificatesClient.ManagementClient.UpdateCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error updating certificate %s, %s ", *req.CertificateId, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.Certificate, nil
+	return &resp.Certificate, *resp.Etag, nil
 }
 
 func (certificatesClient *CertificatesClient) CreateCaBundle(ctx context.Context,
@@ -100,15 +100,15 @@ func (certificatesClient *CertificatesClient) CreateCaBundle(ctx context.Context
 }
 
 func (certificatesClient *CertificatesClient) GetCertificate(ctx context.Context,
-	req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	klog.Infof("Getting certificate for ocid %s ", *req.CertificateId)
 	resp, err := certificatesClient.ManagementClient.GetCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error getting certificate %s, %s ", *req.CertificateId, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.Certificate, nil
+	return &resp.Certificate, *resp.Etag, nil
 }
 
 func (certificatesClient *CertificatesClient) ListCertificates(ctx context.Context,

@@ -59,7 +59,7 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface,
-	serviceInformer v1.ServiceInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, serviceAccountInformer v1.ServiceAccountInformer, c ctrcache.Cache,
+	serviceInformer v1.ServiceInformer, secretInformer v1.SecretInformer, endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, serviceAccountInformer v1.ServiceAccountInformer, c ctrcache.Cache,
 	reg *prometheus.Registry) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
@@ -81,6 +81,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			ingressClassInformer,
 			ingressInformer,
 			serviceAccountInformer,
+			secretInformer,
 			serviceInformer.Lister(),
 			client,
 			reg,
