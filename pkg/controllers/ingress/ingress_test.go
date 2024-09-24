@@ -2,9 +2,10 @@ package ingress
 
 import (
 	"context"
-	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sync"
 	"testing"
+
+	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -14,7 +15,7 @@ import (
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
@@ -29,7 +30,7 @@ const (
 	ingressPathWithFinalizer = "ingressPathWithFinalizer.yaml"
 )
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, coreinformers.SecretInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
 	fakeClient := fakeclientset.NewSimpleClientset()
 	action := "list"
 
@@ -52,10 +53,12 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 
 	saInformer := informerFactory.Core().V1().ServiceAccounts()
 
+	secretInformer := informerFactory.Core().V1().Secrets()
+
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, saInformer, serviceLister, fakeClient
+	return ingressClassInformer, ingressInformer, saInformer, secretInformer, serviceLister, fakeClient
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList) *Controller {
@@ -78,7 +81,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		CaBundleCache:      map[string]*ociclient.CaBundleCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, saInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	ingressClassInformer, ingressInformer, saInformer, secretInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
 	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, certificatesClient, nil)
 	fakeClient := &client.ClientProvider{
 		K8sClient:           k8client,
@@ -86,7 +89,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, fakeClient, nil)
+		ingressInformer, saInformer, secretInformer, serviceLister, fakeClient, nil)
 	return c
 }
 

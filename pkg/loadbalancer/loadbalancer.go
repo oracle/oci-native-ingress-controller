@@ -643,7 +643,7 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 		if sslConfig == nil {
 			return fmt.Errorf("no TLS configuration provided for a HTTP2 listener at port %d", listenerPort)
 		}
-		
+
 		sslConfig.CipherSuiteName = common.String(util.ProtocolHTTP2DefaultCipherSuite)
 	}
 

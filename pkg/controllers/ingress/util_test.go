@@ -289,16 +289,16 @@ func TestGetCertificate(t *testing.T) {
 	certId := "id"
 	certId2 := "id2"
 
-	certificate, err := GetCertificate(&certId, mockClient.GetCertClient())
+	certificate, _, err := GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
 	// cache fetch
-	certificate, err = GetCertificate(&certId, mockClient.GetCertClient())
+	certificate, _, err = GetCertificate(&certId, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 
-	certificate, err = GetCertificate(&certId2, mockClient.GetCertClient())
+	certificate, _, err = GetCertificate(&certId2, mockClient.GetCertClient())
 	Expect(certificate != nil).Should(BeTrue())
 	Expect(err).Should(BeNil())
 }
@@ -413,6 +413,18 @@ type MockCertificateManagerClient struct {
 func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
 	id := "id"
 	return certificatesmanagement.CreateCertificateResponse{
+		RawResponse: nil,
+		Certificate: certificatesmanagement.Certificate{
+			Id: &id,
+		},
+		Etag:         nil,
+		OpcRequestId: &id,
+	}, nil
+}
+
+func (m MockCertificateManagerClient) UpdateCertificate(ctx context.Context, request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error) {
+	id := "id"
+	return certificatesmanagement.UpdateCertificateResponse{
 		RawResponse: nil,
 		Certificate: certificatesmanagement.Certificate{
 			Id: &id,

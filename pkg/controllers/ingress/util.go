@@ -11,7 +11,9 @@ package ingress
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -59,7 +61,23 @@ func compareHttpHealthCheckerAttributes(healthCheckerDetails *ociloadbalancer.He
 
 // SSL UTILS
 
-func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, compartmentId string,
+func GetCertificateSummaryHash(certificate *certificatesmanagement.CertificateSummary) *string {
+	hashPtr, ok := certificate.FreeformTags["oci-native-ingress-controller-certificate-hash"]
+	if ok {
+		return &hashPtr
+	}
+	return nil
+}
+
+func GetCertificateHash(certificate *certificatesmanagement.Certificate) *string {
+	hashPtr, ok := certificate.FreeformTags["oci-native-ingress-controller-certificate-hash"]
+	if ok {
+		return &hashPtr
+	}
+	return nil
+}
+
+func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, certificateHash *string, compartmentId string,
 	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
 	configDetails := certificatesmanagement.CreateCertificateByImportingConfigDetails{
 		CertChainPem:   caCertificatesChain,
@@ -71,28 +89,68 @@ func CreateImportedTypeCertificate(caCertificatesChain *string, serverCertificat
 		Name:              &certificateName,
 		CertificateConfig: configDetails,
 		CompartmentId:     &compartmentId,
+		FreeformTags: map[string]string{
+			"oci-native-ingress-controller-certificate-hash": *certificateHash,
+		},
 	}
 	createCertificateRequest := certificatesmanagement.CreateCertificateRequest{
 		CreateCertificateDetails: certificateDetails,
 		OpcRetryToken:            &certificateName,
 	}
 
-	createCertificate, err := certificatesClient.CreateCertificate(context.TODO(), createCertificateRequest)
+	createCertificate, etag, err := certificatesClient.CreateCertificate(context.TODO(), createCertificateRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	certificatesClient.SetCertCache(createCertificate)
+	certificatesClient.SetCertCache(createCertificate, etag)
 	klog.Infof("Created a certificate with ocid %s", *createCertificate.Id)
 	return createCertificate, nil
 }
 
-func GetCertificate(certificateId *string, certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
+func UpdateImportedTypeCertificate(certificateId *string, caCertificatesChain *string, serverCertificate *string, privateKey *string, certificateName string, certificateHash *string, compartmentId string,
+	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, error) {
+
+	_, etag, err := GetCertificate(certificateId, certificatesClient)
+
+	if err != nil {
+		return nil, err
+	}
+
+	configDetails := certificatesmanagement.UpdateCertificateByImportingConfigDetails{
+		CertChainPem:   caCertificatesChain,
+		CertificatePem: serverCertificate,
+		PrivateKeyPem:  privateKey,
+	}
+
+	certificateDetails := certificatesmanagement.UpdateCertificateDetails{
+		CertificateConfig: configDetails,
+		FreeformTags: map[string]string{
+			"oci-native-ingress-controller-certificate-hash": *certificateHash,
+		},
+	}
+	updateCertificateRequest := certificatesmanagement.UpdateCertificateRequest{
+		UpdateCertificateDetails: certificateDetails,
+		IfMatch:                  &etag,
+		CertificateId:            certificateId,
+	}
+
+	updateCertificate, etag, err := certificatesClient.UpdateCertificate(context.TODO(), updateCertificateRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	certificatesClient.SetCertCache(updateCertificate, etag)
+	klog.Infof("Update a certificate with ocid %s", *updateCertificate.Id)
+	return updateCertificate, nil
+}
+
+func GetCertificate(certificateId *string, certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.Certificate, string, error) {
 	certCacheObj := certificatesClient.GetFromCertCache(*certificateId)
 	if certCacheObj != nil {
 		now := time.Now()
 		if now.Sub(certCacheObj.Age).Minutes() < util.CertificateCacheMaxAgeInMinutes {
-			return certCacheObj.Cert, nil
+			return certCacheObj.Cert, certCacheObj.ETag, nil
 		}
 		klog.Infof("Refreshing certificate %s", *certificateId)
 	}
@@ -100,15 +158,15 @@ func GetCertificate(certificateId *string, certificatesClient *certificate.Certi
 		CertificateId: certificateId,
 	}
 
-	cert, err := certificatesClient.GetCertificate(context.TODO(), getCertificateRequest)
+	cert, etag, err := certificatesClient.GetCertificate(context.TODO(), getCertificateRequest)
 	if err == nil {
-		certificatesClient.SetCertCache(cert)
+		certificatesClient.SetCertCache(cert, etag)
 	}
-	return cert, err
+	return cert, etag, err
 }
 
 func FindCertificateWithName(certificateName string, compartmentId string,
-	certificatesClient *certificate.CertificatesClient) (*string, error) {
+	certificatesClient *certificate.CertificatesClient) (*certificatesmanagement.CertificateSummary, error) {
 	listCertificatesRequest := certificatesmanagement.ListCertificatesRequest{
 		Name:           &certificateName,
 		CompartmentId:  &compartmentId,
@@ -125,7 +183,7 @@ func FindCertificateWithName(certificateName string, compartmentId string,
 		numberOfCertificates := len(listCertificates.Items)
 		klog.Infof("Found %d certificates with name %s in compartment %s.", numberOfCertificates, certificateName, compartmentId)
 		if numberOfCertificates > 0 {
-			return listCertificates.Items[0].Id, nil
+			return &listCertificates.Items[0], nil
 		}
 	}
 	klog.Infof("Found no certificates with name %s in compartment %s.", certificateName, compartmentId)
@@ -201,6 +259,18 @@ type TLSSecretData struct {
 	CaCertificateChain *string
 	ServerCertificate  *string
 	PrivateKey         *string
+}
+
+func HashTLSSecretData(tlsData *TLSSecretData) (*string, error) {
+	hash := sha256.New()
+	ca := ""
+	if tlsData.CaCertificateChain != nil {
+		ca = *tlsData.CaCertificateChain
+	}
+	hash.Write([]byte(ca + *tlsData.PrivateKey + *tlsData.ServerCertificate))
+	hashString := hex.EncodeToString(hash.Sum(nil))
+
+	return &hashString, nil
 }
 
 func getTlsSecretContent(namespace string, secretName string, client kubernetes.Interface) (*TLSSecretData, error) {
@@ -294,7 +364,7 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 	}
 
 	if artifactType == state.ArtifactTypeCertificate && artifact != "" {
-		cert, err := GetCertificate(&artifact, client.GetCertClient())
+		cert, _, err := GetCertificate(&artifact, client.GetCertClient())
 		if err != nil {
 			return nil, err
 		}
@@ -342,16 +412,18 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	createCertificate := false
 
 	var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
+	var certificate *certificatesmanagement.Certificate
 
 	if listener != nil && listener.SslConfiguration != nil {
 		currentCertificateId = listener.SslConfiguration.CertificateIds[0]
 		if state.ArtifactTypeCertificate == artifactType && currentCertificateId != artifact {
 			newCertificateId = artifact
 		} else if state.ArtifactTypeSecret == artifactType {
-			cert, err := GetCertificate(&currentCertificateId, client.GetCertClient())
+			cert, _, err := GetCertificate(&currentCertificateId, client.GetCertClient())
 			if err != nil {
 				return nil, err
 			}
+			certificate = cert
 			certificateName := getCertificateNameFromSecret(artifact)
 			if certificateName != "" && *cert.Name != certificateName {
 				createCertificate = true
@@ -366,7 +438,25 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 		}
 	}
 
-	if createCertificate {
+	tlsSecretDiffers := false
+	if state.ArtifactTypeSecret == artifactType {
+		tlsSecretData, err := getTlsSecretContent(namespace, artifact, client.GetK8Client())
+		if err != nil {
+			return nil, err
+		}
+		tlsHash, err := HashTLSSecretData(tlsSecretData)
+		if err != nil {
+			return nil, err
+		}
+		certificateHash := GetCertificateHash(certificate)
+		if certificateHash == nil || *tlsHash != *certificateHash {
+			klog.V(2).InfoS("listener certificate differs from the one in Kubernetes", "listener", *listener.Name)
+			tlsSecretDiffers = true
+		}
+	}
+
+	if createCertificate || tlsSecretDiffers {
+		klog.V(2).InfoS("getting certificate listener", "listener", *listener.Name)
 		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, client)
 		if err != nil {
 			return nil, err
@@ -383,24 +473,39 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 
 func CreateOrGetCertificateForListener(namespace string, secretName string, compartmentId string, client *client.WrapperClient) (*string, error) {
 	certificateName := getCertificateNameFromSecret(secretName)
-	certificateId, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
+	certificate, err := FindCertificateWithName(certificateName, compartmentId, client.GetCertClient())
 	if err != nil {
 		return nil, err
 	}
 
-	if certificateId == nil {
-		tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
-		if err != nil {
-			return nil, err
-		}
+	tlsSecretData, err := getTlsSecretContent(namespace, secretName, client.GetK8Client())
+	if err != nil {
+		return nil, err
+	}
+	tlsHash, err := HashTLSSecretData(tlsSecretData)
+	if err != nil {
+		return nil, err
+	}
 
+	var certificateId *string
+	if certificate == nil {
 		createCertificate, err := CreateImportedTypeCertificate(tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
-			tlsSecretData.PrivateKey, certificateName, compartmentId, client.GetCertClient())
+			tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
 		if err != nil {
 			return nil, err
 		}
-
 		certificateId = createCertificate.Id
+	} else {
+		certificateId = certificate.Id
+		certificateHash := GetCertificateSummaryHash(certificate)
+		if certificateHash == nil || *tlsHash != *certificateHash {
+			klog.Infof("Certificate hash differs, updating the certificate. Certificate hash is: '%s' and Secret hash is '%s'", *certificateHash, *tlsHash)
+			_, err := UpdateImportedTypeCertificate(certificateId, tlsSecretData.CaCertificateChain, tlsSecretData.ServerCertificate,
+				tlsSecretData.PrivateKey, certificateName, tlsHash, compartmentId, client.GetCertClient())
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return certificateId, nil
 }
