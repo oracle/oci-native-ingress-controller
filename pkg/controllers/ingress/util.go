@@ -429,3 +429,17 @@ func CreateOrGetCaBundleForBackendSet(namespace string, secretName string, compa
 func isTrustAuthorityCaBundle(id string) bool {
 	return strings.Contains(id, "cabundle")
 }
+
+func backendSetSslConfigNeedsUpdate(calculatedConfig *ociloadbalancer.SslConfigurationDetails,
+	currentBackendSet *ociloadbalancer.BackendSet) bool {
+	if calculatedConfig == nil && currentBackendSet.SslConfiguration != nil {
+		return true
+	}
+
+	if calculatedConfig != nil && (currentBackendSet.SslConfiguration == nil ||
+		!reflect.DeepEqual(currentBackendSet.SslConfiguration.TrustedCertificateAuthorityIds, calculatedConfig.TrustedCertificateAuthorityIds)) {
+		return true
+	}
+
+	return false
+}

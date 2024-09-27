@@ -522,7 +522,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 		}
 
 		if sslConfig != nil {
-			if !reflect.DeepEqual(listener.SslConfiguration.CertificateIds, sslConfig.CertificateIds) {
+			if listener.SslConfiguration == nil || !reflect.DeepEqual(listener.SslConfiguration.CertificateIds, sslConfig.CertificateIds) {
 				klog.Infof("SSL config for listener update is %s", util.PrettyPrint(sslConfig))
 				needsUpdate = true
 			}
@@ -579,11 +579,10 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 	if err != nil {
 		return err
 	}
-	if sslConfig != nil {
-		if bs.SslConfiguration == nil || !reflect.DeepEqual(bs.SslConfiguration.TrustedCertificateAuthorityIds, sslConfig.TrustedCertificateAuthorityIds) {
-			klog.Infof("SSL config for backend set %s update is %s", *bs.Name, util.PrettyPrint(sslConfig))
-			needsUpdate = true
-		}
+
+	if backendSetSslConfigNeedsUpdate(sslConfig, &bs) {
+		klog.Infof("SSL config for backend set %s update is %s", *bs.Name, util.PrettyPrint(sslConfig))
+		needsUpdate = true
 	}
 
 	healthChecker := stateStore.GetBackendSetHealthChecker(*bs.Name)
@@ -601,7 +600,7 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 	}
 
 	if needsUpdate {
-		err = wrapperClient.GetLbClient().UpdateBackendSet(context.TODO(), lb.Id, etag, bs, nil, sslConfig, healthChecker, &policy)
+		err = wrapperClient.GetLbClient().UpdateBackendSetDetails(context.TODO(), *lb.Id, etag, &bs, sslConfig, healthChecker, policy)
 		if err != nil {
 			return err
 		}
