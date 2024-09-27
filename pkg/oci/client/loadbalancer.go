@@ -11,6 +11,7 @@ type LoadBalancerInterface interface {
 	CreateLoadBalancer(ctx context.Context, request loadbalancer.CreateLoadBalancerRequest) (loadbalancer.CreateLoadBalancerResponse, error)
 	UpdateLoadBalancer(ctx context.Context, request loadbalancer.UpdateLoadBalancerRequest) (response loadbalancer.UpdateLoadBalancerResponse, err error)
 	UpdateLoadBalancerShape(ctx context.Context, request loadbalancer.UpdateLoadBalancerShapeRequest) (response loadbalancer.UpdateLoadBalancerShapeResponse, err error)
+	UpdateNetworkSecurityGroups(ctx context.Context, request loadbalancer.UpdateNetworkSecurityGroupsRequest) (loadbalancer.UpdateNetworkSecurityGroupsResponse, error)
 	DeleteLoadBalancer(ctx context.Context, request loadbalancer.DeleteLoadBalancerRequest) (loadbalancer.DeleteLoadBalancerResponse, error)
 
 	GetWorkRequest(ctx context.Context, request loadbalancer.GetWorkRequestRequest) (loadbalancer.GetWorkRequestResponse, error)
@@ -56,6 +57,10 @@ func (client LBClient) UpdateLoadBalancerShape(ctx context.Context, request load
 
 func (client LBClient) UpdateLoadBalancer(ctx context.Context, request loadbalancer.UpdateLoadBalancerRequest) (response loadbalancer.UpdateLoadBalancerResponse, err error) {
 	return client.lbClient.UpdateLoadBalancer(ctx, request)
+}
+
+func (client LBClient) UpdateNetworkSecurityGroups(ctx context.Context, request loadbalancer.UpdateNetworkSecurityGroupsRequest) (loadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+	return client.lbClient.UpdateNetworkSecurityGroups(ctx, request)
 }
 
 func (client LBClient) DeleteLoadBalancer(ctx context.Context,

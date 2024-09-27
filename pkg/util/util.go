@@ -63,9 +63,10 @@ const (
 	// HTTP, HTTP2, TCP - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
 
-	IngressPolicyAnnotation          = "oci-native-ingress.oraclecloud.com/policy"
-	IngressClassWafPolicyAnnotation  = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
-	IngressClassFireWallIdAnnotation = "oci-native-ingress.oraclecloud.com/firewall-id"
+	IngressPolicyAnnotation                       = "oci-native-ingress.oraclecloud.com/policy"
+	IngressClassWafPolicyAnnotation               = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
+	IngressClassFireWallIdAnnotation              = "oci-native-ingress.oraclecloud.com/firewall-id"
+	IngressClassNetworkSecurityGroupIdsAnnotation = "oci-native-ingress.oraclecloud.com/network-security-group-ids"
 
 	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
 	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
@@ -151,6 +152,23 @@ func GetIngressClassFireWallId(ic *networkingv1.IngressClass) string {
 	}
 
 	return value
+}
+
+func GetIngressClassNetworkSecurityGroupIds(ic *networkingv1.IngressClass) []string {
+	networkSecurityGroupIds := make([]string, 0)
+	value, ok := ic.Annotations[IngressClassNetworkSecurityGroupIdsAnnotation]
+	if !ok {
+		return networkSecurityGroupIds
+	}
+
+	for _, id := range strings.Split(value, ",") {
+		trimmedId := strings.TrimSpace(id)
+		if trimmedId != "" {
+			networkSecurityGroupIds = append(networkSecurityGroupIds, trimmedId)
+		}
+	}
+
+	return networkSecurityGroupIds
 }
 
 func GetIngressProtocol(i *networkingv1.Ingress) string {
@@ -718,4 +736,10 @@ func IsBackendServiceEqual(b1 *networkingv1.IngressBackend, b2 *networkingv1.Ing
 
 func IsIngressProtocolTCP(ingress *networkingv1.Ingress) bool {
 	return GetIngressProtocol(ingress) == ProtocolTCP
+}
+
+// StringSlicesHaveSameElements checks if s1 and s2 have the same elements, ignoring order and duplicates.
+// Returns true if one slice is nil and the other is empty.
+func StringSlicesHaveSameElements(s1 []string, s2 []string) bool {
+	return sets.New(s1...).Equal(sets.New(s2...))
 }
