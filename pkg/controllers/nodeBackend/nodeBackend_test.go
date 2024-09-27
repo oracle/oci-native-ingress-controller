@@ -248,6 +248,10 @@ func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req
 	return ociloadbalancer.UpdateLoadBalancerShapeResponse{}, nil
 }
 
+func (m MockLoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, request ociloadbalancer.UpdateNetworkSecurityGroupsRequest) (ociloadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+	return ociloadbalancer.UpdateNetworkSecurityGroupsResponse{}, nil
+}
+
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
 	res := util.SampleLoadBalancerResponse()
 	return res, nil

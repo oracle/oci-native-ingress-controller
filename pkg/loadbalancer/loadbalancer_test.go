@@ -205,6 +205,21 @@ func TestLoadBalancerClient_UpdateListener(t *testing.T) {
 	Expect(err).To(BeNil())
 }
 
+func TestLoadBalancerClient_UpdateNetworkSecurityGroups(t *testing.T) {
+	RegisterTestingT(t)
+	loadBalancerClient := setupLBClient()
+	req := ociloadbalancer.UpdateNetworkSecurityGroupsRequest{
+		LoadBalancerId: common.String("id"),
+		UpdateNetworkSecurityGroupsDetails: ociloadbalancer.UpdateNetworkSecurityGroupsDetails{
+			NetworkSecurityGroupIds: []string{"id1", "id2"},
+		},
+		OpcRetryToken: common.String("token"),
+	}
+
+	_, err := loadBalancerClient.UpdateNetworkSecurityGroups(context.TODO(), req)
+	Expect(err).To(BeNil())
+}
+
 func setupLBClient() *LoadBalancerClient {
 	lbClient := GetLoadBalancerClient()
 
@@ -229,6 +244,15 @@ func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request 
 
 func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerShapeRequest) (response ociloadbalancer.UpdateLoadBalancerShapeResponse, err error) {
 	return ociloadbalancer.UpdateLoadBalancerShapeResponse{}, nil
+}
+
+func (m MockLoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context,
+	request ociloadbalancer.UpdateNetworkSecurityGroupsRequest) (ociloadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+	return ociloadbalancer.UpdateNetworkSecurityGroupsResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
 }
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {

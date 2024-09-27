@@ -182,8 +182,25 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 			MaxBandwidthMbps: 400,
 		},
 	}
-	err = c.checkForIngressClassParameterUpdates(getContextWithClient(c, ctx), loadBalancer, &ingressClassList.Items[0], &icp)
+	err = c.checkForIngressClassParameterUpdates(getContextWithClient(c, ctx), loadBalancer, &ingressClassList.Items[0], &icp, "etag")
 	Expect(err).Should(BeNil())
+}
+
+func TestCheckForNetworkSecurityGroupsUpdate(t *testing.T) {
+	RegisterTestingT(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassResourceWithAnnotation("ingress-class-with-nsg",
+		map[string]string{
+			util.IngressClassNetworkSecurityGroupIdsAnnotation: "id1,id2,  id3",
+			util.IngressClassLoadBalancerIdAnnotation:          "id",
+		}, "oci.oraclecloud.com/native-ingress-controller")
+	c := inits(ctx, ingressClassList)
+
+	err := c.checkForNetworkSecurityGroupsUpdate(getContextWithClient(c, ctx), &ingressClassList.Items[0])
+	Expect(err).To(BeNil())
 }
 
 func TestDeleteFinalizer(t *testing.T) {
@@ -326,6 +343,15 @@ func (m MockLoadBalancerClient) UpdateLoadBalancer(ctx context.Context, request 
 
 func (m MockLoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, request ociloadbalancer.UpdateLoadBalancerShapeRequest) (response ociloadbalancer.UpdateLoadBalancerShapeResponse, err error) {
 	return ociloadbalancer.UpdateLoadBalancerShapeResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
+}
+
+func (m MockLoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context,
+	request ociloadbalancer.UpdateNetworkSecurityGroupsRequest) (ociloadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+	return ociloadbalancer.UpdateNetworkSecurityGroupsResponse{
 		RawResponse:      nil,
 		OpcWorkRequestId: common.String("id"),
 		OpcRequestId:     common.String("id"),

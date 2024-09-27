@@ -207,33 +207,35 @@ func (c *Controller) sync(key string) error {
 	return nil
 }
 
-func (c *Controller) getLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass) (*ociloadbalancer.LoadBalancer, error) {
+func (c *Controller) getLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass) (*ociloadbalancer.LoadBalancer, string, error) {
 	lbID := util.GetIngressClassLoadBalancerId(ic)
 	if lbID == "" {
-		klog.Errorf("LB id not set for ingressClass: %s", ic.Name)
-		return nil, nil // LoadBalancer ID not set, Trigger new LB creation
+		klog.Infof("LB id not set for ingressClass: %s", ic.Name)
+		return nil, "", nil // LoadBalancer ID not set, Trigger new LB creation
 	}
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
-		return nil, fmt.Errorf(util.OciClientNotFoundInContextError)
+		return nil, "", fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	lb, _, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+
+	lb, etag, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
 		klog.Errorf("Error while fetching LB %s for ingressClass: %s, err: %s", lbID, ic.Name, err.Error())
 
 		// Check if Service error 404, then ignore it since LB is not found.
 		svcErr, ok := common.IsServiceError(err)
 		if ok && svcErr.GetHTTPStatusCode() == 404 {
-			return nil, nil // Redirect new LB creation
+			return nil, "", nil // Redirect new LB creation
 		}
-		return nil, err
+		return nil, "", err
 	}
-	return lb, nil
+
+	return lb, etag, nil
 }
 
 func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass) error {
 
-	lb, err := c.getLoadBalancer(ctx, ic)
+	lb, etag, err := c.getLoadBalancer(ctx, ic)
 	if err != nil {
 		return err
 	}
@@ -262,11 +264,12 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 		klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
 
 		createDetails := ociloadbalancer.CreateLoadBalancerDetails{
-			CompartmentId: compartmentId,
-			DisplayName:   common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
-			ShapeName:     common.String("flexible"),
-			SubnetIds:     []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
-			IsPrivate:     common.Bool(icp.Spec.IsPrivate),
+			CompartmentId:           compartmentId,
+			DisplayName:             common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
+			ShapeName:               common.String("flexible"),
+			SubnetIds:               []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
+			IsPrivate:               common.Bool(icp.Spec.IsPrivate),
+			NetworkSecurityGroupIds: util.GetIngressClassNetworkSecurityGroupIds(ic),
 			BackendSets: map[string]ociloadbalancer.BackendSetDetails{
 				util.DefaultBackendSetName: {
 					Policy: common.String("LEAST_CONNECTIONS"),
@@ -300,7 +303,15 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 			return err
 		}
 	} else {
-		c.checkForIngressClassParameterUpdates(ctx, lb, ic, icp)
+		err = c.checkForIngressClassParameterUpdates(ctx, lb, ic, icp, etag)
+		if err != nil {
+			return err
+		}
+
+		err = c.checkForNetworkSecurityGroupsUpdate(ctx, ic)
+		if err != nil {
+			return err
+		}
 	}
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
@@ -342,7 +353,8 @@ func (c *Controller) setupWebApplicationFirewall(ctx context.Context, ic *networ
 	return nil
 }
 
-func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, lb *ociloadbalancer.LoadBalancer, ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters) error {
+func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, lb *ociloadbalancer.LoadBalancer,
+	ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters, etag string) error {
 	// check LoadBalancerName AND  MinBandwidthMbps ,MaxBandwidthMbps
 	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
@@ -377,11 +389,11 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, l
 
 		req := ociloadbalancer.UpdateLoadBalancerShapeRequest{
 			LoadBalancerId: lb.Id,
+			IfMatch:        common.String(etag),
 			UpdateLoadBalancerShapeDetails: ociloadbalancer.UpdateLoadBalancerShapeDetails{
 				ShapeName:    common.String("flexible"),
 				ShapeDetails: shapeDetails,
 			},
-			OpcRetryToken: common.String(fmt.Sprintf("update-lb-shape-%s", ic.UID)),
 		}
 		klog.Infof("Update lb shape request: %s", util.PrettyPrint(req))
 		_, err := wrapperClient.GetLbClient().UpdateLoadBalancerShape(context.Background(), req)
@@ -391,6 +403,41 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, l
 
 	}
 	return nil
+}
+
+func (c *Controller) checkForNetworkSecurityGroupsUpdate(ctx context.Context, ic *networkingv1.IngressClass) error {
+	lb, etag, err := c.getLoadBalancer(ctx, ic)
+	if err != nil {
+		return err
+	}
+
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+
+	nsgIdsFromSpec := util.GetIngressClassNetworkSecurityGroupIds(ic)
+
+	/*
+		Only check if desired and actual slices have the same elements, ignoring order and duplicates
+		We don't check if lb.NetworkSecurityGroupIds is nil since util.StringSlicesHaveSameElements returns true if
+		one argument is nil and the other is empty.
+	*/
+	if util.StringSlicesHaveSameElements(nsgIdsFromSpec, lb.NetworkSecurityGroupIds) {
+		return nil
+	}
+
+	req := ociloadbalancer.UpdateNetworkSecurityGroupsRequest{
+		LoadBalancerId: lb.Id,
+		IfMatch:        common.String(etag),
+		UpdateNetworkSecurityGroupsDetails: ociloadbalancer.UpdateNetworkSecurityGroupsDetails{
+			NetworkSecurityGroupIds: nsgIdsFromSpec,
+		},
+	}
+	klog.Infof("Update lb nsg ids request: %s", util.PrettyPrint(req))
+
+	_, err = wrapperClient.GetLbClient().UpdateNetworkSecurityGroups(context.Background(), req)
+	return err
 }
 
 func (c *Controller) deleteIngressClass(ctx context.Context, ic *networkingv1.IngressClass) error {

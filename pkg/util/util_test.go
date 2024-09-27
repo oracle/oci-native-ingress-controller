@@ -149,6 +149,37 @@ func TestGetIngressProtocol(t *testing.T) {
 	Expect(result).Should(Equal(ProtocolHTTP))
 }
 
+func TestGetIngressClassNetworkSecurityGroupIds(t *testing.T) {
+	RegisterTestingT(t)
+
+	getIngressClassWithNsgAnnotation := func(annotation string) *networkingv1.IngressClass {
+		return &networkingv1.IngressClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{IngressClassNetworkSecurityGroupIdsAnnotation: annotation},
+			},
+		}
+	}
+
+	ingressClassWithNoAnnotation := &networkingv1.IngressClass{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+	}
+	ingressClassWithZeroNsg := getIngressClassWithNsgAnnotation("")
+	ingressClassWithOneNsg := getIngressClassWithNsgAnnotation(" id")
+	ingressClassWithMultipleNsg := getIngressClassWithNsgAnnotation("  id1,  id2,id3,id4  ")
+	ingressClassWithRedundantCommas := getIngressClassWithNsgAnnotation("  id1, , id2,, id3,id4,, ")
+
+	Expect(GetIngressClassNetworkSecurityGroupIds(ingressClassWithNoAnnotation)).
+		Should(Equal([]string{}))
+	Expect(GetIngressClassNetworkSecurityGroupIds(ingressClassWithZeroNsg)).
+		Should(Equal([]string{}))
+	Expect(GetIngressClassNetworkSecurityGroupIds(ingressClassWithOneNsg)).
+		Should(Equal([]string{"id"}))
+	Expect(GetIngressClassNetworkSecurityGroupIds(ingressClassWithMultipleNsg)).
+		Should(Equal([]string{"id1", "id2", "id3", "id4"}))
+	Expect(GetIngressClassNetworkSecurityGroupIds(ingressClassWithRedundantCommas)).
+		Should(Equal([]string{"id1", "id2", "id3", "id4"}))
+}
+
 func TestGetIngressClassLoadBalancerId(t *testing.T) {
 	RegisterTestingT(t)
 	lbId := "lbId"
@@ -757,4 +788,31 @@ func TestIsBackendServiceEqual(t *testing.T) {
 	Expect(IsBackendServiceEqual(b1, b4)).To(BeFalse())
 	Expect(IsBackendServiceEqual(b2, b4)).To(BeFalse())
 	Expect(IsBackendServiceEqual(b3, b4)).To(BeFalse())
+}
+
+func TestStringSlicesHaveSameElements(t *testing.T) {
+	RegisterTestingT(t)
+
+	var nilSlice []string = nil
+	emptySlice := make([]string, 0)
+	exampleSlice := []string{"a", "b", "d"}
+	exampleSliceGroup := [][]string{{"a", "b", "c"}, {"a", "c", "b"}, {"c", "b", "a"}, {"a", "b", "a", "c", "c"}}
+
+	Expect(StringSlicesHaveSameElements(nilSlice, nilSlice)).Should(BeTrue())
+	Expect(StringSlicesHaveSameElements(nilSlice, emptySlice)).Should(BeTrue())
+	Expect(StringSlicesHaveSameElements(emptySlice, nilSlice)).Should(BeTrue())
+	Expect(StringSlicesHaveSameElements(emptySlice, emptySlice)).Should(BeTrue())
+
+	Expect(StringSlicesHaveSameElements(nilSlice, exampleSlice)).Should(BeFalse())
+	Expect(StringSlicesHaveSameElements(exampleSlice, emptySlice)).Should(BeFalse())
+
+	for _, val1 := range exampleSliceGroup {
+		for _, val2 := range exampleSliceGroup {
+			Expect(StringSlicesHaveSameElements(val1, val2)).Should(BeTrue())
+		}
+	}
+
+	for _, v := range exampleSliceGroup {
+		Expect(StringSlicesHaveSameElements(v, exampleSlice)).Should(BeFalse())
+	}
 }
