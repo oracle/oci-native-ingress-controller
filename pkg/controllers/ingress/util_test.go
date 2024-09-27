@@ -367,6 +367,34 @@ intermediatecert
 	Expect(err).To(HaveOccurred())
 }
 
+func TestBackendSetSslConfigNeedsUpdate(t *testing.T) {
+	RegisterTestingT(t)
+
+	caBundleId1 := []string{"caCert1"}
+	caBundleId2 := []string{"caCert2"}
+
+	backendSetWithNilSslConfig := &ociloadbalancer.BackendSet{}
+	presentBackendSet1 := &ociloadbalancer.BackendSet{
+		SslConfiguration: &ociloadbalancer.SslConfiguration{
+			TrustedCertificateAuthorityIds: caBundleId1,
+		},
+	}
+	presentBackendSet2 := &ociloadbalancer.BackendSet{
+		SslConfiguration: &ociloadbalancer.SslConfiguration{
+			TrustedCertificateAuthorityIds: caBundleId2,
+		},
+	}
+	calculatedConfig1 := &ociloadbalancer.SslConfigurationDetails{
+		TrustedCertificateAuthorityIds: caBundleId1,
+	}
+
+	Expect(backendSetSslConfigNeedsUpdate(nil, backendSetWithNilSslConfig)).To(BeFalse())
+	Expect(backendSetSslConfigNeedsUpdate(nil, presentBackendSet1)).To(BeTrue())
+	Expect(backendSetSslConfigNeedsUpdate(calculatedConfig1, presentBackendSet1)).To(BeFalse())
+	Expect(backendSetSslConfigNeedsUpdate(calculatedConfig1, presentBackendSet2)).To(BeTrue())
+	Expect(backendSetSslConfigNeedsUpdate(calculatedConfig1, backendSetWithNilSslConfig)).To(BeTrue())
+}
+
 func generateTestCertsAndKey() (string, string, string) {
 	caCert := &x509.Certificate{
 		SerialNumber: big.NewInt(1),

@@ -119,6 +119,26 @@ func TestLoadBalancerClient_UpdateBackends(t *testing.T) {
 
 }
 
+func TestLoadBalancerClient_UpdateBackendSetDetails(t *testing.T) {
+	RegisterTestingT(t)
+	loadBalancerClient := setupLBClient()
+
+	lbId := "id"
+	etag := "etag"
+	policy := "policy"
+	bsName := util.GenerateBackendSetName("default", "testecho1", 80)
+
+	lb := util.SampleLoadBalancerResponse()
+	sslConfigDetails := ociloadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: []string{"trusted-cert"}}
+	healthCheckerDetails := ociloadbalancer.HealthCheckerDetails{}
+
+	bs := lb.BackendSets[bsName]
+
+	err := loadBalancerClient.UpdateBackendSetDetails(context.TODO(), lbId, etag, &bs, &sslConfigDetails,
+		&healthCheckerDetails, policy)
+	Expect(err).To(BeNil())
+}
+
 func TestLoadBalancerClient_DeleteBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()

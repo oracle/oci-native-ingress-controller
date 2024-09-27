@@ -451,6 +451,7 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 	return err
 }
 
+// UpdateBackends updates Backends for backendSetName, while preserving sslConfig, policy, and healthChecker details
 func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, backendSetName string, backends []loadbalancer.BackendDetails) error {
 	lb, etag, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
@@ -477,56 +478,60 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 		return nil
 	}
 
-	return lbc.UpdateBackendSet(ctx, lb.Id, etag, backendSet, backends, nil, nil, nil)
+	var sslConfig *loadbalancer.SslConfigurationDetails
+	if backendSet.SslConfiguration != nil {
+		sslConfig = &loadbalancer.SslConfigurationDetails{
+			TrustedCertificateAuthorityIds: backendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+		}
+	}
+
+	healthCheckerDetails := &loadbalancer.HealthCheckerDetails{
+		Protocol:          backendSet.HealthChecker.Protocol,
+		UrlPath:           backendSet.HealthChecker.UrlPath,
+		Port:              backendSet.HealthChecker.Port,
+		ReturnCode:        backendSet.HealthChecker.ReturnCode,
+		Retries:           backendSet.HealthChecker.Retries,
+		TimeoutInMillis:   backendSet.HealthChecker.TimeoutInMillis,
+		IntervalInMillis:  backendSet.HealthChecker.IntervalInMillis,
+		ResponseBodyRegex: backendSet.HealthChecker.ResponseBodyRegex,
+		IsForcePlainText:  backendSet.HealthChecker.IsForcePlainText,
+	}
+
+	policy := *backendSet.Policy
+
+	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends)
 }
 
-func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID *string, etag string, backendSet loadbalancer.BackendSet,
-	backends []loadbalancer.BackendDetails, sslConfig *loadbalancer.SslConfigurationDetails,
-	healthCheckerDetails *loadbalancer.HealthCheckerDetails, policy *string) error {
+// UpdateBackendSetDetails updates sslConfig, policy, and healthChecker details for backendSet, while preserving individual backends
+func (lbc *LoadBalancerClient) UpdateBackendSetDetails(ctx context.Context, lbID string, etag string,
+	backendSet *loadbalancer.BackendSet, sslConfig *loadbalancer.SslConfigurationDetails,
+	healthCheckerDetails *loadbalancer.HealthCheckerDetails, policy string) error {
 
-	if backends == nil {
-		backends = make([]loadbalancer.BackendDetails, len(backendSet.Backends))
-		for i := range backendSet.Backends {
-			backend := backendSet.Backends[i]
-			backends[i] = loadbalancer.BackendDetails{
-				IpAddress: backend.IpAddress,
-				Port:      backend.Port,
-				Weight:    backend.Weight,
-				Drain:     backend.Drain,
-				Backup:    backend.Backup,
-				Offline:   backend.Offline,
-			}
-		}
-	}
-	if sslConfig == nil && backendSet.SslConfiguration != nil {
-		sslConfig = &loadbalancer.SslConfigurationDetails{TrustedCertificateAuthorityIds: backendSet.SslConfiguration.TrustedCertificateAuthorityIds}
-	}
-
-	if healthCheckerDetails == nil {
-		healthChecker := backendSet.HealthChecker
-		healthCheckerDetails = &loadbalancer.HealthCheckerDetails{
-			Protocol:          healthChecker.Protocol,
-			UrlPath:           healthChecker.UrlPath,
-			Port:              healthChecker.Port,
-			ReturnCode:        healthChecker.ReturnCode,
-			Retries:           healthChecker.Retries,
-			TimeoutInMillis:   healthChecker.TimeoutInMillis,
-			IntervalInMillis:  healthChecker.IntervalInMillis,
-			ResponseBodyRegex: healthChecker.ResponseBodyRegex,
-			IsForcePlainText:  healthChecker.IsForcePlainText,
+	backends := make([]loadbalancer.BackendDetails, len(backendSet.Backends))
+	for i := range backendSet.Backends {
+		backend := backendSet.Backends[i]
+		backends[i] = loadbalancer.BackendDetails{
+			IpAddress: backend.IpAddress,
+			Port:      backend.Port,
+			Weight:    backend.Weight,
+			Drain:     backend.Drain,
+			Backup:    backend.Backup,
+			Offline:   backend.Offline,
 		}
 	}
 
-	if policy == nil {
-		policy = backendSet.Policy
-	}
+	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends)
+}
 
+func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID string, etag string, backendSetName string,
+	policy string, healthCheckerDetails *loadbalancer.HealthCheckerDetails, sslConfig *loadbalancer.SslConfigurationDetails,
+	backends []loadbalancer.BackendDetails) error {
 	updateBackendSetRequest := loadbalancer.UpdateBackendSetRequest{
 		IfMatch:        common.String(etag),
-		LoadBalancerId: lbID,
-		BackendSetName: common.String(*backendSet.Name),
+		LoadBalancerId: common.String(lbID),
+		BackendSetName: common.String(backendSetName),
 		UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
-			Policy:           policy,
+			Policy:           common.String(policy),
 			HealthChecker:    healthCheckerDetails,
 			SslConfiguration: sslConfig,
 			Backends:         backends,
@@ -539,7 +544,8 @@ func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID *strin
 		return err
 	}
 
-	klog.Infof("Update backend set response: name: %s, work request id: %s, opc request id: %s.", *backendSet.Name, *resp.OpcWorkRequestId, *resp.OpcRequestId)
+	klog.Infof("Update backend set response: name: %s, work request id: %s, opc request id: %s.",
+		*updateBackendSetRequest.BackendSetName, *resp.OpcWorkRequestId, *resp.OpcRequestId)
 	_, err = lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
 	return err
 }
@@ -643,7 +649,7 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 		if sslConfig == nil {
 			return fmt.Errorf("no TLS configuration provided for a HTTP2 listener at port %d", listenerPort)
 		}
-		
+
 		sslConfig.CipherSuiteName = common.String(util.ProtocolHTTP2DefaultCipherSuite)
 	}
 
