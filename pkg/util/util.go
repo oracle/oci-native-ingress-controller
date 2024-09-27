@@ -67,6 +67,7 @@ const (
 	IngressClassWafPolicyAnnotation               = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
 	IngressClassFireWallIdAnnotation              = "oci-native-ingress.oraclecloud.com/firewall-id"
 	IngressClassNetworkSecurityGroupIdsAnnotation = "oci-native-ingress.oraclecloud.com/network-security-group-ids"
+	IngressClassDeleteProtectionEnabledAnnotation = "oci-native-ingress.oraclecloud.com/delete-protection-enabled"
 
 	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
 	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
@@ -169,6 +170,23 @@ func GetIngressClassNetworkSecurityGroupIds(ic *networkingv1.IngressClass) []str
 	}
 
 	return networkSecurityGroupIds
+}
+
+func GetIngressClassDeleteProtectionEnabled(ic *networkingv1.IngressClass) bool {
+	annotation := IngressClassDeleteProtectionEnabledAnnotation
+	value, ok := ic.Annotations[annotation]
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return false
+	}
+
+	result, err := strconv.ParseBool(value)
+	if err != nil {
+		klog.Errorf("Error parsing value %s for flag %s as boolean. Setting the default value as 'false'", value, annotation)
+		return false
+	}
+
+	return result
 }
 
 func GetIngressProtocol(i *networkingv1.Ingress) string {

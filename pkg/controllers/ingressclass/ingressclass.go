@@ -406,7 +406,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, l
 }
 
 func (c *Controller) checkForNetworkSecurityGroupsUpdate(ctx context.Context, ic *networkingv1.IngressClass) error {
-	lb, etag, err := c.getLoadBalancer(ctx, ic)
+	lb, _, err := c.getLoadBalancer(ctx, ic)
 	if err != nil {
 		return err
 	}
@@ -427,29 +427,66 @@ func (c *Controller) checkForNetworkSecurityGroupsUpdate(ctx context.Context, ic
 		return nil
 	}
 
-	req := ociloadbalancer.UpdateNetworkSecurityGroupsRequest{
-		LoadBalancerId: lb.Id,
-		IfMatch:        common.String(etag),
-		UpdateNetworkSecurityGroupsDetails: ociloadbalancer.UpdateNetworkSecurityGroupsDetails{
-			NetworkSecurityGroupIds: nsgIdsFromSpec,
-		},
-	}
-	klog.Infof("Update lb nsg ids request: %s", util.PrettyPrint(req))
-
-	_, err = wrapperClient.GetLbClient().UpdateNetworkSecurityGroups(context.Background(), req)
+	_, err = wrapperClient.GetLbClient().UpdateNetworkSecurityGroups(context.Background(), *lb.Id, nsgIdsFromSpec)
 	return err
 }
 
 func (c *Controller) deleteIngressClass(ctx context.Context, ic *networkingv1.IngressClass) error {
+	if util.GetIngressClassDeleteProtectionEnabled(ic) {
+		err := c.clearLoadBalancer(ctx, ic)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := c.deleteLoadBalancer(ctx, ic)
+		if err != nil {
+			return err
+		}
+	}
 
-	err := c.deleteLoadBalancer(ctx, ic)
+	err := c.deleteFinalizer(ctx, ic)
 	if err != nil {
 		return err
 	}
 
-	err = c.deleteFinalizer(ctx, ic)
+	return nil
+}
+
+// clearLoadBalancer clears the default_ingress backend, NSG attachment, and WAF firewall from the LB
+func (c *Controller) clearLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass) error {
+	lb, _, err := c.getLoadBalancer(ctx, ic)
 	if err != nil {
 		return err
+	}
+
+	if lb == nil {
+		klog.Infof("Tried to clear LB for ic %s/%s, but it is deleted", ic.Namespace, ic.Name)
+		return nil
+	}
+
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+
+	fireWallId := util.GetIngressClassFireWallId(ic)
+	if fireWallId != "" {
+		wrapperClient.GetWafClient().DeleteWebAppFirewallWithId(fireWallId)
+	}
+
+	nsgIds := util.GetIngressClassNetworkSecurityGroupIds(ic)
+	if len(nsgIds) > 0 {
+		_, err = wrapperClient.GetLbClient().UpdateNetworkSecurityGroups(context.Background(), *lb.Id, make([]string, 0))
+		if err != nil {
+			klog.Errorf("While clearing LB %s, cannot clear NSG IDs due to %s, will proceed with IngressClass deletion for %s/%s",
+				*lb.Id, err.Error(), ic.Namespace, ic.Name)
+		}
+	}
+
+	err = wrapperClient.GetLbClient().DeleteBackendSet(context.Background(), *lb.Id, util.DefaultBackendSetName)
+	if err != nil {
+		klog.Errorf("While clearing LB %s, cannot clear BackendSet %s due to %s, will proceed with IngressClass deletion for %s/%s",
+			*lb.Id, util.DefaultBackendSetName, err.Error(), ic.Namespace, ic.Name)
 	}
 
 	return nil

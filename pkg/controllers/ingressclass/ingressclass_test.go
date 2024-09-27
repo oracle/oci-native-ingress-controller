@@ -117,6 +117,41 @@ func TestDeleteIngressClass(t *testing.T) {
 	Expect(err).Should(BeNil())
 }
 
+func TestClearLoadBalancerWhenLBFound(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressClassList.Items[0].Annotations[util.IngressClassFireWallIdAnnotation] = "firewallId"
+	ingressClassList.Items[0].Annotations[util.IngressClassNetworkSecurityGroupIdsAnnotation] = "nsgId"
+	c := inits(ctx, ingressClassList)
+	err := c.clearLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
+	Expect(err).Should(BeNil())
+}
+
+func TestClearLoadBalancerWhenLBNotFound(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("notfound")
+	c := inits(ctx, ingressClassList)
+	err := c.clearLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
+	Expect(err).Should(BeNil())
+}
+
+func TestClearLoadBalancerWhenNetworkError(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("networkerror")
+	c := inits(ctx, ingressClassList)
+	err := c.clearLoadBalancer(getContextWithClient(c, ctx), &ingressClassList.Items[0])
+	Expect(err).ShouldNot(BeNil())
+}
+
 func TestDeleteLoadBalancer(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
