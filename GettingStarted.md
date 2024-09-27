@@ -36,6 +36,8 @@ The native ingress controller itself is lightweight process and pushes all the r
     + [Web Firewall Integration](#web-firewall-integration)
     + [Ingress Level HTTP(S) Listener Ports](#ingress-level-https-listener-ports)
     + [TCP Listener Support](#tcp-listener-support)
+    + [Network Security Groups Support](#network-security-groups-support)
+    + [Load Balancer Preservation on `IngressClass` delete](#load-balancer-preservation-on-ingressclass-delete)
   * [Dependency management](#dependency-management)
     + [How to introduce new modules or upgrade existing ones?](#how-to-introduce-new-modules-or-upgrade-existing-ones)
   * [Known Issues](#known-issues)
@@ -50,6 +52,7 @@ Currently supported kubernetes versions are:
 - 1.27
 - 1.28
 - 1.29
+- 1.30
   
 We set up the cluster with either native pod networking or flannel CNI and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
@@ -603,6 +606,38 @@ spec:
                   number: 8081
 ```
 
+### Network Security Groups Support
+Users can use the `IngressClass` resource annotation `oci-native-ingress.oraclecloud.com/network-security-group-ids` to supply
+a comma separated list of Network Security Group OCIDs.
+The supplied NSGs will be associated with the LB associated with the `IngressClass`.
+
+Example:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+ annotations:
+   oci-native-ingress.oraclecloud.com/network-security-group-ids: ocid1.networksecuritygroup.oc1.abc,ocid1.networksecuritygroup.oc1.xyz
+```
+
+### Load Balancer Preservation on `IngressClass` delete
+If you want the Load Balancer associated with an `IngressClass` resource to be preserved after `IngressClass` is deleted,
+set the annotation `oci-native-ingress.oraclecloud.com/delete-protection-enabled` annotation to `"true"`.
+This annotation defaults to `"false"` when not specified or empty.
+
+OCI Native Ingress Controller will aim to leave the LB in a 'blank' state - clear all NSG associated with the LB,
+delete the Web App Firewall associated with the LB if any, and delete the `default_ingress` BackendSet when the `IngressClass` is deleted with this annotation set to true.
+Please note that users should first delete all `Ingress` resources associated with this `IngressClass` first, or orphaned resources like Listeners, BackendSets, etc. will
+still be present on the LB after the `IngressClass` is deleted
+
+Example:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+ annotations:
+   oci-native-ingress.oraclecloud.com/delete-protection-enabled: "true"
+```
 
 ### Dependency management
 Module [vendoring](https://go.dev/ref/mod#vendoring) is used to manage 3d-party modules in the project.

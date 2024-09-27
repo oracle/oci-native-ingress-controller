@@ -208,15 +208,8 @@ func TestLoadBalancerClient_UpdateListener(t *testing.T) {
 func TestLoadBalancerClient_UpdateNetworkSecurityGroups(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
-	req := ociloadbalancer.UpdateNetworkSecurityGroupsRequest{
-		LoadBalancerId: common.String("id"),
-		UpdateNetworkSecurityGroupsDetails: ociloadbalancer.UpdateNetworkSecurityGroupsDetails{
-			NetworkSecurityGroupIds: []string{"id1", "id2"},
-		},
-		OpcRetryToken: common.String("token"),
-	}
 
-	_, err := loadBalancerClient.UpdateNetworkSecurityGroups(context.TODO(), req)
+	_, err := loadBalancerClient.UpdateNetworkSecurityGroups(context.TODO(), "id", []string{"id1", "id2"})
 	Expect(err).To(BeNil())
 }
 

@@ -180,6 +180,32 @@ func TestGetIngressClassNetworkSecurityGroupIds(t *testing.T) {
 		Should(Equal([]string{"id1", "id2", "id3", "id4"}))
 }
 
+func TestGetIngressClassDeleteProtectionEnabled(t *testing.T) {
+	RegisterTestingT(t)
+
+	getIngressClassWithDeleteProtectionEnabledAnnotation := func(annotation string) *networkingv1.IngressClass {
+		return &networkingv1.IngressClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{IngressClassDeleteProtectionEnabledAnnotation: annotation},
+			},
+		}
+	}
+
+	ingressClassWithNoAnnotation := &networkingv1.IngressClass{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+	}
+	ingressClassWithEmptyAnnotation := getIngressClassWithDeleteProtectionEnabledAnnotation("")
+	ingressClassWithProtectionEnabled := getIngressClassWithDeleteProtectionEnabledAnnotation("true")
+	ingressClassWithProtectionDisabled := getIngressClassWithDeleteProtectionEnabledAnnotation("false")
+	ingressClassWithWrongAnnotation := getIngressClassWithDeleteProtectionEnabledAnnotation("n/a")
+
+	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithNoAnnotation)).Should(BeFalse())
+	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithEmptyAnnotation)).Should(BeFalse())
+	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithProtectionEnabled)).Should(BeTrue())
+	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithProtectionDisabled)).Should(BeFalse())
+	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithWrongAnnotation)).Should(BeFalse())
+}
+
 func TestGetIngressClassLoadBalancerId(t *testing.T) {
 	RegisterTestingT(t)
 	lbId := "lbId"

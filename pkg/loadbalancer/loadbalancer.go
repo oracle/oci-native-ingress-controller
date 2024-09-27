@@ -86,7 +86,19 @@ func (lbc *LoadBalancerClient) GetBackendSetHealth(ctx context.Context, lbID str
 	return &resp.BackendSetHealth, nil
 }
 
-func (lbc *LoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, req loadbalancer.UpdateNetworkSecurityGroupsRequest) (loadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+func (lbc *LoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, lbId string, nsgIds []string) (loadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
+	_, etag, err := lbc.GetLoadBalancer(ctx, lbId)
+
+	req := loadbalancer.UpdateNetworkSecurityGroupsRequest{
+		LoadBalancerId: common.String(lbId),
+		IfMatch:        common.String(etag),
+		UpdateNetworkSecurityGroupsDetails: loadbalancer.UpdateNetworkSecurityGroupsDetails{
+			NetworkSecurityGroupIds: nsgIds,
+		},
+	}
+
+	klog.Infof("Update LB NSG IDs request: %s", util.PrettyPrint(req))
+
 	resp, err := lbc.LbClient.UpdateNetworkSecurityGroups(ctx, req)
 	if err != nil {
 		return resp, err
