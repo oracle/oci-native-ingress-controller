@@ -202,11 +202,8 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ingressClassList := util.GetIngressClassList()
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
 	c := inits(ctx, ingressClassList)
-	mockClient, err := c.client.GetClient(&MockConfigGetter{})
-	Expect(err).To(BeNil())
-	loadBalancer, _, _ := mockClient.GetLbClient().GetLoadBalancer(context.TODO(), "id")
 	icp := v1beta1.IngressClassParameters{
 		Spec: v1beta1.IngressClassParametersSpec{
 			CompartmentId:    "",
@@ -217,7 +214,7 @@ func TestCheckForIngressClassParameterUpdates(t *testing.T) {
 			MaxBandwidthMbps: 400,
 		},
 	}
-	err = c.checkForIngressClassParameterUpdates(getContextWithClient(c, ctx), loadBalancer, &ingressClassList.Items[0], &icp, "etag")
+	err := c.checkForIngressClassParameterUpdates(getContextWithClient(c, ctx), &ingressClassList.Items[0], &icp)
 	Expect(err).Should(BeNil())
 }
 

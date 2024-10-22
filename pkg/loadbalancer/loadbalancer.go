@@ -88,6 +88,9 @@ func (lbc *LoadBalancerClient) GetBackendSetHealth(ctx context.Context, lbID str
 
 func (lbc *LoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, lbId string, nsgIds []string) (loadbalancer.UpdateNetworkSecurityGroupsResponse, error) {
 	_, etag, err := lbc.GetLoadBalancer(ctx, lbId)
+	if err != nil {
+		return loadbalancer.UpdateNetworkSecurityGroupsResponse{}, err
+	}
 
 	req := loadbalancer.UpdateNetworkSecurityGroupsRequest{
 		LoadBalancerId: common.String(lbId),
@@ -128,7 +131,24 @@ func (lbc *LoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req 
 	return resp, err
 }
 
-func (lbc *LoadBalancerClient) UpdateLoadBalancer(ctx context.Context, req loadbalancer.UpdateLoadBalancerRequest) (*loadbalancer.LoadBalancer, error) {
+func (lbc *LoadBalancerClient) UpdateLoadBalancer(ctx context.Context, lbId string, displayName string, definedTags map[string]map[string]interface{},
+	freeformTags map[string]string) (*loadbalancer.LoadBalancer, error) {
+	_, etag, err := lbc.GetLoadBalancer(ctx, lbId)
+	if err != nil {
+		return nil, err
+	}
+
+	req := loadbalancer.UpdateLoadBalancerRequest{
+		LoadBalancerId: common.String(lbId),
+		IfMatch:        common.String(etag),
+		UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{
+			DisplayName:  common.String(displayName),
+			DefinedTags:  definedTags,
+			FreeformTags: freeformTags,
+		},
+	}
+
+	klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
 	resp, err := lbc.LbClient.UpdateLoadBalancer(ctx, req)
 	if err != nil {
 		return nil, err

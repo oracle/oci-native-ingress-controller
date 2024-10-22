@@ -206,6 +206,82 @@ func TestGetIngressClassDeleteProtectionEnabled(t *testing.T) {
 	Expect(GetIngressClassDeleteProtectionEnabled(ingressClassWithWrongAnnotation)).Should(BeFalse())
 }
 
+func TestGetIngressClassDefinedTags(t *testing.T) {
+	RegisterTestingT(t)
+
+	getIngressClassWithDefinedTagsAnnotation := func(annotation string) *networkingv1.IngressClass {
+		return &networkingv1.IngressClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{IngressClassDefinedTagsAnnotation: annotation},
+			},
+		}
+	}
+
+	emptyTags := ""
+	sampleTags := `{"n1": {"k1": "v1", "k2": {"ik1": "iv1"}},"n2": {"k3": "v3", "k4": ["a1", "a2"]}}`
+	faultyTags := `{"n1": {"k1"}}`
+
+	emptyTagsResult := map[string]map[string]interface{}{}
+	sampleTagsResult := map[string]map[string]interface{}{
+		"n1": {"k1": "v1", "k2": map[string]interface{}{"ik1": "iv1"}},
+		"n2": {"k3": "v3", "k4": []interface{}{"a1", "a2"}},
+	}
+
+	ingressClassWithNoAnnotation := &networkingv1.IngressClass{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}
+	ingressClassWithEmptyTags := getIngressClassWithDefinedTagsAnnotation(emptyTags)
+	ingressClassWithSampleTags := getIngressClassWithDefinedTagsAnnotation(sampleTags)
+	ingressClassWithFaultyTags := getIngressClassWithDefinedTagsAnnotation(faultyTags)
+
+	verifyGetIngressClassDefinedTags := func(ic *networkingv1.IngressClass, shouldError bool,
+		expectedResult map[string]map[string]interface{}) {
+		res, err := GetIngressClassDefinedTags(ic)
+		Expect(err != nil).To(Equal(shouldError))
+		Expect(res).To(Equal(expectedResult))
+	}
+
+	verifyGetIngressClassDefinedTags(ingressClassWithNoAnnotation, false, emptyTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithEmptyTags, false, emptyTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithSampleTags, false, sampleTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithFaultyTags, true, nil)
+}
+
+func TestGetIngressClassFreeformTags(t *testing.T) {
+	RegisterTestingT(t)
+
+	getIngressClassWithFreeformTagsAnnotation := func(annotation string) *networkingv1.IngressClass {
+		return &networkingv1.IngressClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{IngressClassFreeformTagsAnnotation: annotation},
+			},
+		}
+	}
+
+	emptyTags := ""
+	sampleTags := `{"k1": "v1", "k2": "v2","k3":"v3"}`
+	faultyTags := `{"k1": v1}`
+
+	emptyTagsResult := map[string]string{}
+	sampleTagsResult := map[string]string{
+		"k1": "v1", "k2": "v2", "k3": "v3",
+	}
+
+	ingressClassWithNoAnnotation := &networkingv1.IngressClass{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}
+	ingressClassWithEmptyTags := getIngressClassWithFreeformTagsAnnotation(emptyTags)
+	ingressClassWithSampleTags := getIngressClassWithFreeformTagsAnnotation(sampleTags)
+	ingressClassWithFaultyTags := getIngressClassWithFreeformTagsAnnotation(faultyTags)
+
+	verifyGetIngressClassFreeformTags := func(ic *networkingv1.IngressClass, shouldError bool, expectedResult map[string]string) {
+		res, err := GetIngressClassFreeformTags(ic)
+		Expect(err != nil).To(Equal(shouldError))
+		Expect(res).To(Equal(expectedResult))
+	}
+
+	verifyGetIngressClassFreeformTags(ingressClassWithNoAnnotation, false, emptyTagsResult)
+	verifyGetIngressClassFreeformTags(ingressClassWithEmptyTags, false, emptyTagsResult)
+	verifyGetIngressClassFreeformTags(ingressClassWithSampleTags, false, sampleTagsResult)
+	verifyGetIngressClassFreeformTags(ingressClassWithFaultyTags, true, nil)
+}
+
 func TestGetIngressClassLoadBalancerId(t *testing.T) {
 	RegisterTestingT(t)
 	lbId := "lbId"
