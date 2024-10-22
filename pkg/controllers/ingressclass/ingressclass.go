@@ -14,6 +14,7 @@ import (
 	"fmt"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	"reflect"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -234,8 +235,7 @@ func (c *Controller) getLoadBalancer(ctx context.Context, ic *networkingv1.Ingre
 }
 
 func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass) error {
-
-	lb, etag, err := c.getLoadBalancer(ctx, ic)
+	lb, _, err := c.getLoadBalancer(ctx, ic)
 	if err != nil {
 		return err
 	}
@@ -255,55 +255,13 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 		}
 	}
 
-	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
-	if !ok {
-		return fmt.Errorf(util.OciClientNotFoundInContextError)
-	}
-	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
 	if lb == nil {
-		klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
-
-		createDetails := ociloadbalancer.CreateLoadBalancerDetails{
-			CompartmentId:           compartmentId,
-			DisplayName:             common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
-			ShapeName:               common.String("flexible"),
-			SubnetIds:               []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
-			IsPrivate:               common.Bool(icp.Spec.IsPrivate),
-			NetworkSecurityGroupIds: util.GetIngressClassNetworkSecurityGroupIds(ic),
-			BackendSets: map[string]ociloadbalancer.BackendSetDetails{
-				util.DefaultBackendSetName: {
-					Policy: common.String("LEAST_CONNECTIONS"),
-					HealthChecker: &ociloadbalancer.HealthCheckerDetails{
-						Protocol: common.String("TCP"),
-					},
-				},
-			},
-			FreeformTags: map[string]string{OnicResource: "loadbalancer"},
-		}
-
-		if icp.Spec.ReservedPublicAddressId != "" {
-			createDetails.ReservedIps = []ociloadbalancer.ReservedIp{{Id: common.String(icp.Spec.ReservedPublicAddressId)}}
-		}
-
-		createDetails.ShapeDetails = &ociloadbalancer.ShapeDetails{
-			MinimumBandwidthInMbps: common.Int(icp.Spec.MinBandwidthMbps),
-			MaximumBandwidthInMbps: common.Int(icp.Spec.MaxBandwidthMbps),
-		}
-
-		createLbRequest := ociloadbalancer.CreateLoadBalancerRequest{
-			// Use UID as retry token so multiple requests in 24 hours won't recreate the same LoadBalancer,
-			// but recreate of the IngressClass will trigger an LB within 24 hours.
-			// If you used ingress class name it would disallow creation of more LB's even in different clusters potentially.
-			OpcRetryToken:             common.String(fmt.Sprintf("create-lb-%s", ic.UID)),
-			CreateLoadBalancerDetails: createDetails,
-		}
-		klog.Infof("Create lb request: %s", util.PrettyPrint(createLbRequest))
-		lb, err = wrapperClient.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
+		lb, err = c.createLoadBalancer(ctx, ic, icp)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to create LoadBalancer for IngressClass %s: %w", ic.Name, err)
 		}
 	} else {
-		err = c.checkForIngressClassParameterUpdates(ctx, lb, ic, icp, etag)
+		err = c.checkForIngressClassParameterUpdates(ctx, ic, icp)
 		if err != nil {
 			return err
 		}
@@ -313,6 +271,12 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 			return err
 		}
 	}
+
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
 
 	if *lb.Id != util.GetIngressClassLoadBalancerId(ic) {
 		klog.InfoS("Adding load balancer id to ingress class", "lbId", *lb.Id, "ingressClass", klog.KObj(ic))
@@ -334,6 +298,68 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 	return nil
 }
 
+func (c *Controller) createLoadBalancer(ctx context.Context, ic *networkingv1.IngressClass,
+	icp *v1beta1.IngressClassParameters) (*ociloadbalancer.LoadBalancer, error) {
+	klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
+	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
+	definedTags, err := util.GetIngressClassDefinedTags(ic)
+	if err != nil {
+		return nil, err
+	}
+	freeformTags, err := util.GetIngressClassFreeformTags(ic)
+	if err != nil {
+		return nil, err
+	}
+
+	createDetails := ociloadbalancer.CreateLoadBalancerDetails{
+		CompartmentId:           compartmentId,
+		DisplayName:             common.String(util.GetIngressClassLoadBalancerName(ic, icp)),
+		ShapeName:               common.String("flexible"),
+		SubnetIds:               []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
+		IsPrivate:               common.Bool(icp.Spec.IsPrivate),
+		NetworkSecurityGroupIds: util.GetIngressClassNetworkSecurityGroupIds(ic),
+		BackendSets: map[string]ociloadbalancer.BackendSetDetails{
+			util.DefaultBackendSetName: {
+				Policy: common.String("LEAST_CONNECTIONS"),
+				HealthChecker: &ociloadbalancer.HealthCheckerDetails{
+					Protocol: common.String("TCP"),
+				},
+			},
+		},
+		FreeformTags: freeformTags,
+		DefinedTags:  definedTags,
+	}
+
+	if icp.Spec.ReservedPublicAddressId != "" {
+		createDetails.ReservedIps = []ociloadbalancer.ReservedIp{{Id: common.String(icp.Spec.ReservedPublicAddressId)}}
+	}
+
+	createDetails.ShapeDetails = &ociloadbalancer.ShapeDetails{
+		MinimumBandwidthInMbps: common.Int(icp.Spec.MinBandwidthMbps),
+		MaximumBandwidthInMbps: common.Int(icp.Spec.MaxBandwidthMbps),
+	}
+
+	createLbRequest := ociloadbalancer.CreateLoadBalancerRequest{
+		// Use UID as retry token so multiple requests in 24 hours won't recreate the same LoadBalancer,
+		// but recreate of the IngressClass will trigger an LB within 24 hours.
+		// If you used ingress class name it would disallow creation of more LB's even in different clusters potentially.
+		OpcRetryToken:             common.String(fmt.Sprintf("create-lb-%s", ic.UID)),
+		CreateLoadBalancerDetails: createDetails,
+	}
+	klog.Infof("Create lb request: %s", util.PrettyPrint(createLbRequest))
+
+	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
+	if !ok {
+		return nil, fmt.Errorf(util.OciClientNotFoundInContextError)
+	}
+	lb, err := wrapperClient.GetLbClient().CreateLoadBalancer(context.Background(), createLbRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return lb, nil
+}
+
 func (c *Controller) setupWebApplicationFirewall(ctx context.Context, ic *networkingv1.IngressClass, compartmentId *string, lbId *string) error {
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
@@ -353,33 +379,43 @@ func (c *Controller) setupWebApplicationFirewall(ctx context.Context, ic *networ
 	return nil
 }
 
-func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, lb *ociloadbalancer.LoadBalancer,
-	ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters, etag string) error {
-	// check LoadBalancerName AND  MinBandwidthMbps ,MaxBandwidthMbps
-	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
+func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, ic *networkingv1.IngressClass, icp *v1beta1.IngressClassParameters) error {
+	lb, etag, err := c.getLoadBalancer(ctx, ic)
+	if err != nil {
+		return err
+	}
+
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	if *lb.DisplayName != displayName {
 
-		detail := ociloadbalancer.UpdateLoadBalancerDetails{
-			DisplayName: &displayName,
-		}
-		req := ociloadbalancer.UpdateLoadBalancerRequest{
-			OpcRetryToken:             common.String(fmt.Sprintf("update-lb-detail-%s", ic.UID)),
-			UpdateLoadBalancerDetails: detail,
-			LoadBalancerId:            lb.Id,
-		}
+	// check LoadBalancerName, Defined and Freeform tags
+	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
+	definedTags, err := util.GetIngressClassDefinedTags(ic)
+	if err != nil {
+		return err
+	}
+	freeformTags, err := util.GetIngressClassFreeformTags(ic)
+	if err != nil {
+		return err
+	}
 
-		klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
-		_, err := wrapperClient.GetLbClient().UpdateLoadBalancer(context.Background(), req)
+	if *lb.DisplayName != displayName || !reflect.DeepEqual(lb.DefinedTags, definedTags) || !reflect.DeepEqual(lb.FreeformTags, freeformTags) {
+		_, err = wrapperClient.GetLbClient().UpdateLoadBalancer(context.Background(), *lb.Id, displayName, definedTags, freeformTags)
 		if err != nil {
 			return err
 		}
 
 	}
 
+	// refresh lb, etag information after last call
+	lb, etag, err = c.getLoadBalancer(ctx, ic)
+	if err != nil {
+		return err
+	}
+
+	// check LB Shape
 	if *lb.ShapeDetails.MaximumBandwidthInMbps != icp.Spec.MaxBandwidthMbps ||
 		*lb.ShapeDetails.MinimumBandwidthInMbps != icp.Spec.MinBandwidthMbps {
 		shapeDetails := &ociloadbalancer.ShapeDetails{
@@ -460,7 +496,7 @@ func (c *Controller) clearLoadBalancer(ctx context.Context, ic *networkingv1.Ing
 	}
 
 	if lb == nil {
-		klog.Infof("Tried to clear LB for ic %s/%s, but it is deleted", ic.Namespace, ic.Name)
+		klog.Infof("Tried to clear LB for ic %s, but it is deleted", ic.Name)
 		return nil
 	}
 
@@ -478,15 +514,21 @@ func (c *Controller) clearLoadBalancer(ctx context.Context, ic *networkingv1.Ing
 	if len(nsgIds) > 0 {
 		_, err = wrapperClient.GetLbClient().UpdateNetworkSecurityGroups(context.Background(), *lb.Id, make([]string, 0))
 		if err != nil {
-			klog.Errorf("While clearing LB %s, cannot clear NSG IDs due to %s, will proceed with IngressClass deletion for %s/%s",
-				*lb.Id, err.Error(), ic.Namespace, ic.Name)
+			klog.Errorf("While clearing LB %s, cannot clear NSG IDs due to %s, will proceed with IngressClass deletion for %s",
+				*lb.Id, err.Error(), ic.Name)
 		}
 	}
 
 	err = wrapperClient.GetLbClient().DeleteBackendSet(context.Background(), *lb.Id, util.DefaultBackendSetName)
 	if err != nil {
-		klog.Errorf("While clearing LB %s, cannot clear BackendSet %s due to %s, will proceed with IngressClass deletion for %s/%s",
-			*lb.Id, util.DefaultBackendSetName, err.Error(), ic.Namespace, ic.Name)
+		klog.Errorf("While clearing LB %s, cannot clear BackendSet %s due to %s, will proceed with IngressClass deletion for %s",
+			*lb.Id, util.DefaultBackendSetName, err.Error(), ic.Name)
+	}
+
+	_, err = wrapperClient.GetLbClient().UpdateLoadBalancer(context.Background(), *lb.Id, *lb.DisplayName, map[string]map[string]interface{}{}, map[string]string{})
+	if err != nil {
+		klog.Errorf("While clearing LB %s, cannot clear tags due to %s, will proceed with IngressClass deletion for %s",
+			*lb.Id, err.Error(), ic.Name)
 	}
 
 	return nil

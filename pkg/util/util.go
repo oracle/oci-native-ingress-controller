@@ -68,6 +68,8 @@ const (
 	IngressClassFireWallIdAnnotation              = "oci-native-ingress.oraclecloud.com/firewall-id"
 	IngressClassNetworkSecurityGroupIdsAnnotation = "oci-native-ingress.oraclecloud.com/network-security-group-ids"
 	IngressClassDeleteProtectionEnabledAnnotation = "oci-native-ingress.oraclecloud.com/delete-protection-enabled"
+	IngressClassDefinedTagsAnnotation             = "oci-native-ingress.oraclecloud.com/defined-tags"
+	IngressClassFreeformTagsAnnotation            = "oci-native-ingress.oraclecloud.com/freeform-tags"
 
 	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
 	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
@@ -187,6 +189,44 @@ func GetIngressClassDeleteProtectionEnabled(ic *networkingv1.IngressClass) bool 
 	}
 
 	return result
+}
+
+func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (map[string]map[string]interface{}, error) {
+	annotation := IngressClassDefinedTagsAnnotation
+	value, ok := ic.Annotations[annotation]
+
+	// value of defined tags can only be strings for now, but we will allow anything that fits the type
+	//		specified by LoadBalancer.DefinedTags
+	definedTags := map[string]map[string]interface{}{}
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return definedTags, nil
+	}
+
+	err := json.Unmarshal([]byte(value), &definedTags)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
+	}
+
+	return definedTags, nil
+}
+
+func GetIngressClassFreeformTags(ic *networkingv1.IngressClass) (map[string]string, error) {
+	annotation := IngressClassFreeformTagsAnnotation
+	value, ok := ic.Annotations[annotation]
+
+	freeformTags := map[string]string{}
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return freeformTags, nil
+	}
+
+	err := json.Unmarshal([]byte(value), &freeformTags)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
+	}
+
+	return freeformTags, nil
 }
 
 func GetIngressProtocol(i *networkingv1.Ingress) string {
