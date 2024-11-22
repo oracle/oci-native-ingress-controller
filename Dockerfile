@@ -21,7 +21,7 @@ COPY . ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GO111MODULE=on go build -mod vendor -a -o dist/onic ./main.go
 
 # For Open source
-FROM oraclelinux:7-slim
+FROM oraclelinux:8-slim
 
 LABEL author="OKE Foundations Team"
 
