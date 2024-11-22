@@ -19,6 +19,14 @@ import (
 	"strings"
 )
 
+var (
+	tagVariables = []string{
+		"${iam.principal.name}",
+		"${iam.principal.type}",
+		"${oci.datetime}",
+	}
+)
+
 func isDefinedTagsEqual(dt1, dt2 util.DefinedTagsType) bool {
 	return reflect.DeepEqual(getLowerCaseDefinedTags(dt1), getLowerCaseDefinedTags(dt2))
 }
@@ -59,7 +67,7 @@ func getUpdatedDefinedAndImplicitDefaultTags(actualTags util.DefinedTagsType,
 	klog.Infof("Calculating defined/default tags where actualTags: %+v, suppliedDefinedTags: %+v, implicitDefaultTags: %+v",
 		actualTags, definedTags, defaultTags)
 
-	// Preserve default tags
+	// Preserve default tags if they are present on LB and not overriden in supplied tags
 	lcDefinedTags := getLowerCaseDefinedTags(definedTags)
 	lcDefaultTags := getLowerCaseDefinedTags(defaultTags)
 	for namespace, _ := range actualTags {
@@ -74,10 +82,18 @@ func getUpdatedDefinedAndImplicitDefaultTags(actualTags util.DefinedTagsType,
 
 	// Add supplied defined tags
 	// We use only lower-case (namespace, key) pairs to avoid case-related conflicts
+	// If the supplied tag value has a Tag Variable, and the tag is already present on LB we will not try to update it
+	lcActualTags := getLowerCaseDefinedTags(actualTags)
 	lcUpdatedDefinedTags := getLowerCaseDefinedTags(updatedDefinedTags)
 	for namespace, _ := range lcDefinedTags {
 		for key, value := range lcDefinedTags[namespace] {
-			insertDefinedTag(lcUpdatedDefinedTags, namespace, key, value)
+			if definedTagValueHasTagVariable(value) && containsDefinedTagIgnoreCase(lcActualTags, namespace, key) {
+				klog.Infof("Supplied value of Tag %s.%s has tag-variable(s) and is already present on LB, will not be updated",
+					namespace, key)
+				insertDefinedTag(lcUpdatedDefinedTags, namespace, key, lcActualTags[namespace][key])
+			} else {
+				insertDefinedTag(lcUpdatedDefinedTags, namespace, key, value)
+			}
 		}
 	}
 
@@ -115,6 +131,7 @@ func getLowerCaseDefinedTags(tags util.DefinedTagsType) util.DefinedTagsType {
 	return lowerCaseTags
 }
 
+// Checks if (namespace, key) pair exists in a lower-cased definedTags map, ignore case of (namespace, key)
 func containsDefinedTagIgnoreCase(lowerCaseTags util.DefinedTagsType, namespace string, key string) bool {
 	if lowerCaseTags == nil {
 		return false
@@ -142,4 +159,17 @@ func insertDefinedTag(definedTags util.DefinedTagsType, namespace string, key st
 	}
 
 	definedTags[namespace][key] = value
+}
+
+func definedTagValueHasTagVariable(value interface{}) bool {
+	stringValue, ok := value.(string)
+	if ok {
+		for _, tagVar := range tagVariables {
+			if strings.Contains(stringValue, tagVar) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
