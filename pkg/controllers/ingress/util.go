@@ -274,6 +274,8 @@ func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 			if *caBundle.Name != newCertificateName {
 				klog.Infof("Ca bundle for backend set %s needs update. Old name %s, New name %s", *bs.Name, *caBundle.Name, newCertificateName)
 				createCaBundle = true
+			} else {
+				caBundleId = caBundle.Id
 			}
 		} else {
 			createCaBundle = true
