@@ -43,14 +43,18 @@ spec:
           defaultMode: 420
           secretName: oci-native-ingress-controller-tls
       securityContext:
-        {}
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: oci-native-ingress-controller
           securityContext:
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 1000
           image: "ghcr.io/oracle/oci-native-ingress-controller:v1.3.9"
           imagePullPolicy: Always
           args: 
