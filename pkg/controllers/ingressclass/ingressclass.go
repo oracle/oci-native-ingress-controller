@@ -357,6 +357,13 @@ func (c *Controller) createLoadBalancer(ctx context.Context, ic *networkingv1.In
 		return nil, err
 	}
 
+	defaultTags := getImplicitDefaultTagsForNewLoadBalancer(lb.DefinedTags, definedTags)
+	klog.Infof("Back-filling default tags %+v in LB %s for IC %s", defaultTags, *lb.Id, ic.Name)
+	err = updateImplicitDefaultTagsAnnotation(wrapperClient.GetK8Client(), ic, defaultTags)
+	if err != nil {
+		return nil, fmt.Errorf("unable to update implicit-default-tags for IC %s: %w", ic.Name, err)
+	}
+
 	return lb, nil
 }
 
@@ -392,21 +399,34 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, i
 
 	// check LoadBalancerName, Defined and Freeform tags
 	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
-	definedTags, err := util.GetIngressClassDefinedTags(ic)
+	implicitDefaultTags, err := util.GetIngressClassImplicitDefaultTags(ic)
 	if err != nil {
 		return err
 	}
+
+	definedTags, updatedImplicitDefaultTags, err := getUpdatedDefinedAndImplicitDefaultTags(lb.DefinedTags, ic)
+	if err != nil {
+		return err
+	}
+
 	freeformTags, err := util.GetIngressClassFreeformTags(ic)
 	if err != nil {
 		return err
 	}
 
-	if *lb.DisplayName != displayName || !reflect.DeepEqual(lb.DefinedTags, definedTags) || !reflect.DeepEqual(lb.FreeformTags, freeformTags) {
+	if *lb.DisplayName != displayName || !isDefinedTagsEqual(lb.DefinedTags, definedTags) || !reflect.DeepEqual(lb.FreeformTags, freeformTags) {
 		_, err = wrapperClient.GetLbClient().UpdateLoadBalancer(context.Background(), *lb.Id, displayName, definedTags, freeformTags)
 		if err != nil {
 			return err
 		}
+	}
 
+	if !isDefinedTagsEqual(implicitDefaultTags, updatedImplicitDefaultTags) {
+		klog.Infof("Updating implicit default tags %+v in LB %s for IC %s", updatedImplicitDefaultTags, *lb.Id, ic.Name)
+		err = updateImplicitDefaultTagsAnnotation(wrapperClient.GetK8Client(), ic, updatedImplicitDefaultTags)
+		if err != nil {
+			return err
+		}
 	}
 
 	// refresh lb, etag information after last call

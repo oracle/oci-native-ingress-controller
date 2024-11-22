@@ -70,6 +70,7 @@ const (
 	IngressClassDeleteProtectionEnabledAnnotation = "oci-native-ingress.oraclecloud.com/delete-protection-enabled"
 	IngressClassDefinedTagsAnnotation             = "oci-native-ingress.oraclecloud.com/defined-tags"
 	IngressClassFreeformTagsAnnotation            = "oci-native-ingress.oraclecloud.com/freeform-tags"
+	IngressClassImplicitDefaultTagsAnnotation     = "oci-native-ingress.oraclecloud.com/implicit-default-tags"
 
 	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
 	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
@@ -103,6 +104,8 @@ const (
 	OciClientNotFoundInContextError = "oci client not found in the context"
 	WrapperClient                   = "wrapperClient"
 )
+
+type DefinedTagsType = map[string]map[string]interface{}
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")
 
@@ -191,13 +194,13 @@ func GetIngressClassDeleteProtectionEnabled(ic *networkingv1.IngressClass) bool 
 	return result
 }
 
-func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (map[string]map[string]interface{}, error) {
+func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (DefinedTagsType, error) {
 	annotation := IngressClassDefinedTagsAnnotation
 	value, ok := ic.Annotations[annotation]
 
 	// value of defined tags can only be strings for now, but we will allow anything that fits the type
 	//		specified by LoadBalancer.DefinedTags
-	definedTags := map[string]map[string]interface{}{}
+	definedTags := DefinedTagsType{}
 
 	if !ok || strings.TrimSpace(value) == "" {
 		return definedTags, nil
@@ -209,6 +212,24 @@ func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (map[string]map[s
 	}
 
 	return definedTags, nil
+}
+
+func GetIngressClassImplicitDefaultTags(ic *networkingv1.IngressClass) (DefinedTagsType, error) {
+	annotation := IngressClassImplicitDefaultTagsAnnotation
+	value, ok := ic.Annotations[annotation]
+
+	defaultTags := DefinedTagsType{}
+
+	if !ok || strings.TrimSpace(value) == "" {
+		return defaultTags, nil
+	}
+
+	err := json.Unmarshal([]byte(value), &defaultTags)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
+	}
+
+	return defaultTags, nil
 }
 
 func GetIngressClassFreeformTags(ic *networkingv1.IngressClass) (map[string]string, error) {
@@ -552,10 +573,16 @@ func GetTimeDifferenceInSeconds(startTime, endTime int64) float64 {
 }
 
 func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networkingv1.IngressClass, annotationName string, annotationValue string) (error, bool) {
+	patchMap := map[string]map[string]map[string]string{
+		"metadata": {"annotations": {annotationName: annotationValue}},
+	}
+	patchBytes, err := json.Marshal(patchMap)
+	if err != nil {
+		return err, true
+	}
 
-	patchBytes := []byte(fmt.Sprintf(`{"metadata":{"annotations":{"%s":"%s"}}}`, annotationName, annotationValue))
-
-	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+	klog.Infof("Will try patching IngressClass %s for annotation %s: %s", ic.Name, annotationName, annotationValue)
+	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		_, err := client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 		return err
 	})
