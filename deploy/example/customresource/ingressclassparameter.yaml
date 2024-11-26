@@ -8,6 +8,7 @@ apiVersion: "ingress.oraclecloud.com/v1beta1"
 kind: IngressClassParameters
 metadata:
   name: ingressparms-cr-test
+  namespace: test
 spec:
   compartmentId: "ocid1.compartment.oc1..aaaaaaaaxaq3szzikh7cb53arlkdgbi4wz4g73qpnuqhdhqckr2d5rvdffya"
   subnetId: "ocid1.subnet.oc1.iad.aaaaaaaauckenasusv5odnc4bqspi77hgnjeo6ydq33hidzadpkjvce7vkpa"

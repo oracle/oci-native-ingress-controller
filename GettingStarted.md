@@ -36,6 +36,10 @@ The native ingress controller itself is lightweight process and pushes all the r
     + [Web Firewall Integration](#web-firewall-integration)
     + [Ingress Level HTTP(S) Listener Ports](#ingress-level-https-listener-ports)
     + [TCP Listener Support](#tcp-listener-support)
+    + [Network Security Groups Support](#network-security-groups-support)
+    + [Tagging Support](#tagging-support)
+      + [Default Tag Support](#default-tag-support)
+    + [Load Balancer Preservation on `IngressClass` delete](#load-balancer-preservation-on-ingressclass-delete)
   * [Dependency management](#dependency-management)
     + [How to introduce new modules or upgrade existing ones?](#how-to-introduce-new-modules-or-upgrade-existing-ones)
   * [Known Issues](#known-issues)
@@ -143,6 +147,7 @@ ALLOW <subject> to read public-ips in tenancy
 ALLOW <subject> to manage floating-ips in tenancy 
 Allow <subject> to manage waf-family in compartment <compartment-id>
 Allow <subject> to read cluster-family in compartment <compartment-id>
+Allow <subject> to use tag-namespaces in tenancy
 
 Policy scope can be broadened to Tenancy or restricted to a particular location as shown below:
 allow <subject> to manage load-balancers in tenancy
@@ -194,6 +199,7 @@ helm install oci-native-ingress-controller helm/oci-native-ingress-controller --
 
 How to upgrade
 
+Note: Use the latest helm chart when upgrading to a newer version
 ```
 helm upgrade oci-native-ingress-controller helm/oci-native-ingress-controller --set "image.repository=<registry image detail>" --set "image.tag=<version>"
 ```
@@ -219,6 +225,10 @@ helm install oci-native-ingress-controller helm/oci-native-ingress-controller
 To uninstall the helm deployment
 ```
 helm uninstall oci-native-ingress-controller
+```
+To upgrade to a newer version, use the latest helm chart and use helm upgrade
+```
+helm upgrade oci-native-ingress-controller helm/oci-native-ingress-controller
 ```
 Execution example:
 ```
@@ -256,6 +266,10 @@ To Delete the deployment:
 kubectl delete -f deploy/manifests/oci-native-ingress-controller/templates  --ignore-not-found=true 
 kubectl delete -f deploy/manifests/oci-native-ingress-controller/crds  --ignore-not-found=true 
 ```
+
+To upgrade:
+
+Use the latest helm chart to re-generate the yamls and apply again for updating the resources.
 
 ### Verification
 We can verify the pod of native ingress controller as follows:
@@ -602,6 +616,69 @@ spec:
                 name: my-second-svc
                 port:
                   number: 8081
+```
+
+### Network Security Groups Support
+Users can use the optional `IngressClass` resource annotation `oci-native-ingress.oraclecloud.com/network-security-group-ids` to supply
+a comma separated list of Network Security Group OCIDs.
+The LB associated with the `IngressClass` will be added to the supplied NSGs.
+
+Example:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+ annotations:
+   oci-native-ingress.oraclecloud.com/network-security-group-ids: ocid1.networksecuritygroup.oc1.abc,ocid1.networksecuritygroup.oc1.xyz
+```
+
+### Tagging Support
+Users can use the following optional `IngressClass` resource annotations to apply defined and freeform tags to LBs managed by OCI NIC.
+The JSON strings should be wrapped in single quotes. They default to `'{}'` if not specified or empty.
+Note that for defined tags, NIC requires a policy that allows it to `use` the tag-namespace supplied.
+Reference for tags - https://docs.oracle.com/en-us/iaas/Content/Tagging/Concepts/taggingoverview.htm
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  annotations:
+    oci-native-ingress.oraclecloud.com/defined-tags: '{"namespace-1": {"key1": "value1", "key2": "value2"}, "namespace-2": {"key1": "value1"}}'
+    oci-native-ingress.oraclecloud.com/freeform-tags: '{"key1": "value1", "key2": "value2"}'
+```
+
+Changing a tag in above annotations will trigger a reconciliation of tags on the LoadBalancer.
+However, if a defined tag value contains any of the [Tag Variables](https://docs.oracle.com/en-us/iaas/Content/Tagging/Tasks/usingtagvariables.htm#Using_Tag_Variables),
+it will only be applied if the tag is not already present on the LoadBalancer.
+
+#### Default Tag Support
+For new LoadBalancers created by NIC version `>= v1.4.0`, [Default Tags](https://docs.oracle.com/en-us/iaas/Content/Tagging/Tasks/managingtagdefaults.htm)
+that are added by LoadBalancer service will be preserved by NIC until they are either:
+1. Removed manually by the user from the LoadBalancer
+2. Added to `oci-native-ingress.oraclecloud.com/defined-tags` annotation on the `IngressClass`, after which NIC will handle them as any other defined tag
+
+Default Tags can be overriden by supplying them as part of `oci-native-ingress.oraclecloud.com/defined-tags` annotation on `IngressClass` creation.
+Note that 'User-Applied' type of default tags must be overriden on creation of `IngressClass`
+
+For LoadBalancers created by NIC version `< v1.4.0`, and for LoadBalancers imported by using `oci-native-ingress.oraclecloud.com/id`,
+default tag support is not available. All tags present on such LoadBalancers must be added to the tag annotations specified above.
+
+### Load Balancer Preservation on `IngressClass` delete
+If you want the Load Balancer associated with an `IngressClass` resource to be preserved after `IngressClass` is deleted,
+set the annotation `oci-native-ingress.oraclecloud.com/delete-protection-enabled` annotation to `"true"`.
+This annotation defaults to `"false"` when not specified or empty.
+
+OCI Native Ingress Controller will aim to leave the LB in a 'blank' state - clear all NSG associations for the LB, clear all tags from the LB,
+delete the Web App Firewall associated with the LB if any, and delete the `default_ingress` BackendSet when the `IngressClass` is deleted with this annotation set to true.
+Please note that users should first delete all `Ingress` resources associated with this `IngressClass` first, or orphaned resources like Listeners, BackendSets, etc. will
+still be present on the LB after the `IngressClass` is deleted
+
+Example:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+ annotations:
+   oci-native-ingress.oraclecloud.com/delete-protection-enabled: "true"
 ```
 
 ### Dependency management
