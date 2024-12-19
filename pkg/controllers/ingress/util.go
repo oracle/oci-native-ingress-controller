@@ -439,7 +439,7 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	}
 
 	tlsSecretDiffers := false
-	if state.ArtifactTypeSecret == artifactType {
+	if !createCertificate && state.ArtifactTypeSecret == artifactType {
 		tlsSecretData, err := getTlsSecretContent(namespace, artifact, client.GetK8Client())
 		if err != nil {
 			return nil, err
@@ -456,7 +456,7 @@ func GetSSLConfigForListener(namespace string, listener *ociloadbalancer.Listene
 	}
 
 	if createCertificate || tlsSecretDiffers {
-		klog.V(2).InfoS("getting certificate listener", "listener", *listener.Name)
+		klog.V(2).InfoS("creating or changing the certificate", "certificate", artifact)
 		cId, err := CreateOrGetCertificateForListener(namespace, artifact, compartmentId, client)
 		if err != nil {
 			return nil, err
