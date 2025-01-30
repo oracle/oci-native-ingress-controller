@@ -828,3 +828,12 @@ func IsIngressProtocolTCP(ingress *networkingv1.Ingress) bool {
 func StringSlicesHaveSameElements(s1 []string, s2 []string) bool {
 	return sets.New(s1...).Equal(sets.New(s2...))
 }
+
+func IsServiceError(err error, statusCode int) bool {
+	svcErr, ok := common.IsServiceError(err)
+	if !ok {
+		return false
+	}
+
+	return svcErr.GetHTTPStatusCode() == statusCode
+}

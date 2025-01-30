@@ -14,7 +14,12 @@ import (
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 )
 
-const ErrorListingCaBundle = "error listing Ca Bundles"
+const (
+	ErrorListingCaBundle = "error listing Ca Bundles"
+	errorMsg             = "no cert found"
+	namespace            = "test"
+	errorImportCert      = "errorImportCert"
+)
 
 func setup() *CertificatesClient {
 	certClient := GetCertClient()
@@ -38,7 +43,7 @@ func TestCertificatesClient_Cache(t *testing.T) {
 		OpcRetryToken:            nil,
 		RequestMetadata:          common.RequestMetadata{},
 	}
-	cert, err := client.CreateCertificate(context.TODO(), request)
+	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -54,7 +59,7 @@ func TestCertificatesClient_CreateCertificate(t *testing.T) {
 		OpcRetryToken:            nil,
 		RequestMetadata:          common.RequestMetadata{},
 	}
-	cert, err := client.CreateCertificate(context.TODO(), request)
+	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -70,7 +75,7 @@ func TestCertificatesClient_CreateCaBundle(t *testing.T) {
 		OpcRetryToken:         nil,
 		RequestMetadata:       common.RequestMetadata{},
 	}
-	cert, err := client.CreateCaBundle(context.TODO(), request)
+	cert, _, err := client.CreateCaBundle(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(cert).Should(Not(BeNil()))
 
@@ -84,8 +89,9 @@ func TestCertificatesClient_GetCertificate(t *testing.T) {
 		OpcRequestId:    nil,
 		RequestMetadata: common.RequestMetadata{},
 	}
-	cert, err := client.GetCertificate(context.TODO(), request)
+	cert, etag, err := client.GetCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
+	Expect(etag).Should(Equal("etag"))
 	Expect(cert).Should(Not(BeNil()))
 
 }
@@ -103,6 +109,61 @@ func TestCertificatesClient_ListCertificates(t *testing.T) {
 	Expect(cert).Should(Not(BeNil()))
 
 }
+
+func TestCertificatesClient_UpdateCertificate(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	request := certificatesmanagement.UpdateCertificateRequest{
+		CertificateId:   common.String("id"),
+		RequestMetadata: common.RequestMetadata{},
+	}
+	cert, _, err := client.UpdateCertificate(context.TODO(), request)
+	Expect(err).Should(BeNil())
+	Expect(cert).Should(Not(BeNil()))
+
+	request.CertificateId = common.String("error")
+	cert, _, err = client.UpdateCertificate(context.TODO(), request)
+	Expect(err).ShouldNot(BeNil())
+	Expect(cert).Should(BeNil())
+}
+
+func TestCertificatesClient_ListCertificateVersions(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	request := certificatesmanagement.ListCertificateVersionsRequest{
+		CertificateId: common.String("id"),
+		SortOrder:     certificatesmanagement.ListCertificateVersionsSortOrderDesc,
+	}
+	certVersionSummary, _, err := client.ListCertificateVersions(context.TODO(), request)
+	Expect(err).Should(BeNil())
+	Expect(certVersionSummary).ShouldNot(BeNil())
+}
+
+func TestCertificatesClient_ScheduleCertificateVersionDeletion(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	request := certificatesmanagement.ScheduleCertificateVersionDeletionRequest{
+		CertificateId:            common.String("id"),
+		CertificateVersionNumber: common.Int64(3),
+	}
+	cert, _, err := client.ScheduleCertificateVersionDeletion(context.TODO(), request)
+	Expect(err).Should(BeNil())
+	Expect(cert).ShouldNot(BeNil())
+}
+
+func TestCertificatesClient_waitForActiveCertificate(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	certificateId := "id"
+	cert, _, err := client.waitForActiveCertificate(context.TODO(), certificateId)
+	Expect(err).Should(BeNil())
+	Expect(cert).ShouldNot(BeNil())
+}
+
 func TestCertificatesClient_GetCaBundle(t *testing.T) {
 	RegisterTestingT(t)
 	client := setup()
@@ -112,8 +173,9 @@ func TestCertificatesClient_GetCaBundle(t *testing.T) {
 		OpcRequestId:    nil,
 		RequestMetadata: common.RequestMetadata{},
 	}
-	caBundle, err := client.GetCaBundle(context.TODO(), request)
+	caBundle, etag, err := client.GetCaBundle(context.TODO(), request)
 	Expect(err).Should(BeNil())
+	Expect(etag).Should(Equal("etag"))
 	Expect(caBundle).Should(Not(BeNil()))
 
 }
@@ -160,6 +222,24 @@ func TestCertificatesClient_ListCaBundles(t *testing.T) {
 
 }
 
+func TestCertificatesClient_UpdateCaBundle(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	request := certificatesmanagement.UpdateCaBundleRequest{
+		CaBundleId:      common.String("id"),
+		RequestMetadata: common.RequestMetadata{},
+	}
+	cert, _, err := client.UpdateCaBundle(context.TODO(), request)
+	Expect(err).Should(BeNil())
+	Expect(cert).Should(Not(BeNil()))
+
+	request.CaBundleId = common.String("error")
+	cert, _, err = client.UpdateCaBundle(context.TODO(), request)
+	Expect(err).ShouldNot(BeNil())
+	Expect(cert).Should(BeNil())
+}
+
 func TestScheduleCertificateDeletion(t *testing.T) {
 	RegisterTestingT(t)
 	client := setup()
@@ -197,6 +277,16 @@ func TestDeleteCaBundle(t *testing.T) {
 	Expect(err).Should(Not(BeNil()))
 }
 
+func TestCertificatesClient_waitForActiveCaBundle(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	certificateId := "id"
+	caBundle, _, err := client.waitForActiveCaBundle(context.TODO(), certificateId)
+	Expect(err).Should(BeNil())
+	Expect(caBundle).ShouldNot(BeNil())
+}
+
 func getDeleteCaBundleRequest(id string) certificatesmanagement.DeleteCaBundleRequest {
 	request := certificatesmanagement.DeleteCaBundleRequest{
 		CaBundleId:      &id,
@@ -215,20 +305,69 @@ type MockCertificateManagerClient struct {
 }
 
 func (m MockCertificateManagerClient) CreateCertificate(ctx context.Context, request certificatesmanagement.CreateCertificateRequest) (certificatesmanagement.CreateCertificateResponse, error) {
-	return certificatesmanagement.CreateCertificateResponse{}, nil
+	id := "id"
+	etag := "etag"
+	return certificatesmanagement.CreateCertificateResponse{
+		RawResponse: nil,
+		Certificate: certificatesmanagement.Certificate{
+			Id: &id,
+		},
+		Etag:         &etag,
+		OpcRequestId: &id,
+	}, nil
 }
 
 func (m MockCertificateManagerClient) GetCertificate(ctx context.Context, request certificatesmanagement.GetCertificateRequest) (certificatesmanagement.GetCertificateResponse, error) {
-	return certificatesmanagement.GetCertificateResponse{}, nil
+
+	if *request.CertificateId == "error" {
+		return certificatesmanagement.GetCertificateResponse{}, errors.New(errorMsg)
+	}
+	id := "id"
+	name := "cert"
+	authorityId := "authId"
+	etag := "etag"
+	var confType certificatesmanagement.CertificateConfigTypeEnum
+	if *request.CertificateId == errorImportCert {
+		name = "error"
+		confType = certificatesmanagement.CertificateConfigTypeImported
+	} else {
+		confType, _ = certificatesmanagement.GetMappingCertificateConfigTypeEnum(*request.CertificateId)
+	}
+	var number int64
+	number = 234
+	certVersionSummary := certificatesmanagement.CertificateVersionSummary{
+		VersionNumber: &number,
+	}
+	return certificatesmanagement.GetCertificateResponse{
+		RawResponse: nil,
+		Certificate: certificatesmanagement.Certificate{
+			Id:                           &id,
+			Name:                         &name,
+			ConfigType:                   confType,
+			IssuerCertificateAuthorityId: &authorityId,
+			CurrentVersion:               &certVersionSummary,
+			LifecycleState:               certificatesmanagement.CertificateLifecycleStateActive,
+		},
+		Etag:         &etag,
+		OpcRequestId: nil,
+	}, nil
 }
 
 func (m MockCertificateManagerClient) ListCertificates(ctx context.Context, request certificatesmanagement.ListCertificatesRequest) (certificatesmanagement.ListCertificatesResponse, error) {
+	id := "id"
 	return certificatesmanagement.ListCertificatesResponse{
 		RawResponse:           nil,
 		CertificateCollection: certificatesmanagement.CertificateCollection{},
-		OpcRequestId:          nil,
-		OpcNextPage:           common.String("next"),
+		OpcRequestId:          &id,
+		OpcNextPage:           &id,
 	}, nil
+}
+
+func (m MockCertificateManagerClient) UpdateCertificate(ctx context.Context, request certificatesmanagement.UpdateCertificateRequest) (certificatesmanagement.UpdateCertificateResponse, error) {
+	if *request.CertificateId == "error" {
+		return certificatesmanagement.UpdateCertificateResponse{}, errors.New("cannot find certificate")
+	}
+	return certificatesmanagement.UpdateCertificateResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) ScheduleCertificateDeletion(ctx context.Context, request certificatesmanagement.ScheduleCertificateDeletionRequest) (certificatesmanagement.ScheduleCertificateDeletionResponse, error) {
@@ -239,21 +378,78 @@ func (m MockCertificateManagerClient) ScheduleCertificateDeletion(ctx context.Co
 	return certificatesmanagement.ScheduleCertificateDeletionResponse{}, err
 }
 
+func (m MockCertificateManagerClient) ListCertificateVersions(ctx context.Context, request certificatesmanagement.ListCertificateVersionsRequest) (certificatesmanagement.ListCertificateVersionsResponse, error) {
+	return certificatesmanagement.ListCertificateVersionsResponse{}, nil
+}
+
+func (m MockCertificateManagerClient) ScheduleCertificateVersionDeletion(ctx context.Context, request certificatesmanagement.ScheduleCertificateVersionDeletionRequest) (certificatesmanagement.ScheduleCertificateVersionDeletionResponse, error) {
+	return certificatesmanagement.ScheduleCertificateVersionDeletionResponse{}, nil
+}
+
 func (m MockCertificateManagerClient) CreateCaBundle(ctx context.Context, request certificatesmanagement.CreateCaBundleRequest) (certificatesmanagement.CreateCaBundleResponse, error) {
-	return certificatesmanagement.CreateCaBundleResponse{}, nil
+	id := "id"
+	etag := "etag"
+	return certificatesmanagement.CreateCaBundleResponse{
+		RawResponse: nil,
+		CaBundle: certificatesmanagement.CaBundle{
+			Id: &id,
+		},
+		Etag:         &etag,
+		OpcRequestId: nil,
+	}, nil
 }
 
 func (m MockCertificateManagerClient) GetCaBundle(ctx context.Context, request certificatesmanagement.GetCaBundleRequest) (certificatesmanagement.GetCaBundleResponse, error) {
-	return certificatesmanagement.GetCaBundleResponse{}, nil
+	id := "id"
+	name := "cabundle"
+	etag := "etag"
+	return certificatesmanagement.GetCaBundleResponse{
+		RawResponse: nil,
+		CaBundle: certificatesmanagement.CaBundle{
+			Id:             &id,
+			Name:           &name,
+			LifecycleState: certificatesmanagement.CaBundleLifecycleStateActive,
+		},
+		OpcRequestId: &id,
+		Etag:         &etag,
+	}, nil
 }
 
 func (m MockCertificateManagerClient) ListCaBundles(ctx context.Context, request certificatesmanagement.ListCaBundlesRequest) (certificatesmanagement.ListCaBundlesResponse, error) {
 
-	if request.LifecycleState == certificatesmanagement.ListCaBundlesLifecycleStateActive {
+	if request.LifecycleState == certificatesmanagement.ListCaBundlesLifecycleStateDeleted {
+		err := errors.New(ErrorListingCaBundle)
+		return certificatesmanagement.ListCaBundlesResponse{}, err
+	}
+
+	if *request.Name == "error" {
 		return certificatesmanagement.ListCaBundlesResponse{}, nil
 	}
-	err := errors.New(ErrorListingCaBundle)
-	return certificatesmanagement.ListCaBundlesResponse{}, err
+
+	var items []certificatesmanagement.CaBundleSummary
+	name := "ic-oci-config"
+	id := "id"
+	item := certificatesmanagement.CaBundleSummary{
+		Id:   &id,
+		Name: &name,
+	}
+	items = append(items, item)
+
+	return certificatesmanagement.ListCaBundlesResponse{
+		RawResponse: nil,
+		CaBundleCollection: certificatesmanagement.CaBundleCollection{
+			Items: items,
+		},
+		OpcRequestId: nil,
+		OpcNextPage:  nil,
+	}, nil
+}
+
+func (m MockCertificateManagerClient) UpdateCaBundle(ctx context.Context, request certificatesmanagement.UpdateCaBundleRequest) (certificatesmanagement.UpdateCaBundleResponse, error) {
+	if *request.CaBundleId == "error" {
+		return certificatesmanagement.UpdateCaBundleResponse{}, errors.New("cannot find ca bundle")
+	}
+	return certificatesmanagement.UpdateCaBundleResponse{}, nil
 }
 
 func (m MockCertificateManagerClient) DeleteCaBundle(ctx context.Context, request certificatesmanagement.DeleteCaBundleRequest) (certificatesmanagement.DeleteCaBundleResponse, error) {

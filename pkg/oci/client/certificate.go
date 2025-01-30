@@ -37,11 +37,13 @@ type CertificateInterface interface {
 type CertCacheObj struct {
 	Cert *certificatesmanagement.Certificate
 	Age  time.Time
+	Etag string
 }
 
 type CaBundleCacheObj struct {
 	CaBundle *certificatesmanagement.CaBundle
 	Age      time.Time
+	Etag     string
 }
 
 type CertificateClient struct {
