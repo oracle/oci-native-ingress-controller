@@ -2,6 +2,7 @@ package ingress
 
 import (
 	"context"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"sync"
 	"testing"
@@ -27,9 +28,10 @@ import (
 const (
 	ingressPath              = "ingressPath.yaml"
 	ingressPathWithFinalizer = "ingressPathWithFinalizer.yaml"
+	ingressPathWithTlsSecret = "ingressPathWithTlsSecret.yaml"
 )
 
-func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, *fakeclientset.Clientset) {
+func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, coreinformers.ServiceAccountInformer, corelisters.ServiceLister, coreinformers.SecretInformer, *fakeclientset.Clientset) {
 	fakeClient := fakeclientset.NewSimpleClientset()
 	action := "list"
 
@@ -50,12 +52,16 @@ func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	serviceInformer := informerFactory.Core().V1().Services()
 	serviceLister := serviceInformer.Lister()
 
+	secretInformer := informerFactory.Core().V1().Secrets()
+	secretInformer.Lister()
+
 	saInformer := informerFactory.Core().V1().ServiceAccounts()
 
 	informerFactory.Start(ctx.Done())
 	cache.WaitForCacheSync(ctx.Done(), ingressClassInformer.Informer().HasSynced)
 	cache.WaitForCacheSync(ctx.Done(), ingressInformer.Informer().HasSynced)
-	return ingressClassInformer, ingressInformer, saInformer, serviceLister, fakeClient
+	cache.WaitForCacheSync(ctx.Done(), secretInformer.Informer().HasSynced)
+	return ingressClassInformer, ingressInformer, saInformer, serviceLister, secretInformer, fakeClient
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList) *Controller {
@@ -78,7 +84,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		CaBundleCache:      map[string]*ociclient.CaBundleCacheObj{},
 	}
 
-	ingressClassInformer, ingressInformer, saInformer, serviceLister, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	ingressClassInformer, ingressInformer, saInformer, serviceLister, secretInformer, k8client := setUp(ctx, ingressClassList, ingressList, testService)
 	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, certificatesClient, nil)
 	fakeClient := &client.ClientProvider{
 		K8sClient:           k8client,
@@ -86,7 +92,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, fakeClient, nil)
+		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil)
 	return c
 }
 
@@ -189,6 +195,42 @@ func TestIngressDelete(t *testing.T) {
 	c := inits(ctx, ingressClassList, ingressList)
 	queueSize := c.queue.Len()
 	c.ingressDelete(&ingressList.Items[0])
+	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+}
+
+func TestSecretAdd(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
+	c := inits(ctx, ingressClassList, ingressList)
+	queueSize := c.queue.Len()
+	c.secretAdd(&v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret"}}, false)
+	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+}
+
+func TestSecretAdd_IsInInitialList(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
+	c := inits(ctx, ingressClassList, ingressList)
+	queueSize := c.queue.Len()
+	c.secretAdd(&v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret"}}, true)
+	Expect(c.queue.Len()).Should(Equal(queueSize))
+}
+
+func TestSecretUpdate(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
+	c := inits(ctx, ingressClassList, ingressList)
+	queueSize := c.queue.Len()
+	c.secretUpdate(nil, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret"}})
 	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
 }
 

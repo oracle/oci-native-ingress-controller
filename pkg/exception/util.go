@@ -34,3 +34,27 @@ func (e *NotFoundServiceError) GetOpcRequestID() string {
 func (e *NotFoundServiceError) Error() string {
 	return "NotFound"
 }
+
+type ConflictServiceError struct {
+	common.ServiceError
+}
+
+func (e *ConflictServiceError) GetHTTPStatusCode() int {
+	return 409
+}
+
+func (e *ConflictServiceError) GetMessage() string {
+	return "Conflict"
+}
+
+func (e *ConflictServiceError) GetCode() string {
+	return "Conflict"
+}
+
+func (e *ConflictServiceError) GetOpcRequestID() string {
+	return "fakeopcrequestid"
+}
+
+func (e *ConflictServiceError) Error() string {
+	return "Conflict"
+}

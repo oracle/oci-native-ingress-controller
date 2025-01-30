@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"reflect"
 	"time"
@@ -56,6 +58,7 @@ type Controller struct {
 	ingressLister      networkinglisters.IngressLister
 	serviceLister      corelisters.ServiceLister
 	saLister           corelisters.ServiceAccountLister
+	secretLister       corelisters.SecretLister
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
 	client             *client.ClientProvider
@@ -65,7 +68,7 @@ type Controller struct {
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
-	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister,
+	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, secretInformer coreinformers.SecretInformer,
 	client *client.ClientProvider,
 	reg *prometheus.Registry) *Controller {
 
@@ -77,6 +80,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		informer:             ingressInformer,
 		serviceLister:        serviceLister,
 		saLister:             saInformer.Lister(),
+		secretLister:         secretInformer.Lister(),
 		client:               client,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 		metricsCollector:     metric.NewIngressCollector(controllerClass, reg),
@@ -87,6 +91,13 @@ func NewController(controllerClass string, defaultCompartmentId string,
 			AddFunc:    c.ingressAdd,
 			UpdateFunc: c.ingressUpdate,
 			DeleteFunc: c.ingressDelete,
+		},
+	)
+
+	secretInformer.Informer().AddEventHandler(
+		cache.ResourceEventHandlerDetailedFuncs{
+			AddFunc:    c.secretAdd,
+			UpdateFunc: c.secretUpdate,
 		},
 	)
 
@@ -142,6 +153,37 @@ func (c *Controller) ingressDelete(obj interface{}) {
 
 	klog.V(4).InfoS("Deleting ingress", "ingress", klog.KObj(ic))
 	c.enqueueIngress(ic)
+}
+
+func (c *Controller) secretAdd(obj interface{}, isInInitialList bool) {
+	if isInInitialList {
+		return
+	}
+	c.secretAddOrUpdate(obj)
+}
+
+func (c *Controller) secretUpdate(old, new interface{}) {
+	c.secretAddOrUpdate(new)
+}
+
+func (c *Controller) secretAddOrUpdate(obj interface{}) {
+	secret := obj.(*corev1.Secret)
+
+	ingresses, err := c.ingressLister.Ingresses(secret.Namespace).List(labels.Everything())
+	if err != nil {
+		klog.Errorf("error listing Ingresses for update of secret %s/%s: %s", secret.Namespace, secret.Name, err)
+		return
+	}
+
+	for _, ingress := range ingresses {
+		for _, tls := range ingress.Spec.TLS {
+			if tls.SecretName == secret.Name {
+				klog.V(4).Infof("updating ingress %s because of secret %s",
+					klog.KObj(ingress), klog.KObj(secret))
+				c.enqueueIngress(ingress)
+			}
+		}
+	}
 }
 
 func (c *Controller) processNextItem() bool {
@@ -354,7 +396,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, wrapperClient)
+		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -389,7 +431,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, wrapperClient)
+		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -516,7 +558,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, wrapperClient)
+		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -575,7 +617,7 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, wrapperClient)
+	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.secretLister, wrapperClient)
 	if err != nil {
 		return err
 	}

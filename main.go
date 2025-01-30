@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"flag"
+	corev1 "k8s.io/api/core/v1"
 	"net/http"
 	"os"
 	"os/signal"
@@ -144,7 +145,12 @@ func main() {
 		}
 	}()
 
-	informerFactory := informers.NewSharedInformerFactory(client, 1*time.Minute)
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(client, 1*time.Minute,
+		informers.WithCustomResyncConfig(
+			map[metav1.Object]time.Duration{
+				&corev1.Secret{}: 0,
+			},
+		))
 
 	// listen for interrupts or the Linux SIGTERM signal and cancel
 	// our context, which the leader election code will observe and
@@ -157,13 +163,13 @@ func main() {
 		cancel()
 	}()
 
-	ingressClassInformer, ingressInformer, serviceInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer := setupInformers(informerFactory, ctx, classParamInformer)
+	ingressClassInformer, ingressInformer, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer := setupInformers(informerFactory, ctx, classParamInformer)
 
 	server.SetupWebhookServer(ingressInformer, serviceInformer, client, ctx)
 	mux := http.NewServeMux()
 	reg, err := server.SetupMetricsServer(opts.MetricsBackend, opts.MetricsPort, mux, ctx)
 
-	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer, c, reg)
+	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer, c, reg)
 
 	metric.ServeMetrics(opts.MetricsPort, mux)
 	// we use the Lease lock type since edits to Leases are less common
@@ -214,7 +220,7 @@ func main() {
 	})
 }
 
-func setupInformers(informerFactory informers.SharedInformerFactory, ctx context.Context, classParamInformer ctrcache.Informer) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, v1.ServiceInformer, v1.EndpointsInformer, v1.PodInformer, v1.NodeInformer, v1.ServiceAccountInformer) {
+func setupInformers(informerFactory informers.SharedInformerFactory, ctx context.Context, classParamInformer ctrcache.Informer) (networkinginformers.IngressClassInformer, networkinginformers.IngressInformer, v1.ServiceInformer, v1.SecretInformer, v1.EndpointsInformer, v1.PodInformer, v1.NodeInformer, v1.ServiceAccountInformer) {
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
 	go ingressClassInformer.Informer().Run(ctx.Done())
 
@@ -223,6 +229,9 @@ func setupInformers(informerFactory informers.SharedInformerFactory, ctx context
 
 	serviceInformer := informerFactory.Core().V1().Services()
 	go serviceInformer.Informer().Run(ctx.Done())
+
+	secretInformer := informerFactory.Core().V1().Secrets()
+	go secretInformer.Informer().Run(ctx.Done())
 
 	endpointInformer := informerFactory.Core().V1().Endpoints()
 	go endpointInformer.Informer().Run(ctx.Done())
@@ -245,6 +254,7 @@ func setupInformers(informerFactory informers.SharedInformerFactory, ctx context
 		ingressClassInformer.Informer().HasSynced,
 		ingressInformer.Informer().HasSynced,
 		serviceInformer.Informer().HasSynced,
+		secretInformer.Informer().HasSynced,
 		endpointInformer.Informer().HasSynced,
 		podInformer.Informer().HasSynced,
 		classParamInformer.HasSynced,
@@ -253,5 +263,5 @@ func setupInformers(informerFactory informers.SharedInformerFactory, ctx context
 
 		klog.Fatal("failed to sync informers")
 	}
-	return ingressClassInformer, ingressInformer, serviceInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer
+	return ingressClassInformer, ingressInformer, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer
 }

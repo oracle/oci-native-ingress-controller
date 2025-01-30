@@ -249,7 +249,7 @@ func (lbc *LoadBalancerClient) createRoutingPolicy(
 	klog.Infof("Creating routing policy with request: %s", util.PrettyPrint(createPolicyRequest))
 	resp, err := lbc.LbClient.CreateRoutingPolicy(ctx, createPolicyRequest)
 
-	if isServiceError(err, 409) {
+	if util.IsServiceError(err, 409) {
 		klog.Infof("Create routing policy operation returned code %d for load balancer %s. Routing policy %s may be already present.", 409, lbID, policyName)
 		return nil
 	}
@@ -276,7 +276,7 @@ func (lbc *LoadBalancerClient) DeleteRoutingPolicy(
 	klog.Infof("Delete routing policy with request %s ", util.PrettyPrint(deleteRoutingPolicyRequest))
 	resp, err := lbc.LbClient.DeleteRoutingPolicy(ctx, deleteRoutingPolicyRequest)
 
-	if isServiceError(err, 404) {
+	if util.IsServiceError(err, 404) {
 		klog.Infof("Delete routing policy operation returned code %d for load balancer %s. Routing policy %s may be already deleted.", 404, lbID, policyName)
 		return nil
 	}
@@ -311,7 +311,7 @@ func (lbc *LoadBalancerClient) DeleteBackendSet(ctx context.Context, lbID string
 
 	klog.Infof("Deleting backend set with request %s", util.PrettyPrint(backendSetDeleteRequest))
 	resp, err := lbc.LbClient.DeleteBackendSet(ctx, backendSetDeleteRequest)
-	if isServiceError(err, 404) {
+	if util.IsServiceError(err, 404) {
 		// it was already deleted so nothing to do.
 		klog.Infof("Delete backend set operation returned code %d for load balancer %s. Backend set %s may be already deleted.", 404, lbID, backendSetName)
 		return nil
@@ -347,7 +347,7 @@ func (lbc *LoadBalancerClient) DeleteListener(ctx context.Context, lbID string, 
 
 	klog.Infof("Deleting listener with request %s", util.PrettyPrint(deleteListenerRequest))
 	resp, err := lbc.LbClient.DeleteListener(ctx, deleteListenerRequest)
-	if isServiceError(err, 404) {
+	if util.IsServiceError(err, 404) {
 		// it was already deleted so nothing to do.
 		klog.Infof("Delete listener operation returned code %d for load balancer %s. Listener %s may be already deleted.", 404, lbID, listenerName)
 		return nil
@@ -394,7 +394,7 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	klog.Infof("Creating backend set with request: %s", util.PrettyPrint(createBackendSetRequest))
 	resp, err := lbc.LbClient.CreateBackendSet(ctx, createBackendSetRequest)
 
-	if isServiceError(err, 409) {
+	if util.IsServiceError(err, 409) {
 		klog.Infof("Create backend set operation returned code %d for load balancer %s. Backend set %s may be already present.", 409, lbID, backendSetName)
 		return nil
 	}
@@ -714,7 +714,7 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 	klog.Infof("Creating listener with request %s", util.PrettyPrint(createListenerRequest))
 	resp, err := lbc.LbClient.CreateListener(ctx, createListenerRequest)
 
-	if isServiceError(err, 409) {
+	if util.IsServiceError(err, 409) {
 		klog.Infof("Create listener operation returned code %d for load balancer %s. Listener %s may be already present.", 409, lbID, listenerName)
 		return nil
 	}
@@ -751,13 +751,4 @@ func (lbc *LoadBalancerClient) waitForWorkRequest(ctx context.Context, workReque
 
 		time.Sleep(10 * time.Second)
 	}
-}
-
-func isServiceError(err error, statusCode int) bool {
-	svcErr, ok := common.IsServiceError(err)
-	if !ok {
-		return false
-	}
-
-	return svcErr.GetHTTPStatusCode() == statusCode
 }

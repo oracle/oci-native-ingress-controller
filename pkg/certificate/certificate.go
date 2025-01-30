@@ -11,6 +11,7 @@ package certificate
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -20,6 +21,10 @@ import (
 	. "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/klog/v2"
+)
+
+const (
+	certificateServiceTimeout = 2 * time.Minute
 )
 
 type CertificatesClient struct {
@@ -42,9 +47,9 @@ func New(managementClient CertificateManagementInterface,
 	}
 }
 
-func (certificatesClient *CertificatesClient) SetCertCache(cert *certificatesmanagement.Certificate) {
+func (certificatesClient *CertificatesClient) SetCertCache(cert *certificatesmanagement.Certificate, etag string) {
 	certificatesClient.certMu.Lock()
-	certificatesClient.CertCache[*cert.Id] = &CertCacheObj{Cert: cert, Age: time.Now()}
+	certificatesClient.CertCache[*cert.Id] = &CertCacheObj{Cert: cert, Age: time.Now(), Etag: etag}
 	certificatesClient.certMu.Unlock()
 }
 
@@ -54,9 +59,9 @@ func (certificatesClient *CertificatesClient) GetFromCertCache(certId string) *C
 	return certificatesClient.CertCache[certId]
 }
 
-func (certificatesClient *CertificatesClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle) {
+func (certificatesClient *CertificatesClient) SetCaBundleCache(caBundle *certificatesmanagement.CaBundle, etag string) {
 	certificatesClient.caMu.Lock()
-	certificatesClient.CaBundleCache[*caBundle.Id] = &CaBundleCacheObj{CaBundle: caBundle, Age: time.Now()}
+	certificatesClient.CaBundleCache[*caBundle.Id] = &CaBundleCacheObj{CaBundle: caBundle, Age: time.Now(), Etag: etag}
 	certificatesClient.caMu.Unlock()
 }
 
@@ -67,37 +72,37 @@ func (certificatesClient *CertificatesClient) GetFromCaBundleCache(id string) *C
 }
 
 func (certificatesClient *CertificatesClient) CreateCertificate(ctx context.Context,
-	req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	resp, err := certificatesClient.ManagementClient.CreateCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error creating certificate %s, %s ", *req.Name, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.Certificate, nil
+	return certificatesClient.waitForActiveCertificate(ctx, *resp.Certificate.Id)
 }
 
 func (certificatesClient *CertificatesClient) CreateCaBundle(ctx context.Context,
-	req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
+	req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, string, error) {
 	resp, err := certificatesClient.ManagementClient.CreateCaBundle(ctx, req)
 	if err != nil {
 		klog.Errorf("Error creating ca bundle %s, %s ", *req.Name, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.CaBundle, nil
+	return certificatesClient.waitForActiveCaBundle(ctx, *resp.CaBundle.Id)
 }
 
 func (certificatesClient *CertificatesClient) GetCertificate(ctx context.Context,
-	req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, error) {
+	req certificatesmanagement.GetCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	klog.Infof("Getting certificate for ocid %s ", *req.CertificateId)
 	resp, err := certificatesClient.ManagementClient.GetCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error getting certificate %s, %s ", *req.CertificateId, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.Certificate, nil
+	return &resp.Certificate, *resp.Etag, nil
 }
 
 func (certificatesClient *CertificatesClient) ListCertificates(ctx context.Context,
@@ -112,6 +117,21 @@ func (certificatesClient *CertificatesClient) ListCertificates(ctx context.Conte
 	return &resp.CertificateCollection, resp.OpcNextPage, nil
 }
 
+func (certificatesClient *CertificatesClient) UpdateCertificate(ctx context.Context,
+	req certificatesmanagement.UpdateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
+	_, err := certificatesClient.ManagementClient.UpdateCertificate(ctx, req)
+	if err != nil {
+		if !util.IsServiceError(err, 409) {
+			klog.Errorf("Error updating certificate %s: %s", *req.CertificateId, err)
+		} else {
+			klog.Errorf("Error updating certificate %s due to 409-Conflict", *req.CertificateId)
+		}
+		return nil, "", err
+	}
+
+	return certificatesClient.waitForActiveCertificate(ctx, *req.CertificateId)
+}
+
 func (certificatesClient *CertificatesClient) ScheduleCertificateDeletion(ctx context.Context,
 	req certificatesmanagement.ScheduleCertificateDeletionRequest) error {
 	_, err := certificatesClient.ManagementClient.ScheduleCertificateDeletion(ctx, req)
@@ -122,16 +142,68 @@ func (certificatesClient *CertificatesClient) ScheduleCertificateDeletion(ctx co
 	return nil
 }
 
+func (certificatesClient *CertificatesClient) ListCertificateVersions(ctx context.Context,
+	req certificatesmanagement.ListCertificateVersionsRequest) (*certificatesmanagement.CertificateVersionCollection, *string, error) {
+	resp, err := certificatesClient.ManagementClient.ListCertificateVersions(ctx, req)
+	if err != nil {
+		klog.Errorf("Error listing certificate versions for request %s, %s ", util.PrettyPrint(req), err.Error())
+		return nil, nil, err
+	}
+
+	return &resp.CertificateVersionCollection, resp.OpcNextPage, nil
+}
+
+func (certificatesClient *CertificatesClient) ScheduleCertificateVersionDeletion(ctx context.Context,
+	req certificatesmanagement.ScheduleCertificateVersionDeletionRequest) (*certificatesmanagement.Certificate, string, error) {
+	klog.Infof("Scheduling version %d of Certificate %s for deletion", *req.CertificateVersionNumber, *req.CertificateId)
+	_, err := certificatesClient.ManagementClient.ScheduleCertificateVersionDeletion(ctx, req)
+	if err != nil {
+		klog.Errorf("Error scheduling certificate version for deletion, certificateId %s, version %d, %s ",
+			*req.CertificateId, *req.CertificateVersionNumber, err.Error())
+		return nil, "", err
+	}
+
+	return certificatesClient.waitForActiveCertificate(ctx, *req.CertificateId)
+}
+
+func (certificatesClient *CertificatesClient) waitForActiveCertificate(ctx context.Context,
+	certificateId string) (*certificatesmanagement.Certificate, string, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, certificateServiceTimeout)
+	defer cancel()
+
+	for {
+		resp, err := certificatesClient.ManagementClient.GetCertificate(timeoutCtx, certificatesmanagement.GetCertificateRequest{
+			CertificateId: &certificateId,
+		})
+		if err != nil {
+			return nil, "", err
+		}
+
+		if resp.Certificate.LifecycleState == certificatesmanagement.CertificateLifecycleStateActive {
+			return &resp.Certificate, *resp.Etag, nil
+		}
+
+		if resp.Certificate.LifecycleState != certificatesmanagement.CertificateLifecycleStateUpdating &&
+			resp.Certificate.LifecycleState != certificatesmanagement.CertificateLifecycleStateCreating {
+			return nil, "", fmt.Errorf("certificate %s went into an unexpected state %s while updating",
+				*resp.Certificate.Id, resp.Certificate.LifecycleState)
+		}
+
+		klog.Infof("Certificate %s still not active, waiting", certificateId)
+		time.Sleep(3 * time.Second)
+	}
+}
+
 func (certificatesClient *CertificatesClient) GetCaBundle(ctx context.Context,
-	req certificatesmanagement.GetCaBundleRequest) (*certificatesmanagement.CaBundle, error) {
+	req certificatesmanagement.GetCaBundleRequest) (*certificatesmanagement.CaBundle, string, error) {
 	klog.Infof("Getting ca bundle with ocid %s ", *req.CaBundleId)
 	resp, err := certificatesClient.ManagementClient.GetCaBundle(ctx, req)
 	if err != nil {
 		klog.Errorf("Error getting certificate %s, %s ", *req.CaBundleId, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return &resp.CaBundle, nil
+	return &resp.CaBundle, *resp.Etag, nil
 }
 
 func (certificatesClient *CertificatesClient) ListCaBundles(ctx context.Context,
@@ -146,6 +218,21 @@ func (certificatesClient *CertificatesClient) ListCaBundles(ctx context.Context,
 	return &resp.CaBundleCollection, nil
 }
 
+func (certificatesClient *CertificatesClient) UpdateCaBundle(ctx context.Context,
+	req certificatesmanagement.UpdateCaBundleRequest) (*certificatesmanagement.CaBundle, string, error) {
+	_, err := certificatesClient.ManagementClient.UpdateCaBundle(ctx, req)
+	if err != nil {
+		if !util.IsServiceError(err, 409) {
+			klog.Errorf("Error updating ca bundle %s: %s", *req.CaBundleId, err)
+		} else {
+			klog.Errorf("Error updating ca bundle %s due to 409-Conflict", *req.CaBundleId)
+		}
+		return nil, "", err
+	}
+
+	return certificatesClient.waitForActiveCaBundle(ctx, *req.CaBundleId)
+}
+
 func (certificatesClient *CertificatesClient) DeleteCaBundle(ctx context.Context,
 	req certificatesmanagement.DeleteCaBundleRequest) (*http.Response, error) {
 	klog.Infof("Deleting ca bundle with ocid %s ", *req.CaBundleId)
@@ -156,6 +243,34 @@ func (certificatesClient *CertificatesClient) DeleteCaBundle(ctx context.Context
 	}
 
 	return resp.HTTPResponse(), nil
+}
+
+func (certificatesClient *CertificatesClient) waitForActiveCaBundle(ctx context.Context,
+	caBundleId string) (*certificatesmanagement.CaBundle, string, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, certificateServiceTimeout)
+	defer cancel()
+
+	for {
+		resp, err := certificatesClient.ManagementClient.GetCaBundle(timeoutCtx, certificatesmanagement.GetCaBundleRequest{
+			CaBundleId: &caBundleId,
+		})
+		if err != nil {
+			return nil, "", err
+		}
+
+		if resp.CaBundle.LifecycleState == certificatesmanagement.CaBundleLifecycleStateActive {
+			return &resp.CaBundle, *resp.Etag, nil
+		}
+
+		if resp.CaBundle.LifecycleState != certificatesmanagement.CaBundleLifecycleStateUpdating &&
+			resp.CaBundle.LifecycleState != certificatesmanagement.CaBundleLifecycleStateCreating {
+			return nil, "", fmt.Errorf("ca bundle %s went into an unexpected state %s while updating",
+				*resp.CaBundle.Id, resp.CaBundle.LifecycleState)
+		}
+
+		klog.Infof("cabundle %s still not active, waiting", caBundleId)
+		time.Sleep(3 * time.Second)
+	}
 }
 
 func (certificatesClient *CertificatesClient) GetCertificateBundle(ctx context.Context,
