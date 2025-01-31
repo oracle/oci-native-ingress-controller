@@ -138,6 +138,7 @@ Allow <subject> to use virtual-network-family in compartment <compartment-id>
 Allow <subject> to manage cabundles in compartment <compartment-id>
 Allow <subject> to manage cabundle-associations in compartment <compartment-id>
 Allow <subject> to manage leaf-certificates in compartment <compartment-id>
+Allow <subject> to manage leaf-certificate-versions in <compartment-id>
 Allow <subject> to read leaf-certificate-bundles in compartment <compartment-id>
 Allow <subject> to manage certificate-associations in compartment <compartment-id>
 Allow <subject> to read certificate-authorities in compartment <compartment-id>
@@ -480,6 +481,8 @@ metadata:
 type: kubernetes.io/tls
 ```
 Note: If `ca.crt` field is missing/empty, the entire certificate chain is expected to be present in `tls.crt`. The server certificate MUST be first, followed by chain of CAs.
+For certificate renewals, update the secret with the renewed certificate contents.
+In case the certificate subject information like CN, SAN, Organization, etc. are changed, the secret must be recreated.
 
 Ingress Format: 
 ```
