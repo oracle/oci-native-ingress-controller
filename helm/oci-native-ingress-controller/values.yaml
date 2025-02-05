@@ -123,3 +123,13 @@ objectSelector:
 metrics:
   backend: prometheus
   port: 2223
+
+# Extra manifests to deploy as an array
+extraManifests: []
+  # - apiVersion: v1
+  #   kind: ConfigMap
+  #   metadata:
+  #   labels:
+  #     name: extra-config
+  #   data:
+  #     extra: "val"
