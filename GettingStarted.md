@@ -55,6 +55,7 @@ Currently supported kubernetes versions are:
 - 1.28
 - 1.29
 - 1.30
+- 1.31
   
 We set up the cluster with either native pod networking or flannel CNI and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
