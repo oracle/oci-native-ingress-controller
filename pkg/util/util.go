@@ -107,6 +107,9 @@ const (
 	WAFCacheMaxAgeInMinutes         = 5
 	OciClientNotFoundInContextError = "oci client not found in the context"
 	WrapperClient                   = "wrapperClient"
+	CertificateResourcePrefix       = "oci-nic"
+	CertificateHashTagKey           = "oci-native-ingress-controller-certificate-hash"
+	CaBundleHashTagKey              = "oci-native-ingress-controller-ca-bundle-hash"
 )
 
 type DefinedTagsType = map[string]map[string]interface{}

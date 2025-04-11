@@ -757,6 +757,10 @@ func (m MockCertificateManagerClient) DeleteCaBundle(ctx context.Context, reques
 	}, err
 }
 
+func (m MockCertificateManagerClient) ListAssociations(ctx context.Context, request certificatesmanagement.ListAssociationsRequest) (certificatesmanagement.ListAssociationsResponse, error) {
+	return certificatesmanagement.ListAssociationsResponse{}, nil
+}
+
 func GetCertClient() ociclient.CertificateInterface {
 	return &MockCertificateClient{}
 }

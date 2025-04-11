@@ -211,15 +211,15 @@ func (certificatesClient *CertificatesClient) GetCaBundle(ctx context.Context,
 }
 
 func (certificatesClient *CertificatesClient) ListCaBundles(ctx context.Context,
-	req certificatesmanagement.ListCaBundlesRequest) (*certificatesmanagement.CaBundleCollection, error) {
+	req certificatesmanagement.ListCaBundlesRequest) (*certificatesmanagement.CaBundleCollection, *string, error) {
 	klog.Infof("Getting ca bundles using request %s ", util.PrettyPrint(req))
 	resp, err := certificatesClient.ManagementClient.ListCaBundles(ctx, req)
 	if err != nil {
 		klog.Errorf("Error listing ca bundles for request %s, %s ", util.PrettyPrint(req), err.Error())
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &resp.CaBundleCollection, nil
+	return &resp.CaBundleCollection, resp.OpcNextPage, nil
 }
 
 func (certificatesClient *CertificatesClient) UpdateCaBundle(ctx context.Context,
@@ -249,6 +249,18 @@ func (certificatesClient *CertificatesClient) DeleteCaBundle(ctx context.Context
 	}
 
 	return resp.HTTPResponse(), nil
+}
+
+func (certificatesClient *CertificatesClient) ListAssociations(ctx context.Context,
+	req certificatesmanagement.ListAssociationsRequest) (certificatesmanagement.AssociationCollection, error) {
+	klog.Infof("Listing certificate resource associations with request %s", util.PrettyPrint(req))
+	resp, err := certificatesClient.ManagementClient.ListAssociations(ctx, req)
+	if err != nil {
+		klog.Errorf("Error listing associations %s ", err.Error())
+		return certificatesmanagement.AssociationCollection{}, err
+	}
+
+	return resp.AssociationCollection, nil
 }
 
 func (certificatesClient *CertificatesClient) waitForActiveCaBundle(ctx context.Context,

@@ -216,7 +216,7 @@ func TestCertificatesClient_ListCaBundles(t *testing.T) {
 		CompartmentId:  common.String("compartmentId"),
 		LifecycleState: certificatesmanagement.ListCaBundlesLifecycleStateActive,
 	}
-	caBundle, err := client.ListCaBundles(context.TODO(), request)
+	caBundle, _, err := client.ListCaBundles(context.TODO(), request)
 	Expect(err).Should(BeNil())
 	Expect(caBundle).Should(Not(BeNil()))
 
@@ -225,7 +225,7 @@ func TestCertificatesClient_ListCaBundles(t *testing.T) {
 		CompartmentId:  common.String("compartmentId"),
 		LifecycleState: certificatesmanagement.ListCaBundlesLifecycleStateDeleted,
 	}
-	caBundle, err = client.ListCaBundles(context.TODO(), request)
+	caBundle, _, err = client.ListCaBundles(context.TODO(), request)
 	Expect(err).Should(Not(BeNil()))
 	Expect(err.Error()).Should(Equal(ErrorListingCaBundle))
 
@@ -284,6 +284,21 @@ func TestDeleteCaBundle(t *testing.T) {
 	request = getDeleteCaBundleRequest("error")
 	res, err = client.DeleteCaBundle(context.TODO(), request)
 	Expect(err).Should(Not(BeNil()))
+}
+
+func TestCertificatesClient_ListAssociations(t *testing.T) {
+	RegisterTestingT(t)
+	client := setup()
+
+	listAssociationsRequest := certificatesmanagement.ListAssociationsRequest{
+		CompartmentId: common.String("compartmentId"),
+	}
+	_, err := client.ListAssociations(context.Background(), listAssociationsRequest)
+	Expect(err).To(BeNil())
+
+	listAssociationsRequest.CompartmentId = common.String("error")
+	_, err = client.ListAssociations(context.Background(), listAssociationsRequest)
+	Expect(err).ToNot(BeNil())
 }
 
 func TestCertificatesClient_waitForActiveCaBundle(t *testing.T) {
@@ -473,6 +488,13 @@ func (m MockCertificateManagerClient) DeleteCaBundle(ctx context.Context, reques
 		RawResponse:  &res,
 		OpcRequestId: nil,
 	}, err
+}
+
+func (m MockCertificateManagerClient) ListAssociations(ctx context.Context, request certificatesmanagement.ListAssociationsRequest) (certificatesmanagement.ListAssociationsResponse, error) {
+	if *request.CompartmentId == "error" {
+		return certificatesmanagement.ListAssociationsResponse{}, errors.New("error listing associations")
+	}
+	return certificatesmanagement.ListAssociationsResponse{}, nil
 }
 
 func GetCertClient() ociclient.CertificateInterface {
