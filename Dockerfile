@@ -6,7 +6,7 @@
 #
 
 # For open source
-FROM golang:1.21.13-alpine as builder
+FROM golang:1.23.7-alpine as builder
 
 WORKDIR /workspace
 
