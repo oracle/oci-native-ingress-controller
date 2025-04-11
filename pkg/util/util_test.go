@@ -10,7 +10,9 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkingListers "k8s.io/client-go/listers/networking/v1"
@@ -918,4 +920,37 @@ func TestStringSlicesHaveSameElements(t *testing.T) {
 	for _, v := range exampleSliceGroup {
 		Expect(StringSlicesHaveSameElements(v, exampleSlice)).Should(BeFalse())
 	}
+}
+
+func TestIsServiceError(t *testing.T) {
+	RegisterTestingT(t)
+
+	nonSvcErr := errors.New("non-service-error")
+	svcErr := &exception.ConflictServiceError{}
+	wrappedSvcErr := fmt.Errorf("wrapped error: %w", svcErr)
+
+	Expect(IsServiceError(nonSvcErr, 409)).To(BeFalse())
+	Expect(IsServiceError(svcErr, 409)).To(BeTrue())
+	Expect(IsServiceError(wrappedSvcErr, 409)).To(BeFalse())
+}
+
+func TestAsServiceError(t *testing.T) {
+	RegisterTestingT(t)
+
+	nonSvcErr := errors.New("non-service-error")
+	conflictSvcErr := &exception.ConflictServiceError{}
+	notFoundSvcErr := &exception.NotFoundServiceError{}
+	wrappedConflictSvcErr := fmt.Errorf("wrapped error: %w", conflictSvcErr)
+	wrappedNotFoundSvcErr := fmt.Errorf("wrapped error: %w", notFoundSvcErr)
+
+	isSvcErr, _ := AsServiceError(nonSvcErr, 409, 404)
+	Expect(isSvcErr).To(BeFalse())
+	isSvcErr, _ = AsServiceError(conflictSvcErr, 409, 404)
+	Expect(isSvcErr).To(BeTrue())
+	isSvcErr, _ = AsServiceError(notFoundSvcErr, 409, 404)
+	Expect(isSvcErr).To(BeTrue())
+	isSvcErr, _ = AsServiceError(wrappedConflictSvcErr, 409, 404)
+	Expect(isSvcErr).To(BeFalse())
+	isSvcErr, _ = AsServiceError(wrappedNotFoundSvcErr, 409, 404)
+	Expect(isSvcErr).To(BeFalse())
 }

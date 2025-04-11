@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -41,6 +42,7 @@ type Controller struct {
 	nodeLister         corelisters.NodeLister
 	endpointLister     corelisters.EndpointsLister
 	saLister           corelisters.ServiceAccountLister
+	eventRecorder      events.EventRecorder
 
 	queue workqueue.RateLimitingInterface
 
@@ -48,7 +50,7 @@ type Controller struct {
 }
 
 func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
-	client *client.ClientProvider) *Controller {
+	client *client.ClientProvider, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
 		controllerClass:    controllerClass,
@@ -60,6 +62,7 @@ func NewController(controllerClass string, ingressClassInformer networkinginform
 		nodeLister:         nodeLister,
 		saLister:           saInformer.Lister(),
 		client:             client,
+		eventRecorder:      eventRecorder,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
 
@@ -81,7 +84,7 @@ func (c *Controller) processNextItem() bool {
 	err := c.sync(key.(string))
 
 	// Handle the error if something went wrong during the execution of the business logic
-	util.HandleErr(c.queue, err, "Error syncing backends for ingress class", key)
+	util.HandleErrForBackendController(c.eventRecorder, c.ingressClassLister, c.queue, err, "Error syncing backends for ingress class", key)
 	return true
 }
 
@@ -178,44 +181,54 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 	}
 
 	for _, ingress := range ingresses {
-		for _, rule := range ingress.Spec.Rules {
-			for _, path := range rule.HTTP.Paths {
-
-				pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
-				if err != nil {
-					return err
-				}
-
-				svcName, svcPort, nodePort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, true)
-				if err != nil {
-					return err
-				}
-				if svc == nil || svc.Spec.Ports == nil || nodePort == 0 {
-					continue
-				}
-
-				var backends []ociloadbalancer.BackendDetails
-				trafficPolicy := svc.Spec.ExternalTrafficPolicy
-				if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
-					for _, node := range nodes {
-						backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
-					}
-				} else {
-					backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, ingress.Namespace, svcName, backends, nodePort)
-					if err != nil {
-						return err
-					}
-				}
-				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
-				if err != nil {
-					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
-				}
-			}
+		err := c.ensureBackendsForIngress(ingress, ingressClass, nodes, lbID, wrapperClient)
+		if err != nil {
+			return fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err)
 		}
 	}
 	// Sync default backends
 	c.syncDefaultBackend(ctx, lbID, ingresses)
+	return nil
+}
+
+func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass,
+	nodes []*corev1.Node, lbID string, wrapperClient *client.WrapperClient) error {
+	for _, rule := range ingress.Spec.Rules {
+		for _, path := range rule.HTTP.Paths {
+
+			pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
+			if err != nil {
+				return err
+			}
+
+			svcName, svcPort, nodePort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, true)
+			if err != nil {
+				return err
+			}
+			if svc == nil || svc.Spec.Ports == nil || nodePort == 0 {
+				continue
+			}
+
+			var backends []ociloadbalancer.BackendDetails
+			trafficPolicy := svc.Spec.ExternalTrafficPolicy
+			if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
+				for _, node := range nodes {
+					backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+				}
+			} else {
+				backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, ingress.Namespace, svcName, backends, nodePort)
+				if err != nil {
+					return err
+				}
+			}
+			backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+			err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+			if err != nil {
+				return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -122,12 +122,14 @@ func (certificatesClient *CertificatesClient) ListCertificates(ctx context.Conte
 func (certificatesClient *CertificatesClient) UpdateCertificate(ctx context.Context,
 	req certificatesmanagement.UpdateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
 	_, err := certificatesClient.ManagementClient.UpdateCertificate(ctx, req)
+
 	if err != nil {
-		if !util.IsServiceError(err, 409) {
-			klog.Errorf("Error updating certificate %s: %s", *req.CertificateId, err)
-		} else {
+		if util.IsServiceError(err, 409) {
 			klog.Errorf("Error updating certificate %s due to 409-Conflict", *req.CertificateId)
+		} else {
+			klog.Errorf("Error updating certificate %s: %s", *req.CertificateId, err)
 		}
+
 		return nil, "", err
 	}
 
@@ -223,12 +225,14 @@ func (certificatesClient *CertificatesClient) ListCaBundles(ctx context.Context,
 func (certificatesClient *CertificatesClient) UpdateCaBundle(ctx context.Context,
 	req certificatesmanagement.UpdateCaBundleRequest) (*certificatesmanagement.CaBundle, string, error) {
 	_, err := certificatesClient.ManagementClient.UpdateCaBundle(ctx, req)
+
 	if err != nil {
-		if !util.IsServiceError(err, 409) {
-			klog.Errorf("Error updating ca bundle %s: %s", *req.CaBundleId, err)
-		} else {
+		if util.IsServiceError(err, 409) {
 			klog.Errorf("Error updating ca bundle %s due to 409-Conflict", *req.CaBundleId)
+		} else {
+			klog.Errorf("Error updating ca bundle %s: %s", *req.CaBundleId, err)
 		}
+
 		return nil, "", err
 	}
 

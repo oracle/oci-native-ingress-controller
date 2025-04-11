@@ -12,6 +12,7 @@ package routingpolicy
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 	"strings"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -73,7 +74,8 @@ func PathToRoutePolicyCondition(host string, path networkingv1.HTTPIngressPath) 
 	return fmt.Sprintf("all(%s , %s)", conditions[0], conditions[1])
 }
 
-func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corelisters.ServiceLister, listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String) error {
+func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corelisters.ServiceLister,
+	listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String) error {
 	for _, ingress := range ingresses {
 		tlsConfiguredHosts := sets.NewString()
 		for tlsIdx := range ingress.Spec.TLS {
@@ -89,12 +91,13 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 			for _, path := range rule.HTTP.Paths {
 				serviceName, servicePort, err := util.PathToServiceAndPort(ingress.Namespace, path, serviceLister)
 				if err != nil {
-					return err
+					return fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err)
 				}
 
 				listenerPort, err := util.DetermineListenerPort(ingress, &tlsConfiguredHosts, host, servicePort)
 				if err != nil {
-					return errors.Wrap(err, "error determining listener port")
+					err = errors.Wrap(err, "error determining listener port")
+					return fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err)
 				}
 
 				listenerName := util.GenerateListenerName(listenerPort)

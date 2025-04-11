@@ -124,5 +124,9 @@ metrics:
   backend: prometheus
   port: 2223
 
-# Use the compartment supplied in IngressClassParam.spec.compartmentId for certificate management
+# Use the compartment supplied in IngressClassParameters.spec.compartmentId for certificate management.
+# If set to false, the default compartment_id specified in this file is used for this purpose instead.
 useLbCompartmentForCertificates: false
+
+# Emit kubernetes events for Ingress/IngressClass errors observed during reconciliation
+emitEvents: false

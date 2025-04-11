@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/client-go/kubernetes"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/auth"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -60,7 +61,7 @@ func BuildConfig(kubeconfig string) (*rest.Config, error) {
 func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginformers.IngressClassInformer,
 	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface, serviceInformer v1.ServiceInformer, secretInformer v1.SecretInformer,
 	endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, serviceAccountInformer v1.ServiceAccountInformer,
-	c ctrcache.Cache, reg *prometheus.Registry) func(ctx context.Context) {
+	c ctrcache.Cache, reg *prometheus.Registry, eventRecorder events.EventRecorder) func(ctx context.Context) {
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
@@ -87,6 +88,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			reg,
 			c,
 			opts.UseLbCompartmentForCertificates,
+			eventRecorder,
 		)
 
 		routingPolicyController := routingpolicy.NewController(
@@ -96,6 +98,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			serviceAccountInformer,
 			serviceInformer.Lister(),
 			client,
+			eventRecorder,
 		)
 
 		ingressClassController := ingressclass.NewController(
@@ -106,6 +109,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			serviceAccountInformer,
 			client,
 			c,
+			eventRecorder,
 		)
 
 		go ingressClassController.Run(3, ctx.Done())
@@ -125,6 +129,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				podInformer.Lister(),
 				nodeInformer.Lister(),
 				client,
+				eventRecorder,
 			)
 			go backendController.Run(3, ctx.Done())
 		} else {
@@ -137,6 +142,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				endpointInformer.Lister(),
 				podInformer.Lister(),
 				client,
+				eventRecorder,
 			)
 			go backendController.Run(3, ctx.Done())
 		}

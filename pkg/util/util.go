@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/events"
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
@@ -729,14 +731,17 @@ func GetEndpoints(lister corelisters.EndpointsLister, namespace string, service 
 	return addresses, nil
 }
 
-// HandleErr checks if an error happened and makes sure we will retry later.
-func HandleErr(queue workqueue.RateLimitingInterface, err error, message string, key interface{}) {
+// HandleErrForBackendController checks if an error happened and makes sure we will retry later.
+func HandleErrForBackendController(eventRecorder events.EventRecorder, ingressClassLister networkinglisters.IngressClassLister,
+	queue workqueue.RateLimitingInterface, err error, message string, key interface{}) {
 	if err == nil {
 		// Forget about the #AddRateLimited history of the key on every successful synchronization.
 		// This ensures that future processing of updates for this key is not delayed because of
 		// an outdated error history.
 		queue.Forget(key)
 		return
+	} else if !errors.Is(err, ErrIngressClassNotReady) && eventRecorder != nil {
+		PublishWarningEventForIngressClass(eventRecorder, ingressClassLister, key, err, "BackendReconcileFailed", "BackendReconcile")
 	}
 
 	if errors.Is(err, ErrIngressClassNotReady) {
@@ -861,4 +866,56 @@ func IsServiceError(err error, statusCode int) bool {
 	}
 
 	return svcErr.GetHTTPStatusCode() == statusCode
+}
+
+// AsServiceError returns true if err is a ServiceError with a StatusCode that is in statusCodes, and a StatusCode-ErrorCode pair
+func AsServiceError(err error, statusCodes ...int) (bool, string) {
+	svcErr, ok := common.IsServiceError(err)
+	if ok {
+		for _, code := range statusCodes {
+			if svcErr.GetHTTPStatusCode() == code {
+				return true, fmt.Sprintf("%d-%s", svcErr.GetHTTPStatusCode(), svcErr.GetCode())
+			}
+		}
+	}
+
+	return false, ""
+}
+
+func GetIngressFromMetaNamespaceKey(key interface{}, ingressLister networkinglisters.IngressLister) (*networkingv1.Ingress, error) {
+	keyString, ok := key.(string)
+	if !ok {
+		return nil, fmt.Errorf("cannot cast key as a string for %v", key)
+	}
+
+	namespace, name, err := cache.SplitMetaNamespaceKey(keyString)
+	if err != nil {
+		return nil, fmt.Errorf("unable to publish event, failed to split meta namespace cache key %s", keyString)
+	}
+
+	ingress, err := ingressLister.Ingresses(namespace).Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("unable to publish event, failed to get Ingress %s/%s", namespace, name)
+	}
+
+	return ingress, nil
+}
+
+func GetIngressClassFromMetaNamespaceKey(key interface{}, ingressClassLister networkinglisters.IngressClassLister) (*networkingv1.IngressClass, error) {
+	keyString, ok := key.(string)
+	if !ok {
+		return nil, fmt.Errorf("cannot cast key as a string for %v", key)
+	}
+
+	_, name, err := cache.SplitMetaNamespaceKey(keyString)
+	if err != nil {
+		return nil, fmt.Errorf("unable to publish event, failed to split meta namespace cache key %s", keyString)
+	}
+
+	ingressClass, err := ingressClassLister.Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("unable to publish event, failed to get IngressClass %s", name)
+	}
+
+	return ingressClass, nil
 }
