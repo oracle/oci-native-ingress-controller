@@ -176,7 +176,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 		sort.Sort(ByPath(paths))
 		for _, path := range paths {
 			policyName := util.PathToRoutePolicyName(path.IngressName, path.Host, *path.Path)
-			policyCondition := PathToRoutePolicyCondition(path.Host, *path.Path)
+			policyCondition := PathToRoutePolicyCondition(path.ListenerPort, path.Host, *path.Path)
 			rules = append(rules, ociloadbalancer.RoutingRule{
 				Name:      common.String(policyName),
 				Condition: common.String(policyCondition),

@@ -23,6 +23,7 @@ import (
 
 type listenerPath struct {
 	IngressName    string
+	ListenerPort   int32
 	Host           string
 	BackendSetName string
 	Path           *networkingv1.HTTPIngressPath
@@ -50,14 +51,16 @@ func (pathArray ByPath) Less(i, j int) bool {
 
 func (pathArray ByPath) Swap(i, j int) { pathArray[i], pathArray[j] = pathArray[j], pathArray[i] }
 
-func PathToRoutePolicyCondition(host string, path networkingv1.HTTPIngressPath) string {
+func PathToRoutePolicyCondition(listenerPort int32, host string, path networkingv1.HTTPIngressPath) string {
 	var conditions []string
 
 	if host != "" {
 		if host[:2] == "*." {
-			conditions = append(conditions, fmt.Sprintf("http.request.headers[(i 'Host')][0] ew '%s'", host[1:]))
+			conditions = append(conditions, fmt.Sprintf("any(http.request.headers[(i 'Host')][0] ew '%s', http.request.headers[(i 'Host')][0] ew '%s:%d')",
+				host[1:], host[1:], listenerPort))
 		} else {
-			conditions = append(conditions, fmt.Sprintf("http.request.headers[(i 'Host')] eq '%s'", host))
+			conditions = append(conditions, fmt.Sprintf("any(http.request.headers[(i 'Host')] eq '%s', http.request.headers[(i 'Host')] eq '%s:%d')",
+				host, host, listenerPort))
 		}
 
 	}
@@ -104,6 +107,7 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 				rulePath := path
 				listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
 					IngressName:    ingress.Name,
+					ListenerPort:   listenerPort,
 					Host:           host,
 					Path:           &rulePath,
 					BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
