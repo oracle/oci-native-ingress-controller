@@ -228,8 +228,10 @@ func TestPathToRoutePolicyCondition(t *testing.T) {
 				PathType: &PathTypePrefix,
 				Backend:  networkingv1.IngressBackend{},
 			},
-			Host:     HostFooBar,
-			Expected: fmt.Sprintf("all(http.request.headers[(i 'Host')] eq '%s' , http.request.url.path sw '%s')", HostFooBar, PrefixPath),
+			Host:         HostFooBar,
+			LisneterPort: 80,
+			Expected: fmt.Sprintf("all(any(http.request.headers[(i 'Host')] eq '%s', http.request.headers[(i 'Host')] eq '%s:%d') , http.request.url.path sw '%s')",
+				HostFooBar, HostFooBar, 80, PrefixPath),
 		},
 		{
 			Path: networkingv1.HTTPIngressPath{
@@ -237,8 +239,10 @@ func TestPathToRoutePolicyCondition(t *testing.T) {
 				PathType: &PathTypePrefix,
 				Backend:  networkingv1.IngressBackend{},
 			},
-			Host:     HostWildCard,
-			Expected: fmt.Sprintf("all(http.request.headers[(i 'Host')][0] ew '%s' , http.request.url.path sw '%s')", HostWildCard[1:], PrefixPath),
+			Host:         HostWildCard,
+			LisneterPort: 80,
+			Expected: fmt.Sprintf("all(any(http.request.headers[(i 'Host')][0] ew '%s', http.request.headers[(i 'Host')][0] ew '%s:%d') , http.request.url.path sw '%s')",
+				HostWildCard[1:], HostWildCard[1:], 80, PrefixPath),
 		},
 		{
 			Path: networkingv1.HTTPIngressPath{
@@ -246,23 +250,25 @@ func TestPathToRoutePolicyCondition(t *testing.T) {
 				PathType: &PathTypeExact,
 				Backend:  networkingv1.IngressBackend{},
 			},
-			Host:     "",
-			Expected: fmt.Sprintf("http.request.url.path eq '%s'", ExactPath),
+			Host:         "",
+			LisneterPort: 80,
+			Expected:     fmt.Sprintf("http.request.url.path eq '%s'", ExactPath),
 		},
 	}
 
 	for i := range tests {
 		klog.Infof("Running test %s ", util.PrettyPrint(tests[i]))
-		value := PathToRoutePolicyCondition(tests[i].Host, tests[i].Path)
+		value := PathToRoutePolicyCondition(tests[i].LisneterPort, tests[i].Host, tests[i].Path)
 		klog.Infof("Result: %s ", value)
 		Expect(value).Should(Equal(tests[i].Expected))
 	}
 }
 
 type TestPathToRoutingPolicy struct {
-	Path     networkingv1.HTTPIngressPath
-	Host     string
-	Expected string
+	Path         networkingv1.HTTPIngressPath
+	Host         string
+	LisneterPort int32
+	Expected     string
 }
 
 func TestFilterIngressesForRoutingPolicy(t *testing.T) {
