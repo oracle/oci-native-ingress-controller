@@ -232,17 +232,18 @@ func TestGetIngressClassDefinedTags(t *testing.T) {
 	ingressClassWithSampleTags := getIngressClassWithDefinedTagsAnnotation(sampleTags)
 	ingressClassWithFaultyTags := getIngressClassWithDefinedTagsAnnotation(faultyTags)
 
-	verifyGetIngressClassDefinedTags := func(ic *networkingv1.IngressClass, shouldError bool,
+	verifyGetIngressClassDefinedTags := func(ic *networkingv1.IngressClass, shouldBePresent bool, shouldError bool,
 		expectedResult map[string]map[string]interface{}) {
-		res, err := GetIngressClassDefinedTags(ic)
+		present, res, err := GetIngressClassDefinedTags(ic)
+		Expect(present).To(Equal(shouldBePresent))
 		Expect(err != nil).To(Equal(shouldError))
 		Expect(res).To(Equal(expectedResult))
 	}
 
-	verifyGetIngressClassDefinedTags(ingressClassWithNoAnnotation, false, emptyTagsResult)
-	verifyGetIngressClassDefinedTags(ingressClassWithEmptyTags, false, emptyTagsResult)
-	verifyGetIngressClassDefinedTags(ingressClassWithSampleTags, false, sampleTagsResult)
-	verifyGetIngressClassDefinedTags(ingressClassWithFaultyTags, true, nil)
+	verifyGetIngressClassDefinedTags(ingressClassWithNoAnnotation, false, false, emptyTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithEmptyTags, true, false, emptyTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithSampleTags, true, false, sampleTagsResult)
+	verifyGetIngressClassDefinedTags(ingressClassWithFaultyTags, true, true, nil)
 }
 
 func TestGetIngressClassFreeformTags(t *testing.T) {

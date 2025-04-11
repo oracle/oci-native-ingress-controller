@@ -49,19 +49,34 @@ func getImplicitDefaultTagsForNewLoadBalancer(actualDefinedTags, suppliedDefined
 	return defaultTags
 }
 
+// Return values - (new tags content for LB, new default tags annotation content, error)
 func getUpdatedDefinedAndImplicitDefaultTags(actualTags util.DefinedTagsType,
 	ic *networkingv1.IngressClass) (util.DefinedTagsType, util.DefinedTagsType, error) {
+	// Updated value for LB's actual Defined Tags
 	updatedDefinedTags := util.DefinedTagsType{}
+	// Updated value to be placed into the util.IngressClassImplicitDefaultTagsAnnotation annotation
 	updatedDefaultTags := util.DefinedTagsType{}
 
-	definedTags, err := util.GetIngressClassDefinedTags(ic)
+	// Defined Tags supplied by customer
+	definedTagsAnnotationPresent, definedTags, err := util.GetIngressClassDefinedTags(ic)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	defaultTags, err := util.GetIngressClassImplicitDefaultTags(ic)
+	// Currently stored default tags on the IngressClass
+	defaultTagsAnnotationPresent, defaultTags, err := util.GetIngressClassImplicitDefaultTags(ic)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// If no defined tag annotations are present, we process this as if the LoadBalancer just got created
+	// This can happen in two cases usually
+	//  (a) migrating from an NIC version that did not have tagging support
+	//  (b) filling id annotation on the IngressClass on creation to import a pre-existing load balancer, but not filling the defined-tags annotation
+	// We fill the implicit-default-tag annotation with the current tags on LB and preserve them
+	// Here, definedTags and defaultTags both will be empty
+	if !definedTagsAnnotationPresent && !defaultTagsAnnotationPresent {
+		return actualTags, actualTags, nil
 	}
 
 	klog.Infof("Calculating defined/default tags where actualTags: %+v, suppliedDefinedTags: %+v, implicitDefaultTags: %+v",

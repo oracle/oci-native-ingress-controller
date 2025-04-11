@@ -34,7 +34,7 @@ func TestIsDefinedTagsEqual(t *testing.T) {
 func TestGetImplicitDefaultTagsForNewLoadBalancer(t *testing.T) {
 	RegisterTestingT(t)
 
-	actualDefinedTags := util.DefinedTagsType{"n1": {"k1": "v1", "KI1": "vi1"}, "n2": {"k2": "V2", "K3": "v3"}, "n3": {"k4": "v4"}}
+	actualDefinedTags := util.DefinedTagsType{"n1": {"k1": "newValue", "KI1": "vi1"}, "n2": {"k2": "V2", "K3": "v3"}, "n3": {"k4": "v4"}}
 	suppliedDefinedTags := util.DefinedTagsType{"N1": {"k1": "v1"}, "n2": {"K2": "V2", "k3": "v3"}}
 	expectedImplicitDefaultTags := util.DefinedTagsType{"n1": {"KI1": "vi1"}, "n3": {"k4": "v4"}}
 
@@ -44,21 +44,28 @@ func TestGetImplicitDefaultTagsForNewLoadBalancer(t *testing.T) {
 func TestGetUpdatedDefinedAndImplicitDefaultTags(t *testing.T) {
 	RegisterTestingT(t)
 
-	actualTags := util.DefinedTagsType{"n1": {"k1": "v1", "KI1": "vi1"}, "n2": {"K2": "V2", "k3": "v3"}, "n3": {"K4": "v5"}}
-
 	ingressClass := &networkingv1.IngressClass{
 		ObjectMeta: v1.ObjectMeta{
-			Annotations: map[string]string{
-				util.IngressClassDefinedTagsAnnotation:         `{"n1": {"k1": "v1"}, "N2": {"k2": "v3", "K3": "V3"}}`,
-				util.IngressClassImplicitDefaultTagsAnnotation: `{"n1": {"KI1": "vi1"}, "n2": {"K2": "V2"}, "n3": {"k4": "V4"}}`,
-			},
+			Annotations: map[string]string{},
 		},
 	}
 
-	expectedDefinedTags := util.DefinedTagsType{"n1": {"k1": "v1", "ki1": "vi1"}, "n2": {"k2": "v3", "k3": "V3"}, "n3": {"k4": "v5"}}
+	actualTags := util.DefinedTagsType{"n1": {"k1": "newValue", "KI1": "vi1", "deletedKey": "val"},
+		"n2": {"K2": "V2", "k3": "v3"}, "n3": {"K4": "v5"}}
+
+	// If both DefinedTags and DefaultTags annotations are missing, should behave like a new LoadBalancer
+	definedTags, defaultTags, err := getUpdatedDefinedAndImplicitDefaultTags(actualTags, ingressClass)
+	Expect(err).To(BeNil())
+	Expect(defaultTags).Should(Equal(actualTags))
+	Expect(definedTags).Should(Equal(actualTags))
+
+	ingressClass.Annotations[util.IngressClassDefinedTagsAnnotation] = `{"n1": {"k1": "has ${oci.datetime}"}, "N2": {"k2": "v3", "K3": "V3", "K5": "name-${iam.principal.name}"}}`
+	ingressClass.Annotations[util.IngressClassImplicitDefaultTagsAnnotation] = `{"n1": {"KI1": "vi1"}, "n2": {"K2": "V2"}, "n3": {"k4": "V4"}}`
+
+	expectedDefinedTags := util.DefinedTagsType{"n1": {"k1": "newValue", "ki1": "vi1"}, "n2": {"k2": "v3", "k3": "V3", "k5": "name-${iam.principal.name}"}, "n3": {"k4": "v5"}}
 	expectedDefaultTags := util.DefinedTagsType{"n1": {"KI1": "vi1"}, "n3": {"K4": "v5"}}
 
-	definedTags, defaultTags, err := getUpdatedDefinedAndImplicitDefaultTags(actualTags, ingressClass)
+	definedTags, defaultTags, err = getUpdatedDefinedAndImplicitDefaultTags(actualTags, ingressClass)
 	Expect(err).To(BeNil())
 	Expect(expectedDefinedTags).Should(Equal(definedTags))
 	Expect(expectedDefaultTags).Should(Equal(defaultTags))

@@ -215,7 +215,9 @@ func GetIngressClassDeleteProtectionEnabled(ic *networkingv1.IngressClass) bool 
 	return result
 }
 
-func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (DefinedTagsType, error) {
+// GetIngressClassDefinedTags gets the content of IngressClassDefinedTagsAnnotation in DefinedTagsType type.
+// First return value is true if the annotation is present on the IngressClass.
+func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (bool, DefinedTagsType, error) {
 	annotation := IngressClassDefinedTagsAnnotation
 	value, ok := ic.Annotations[annotation]
 
@@ -224,33 +226,35 @@ func GetIngressClassDefinedTags(ic *networkingv1.IngressClass) (DefinedTagsType,
 	definedTags := DefinedTagsType{}
 
 	if !ok || strings.TrimSpace(value) == "" {
-		return definedTags, nil
+		return ok, definedTags, nil
 	}
 
 	err := json.Unmarshal([]byte(value), &definedTags)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
+		return ok, nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
 	}
 
-	return definedTags, nil
+	return ok, definedTags, nil
 }
 
-func GetIngressClassImplicitDefaultTags(ic *networkingv1.IngressClass) (DefinedTagsType, error) {
+// GetIngressClassImplicitDefaultTags gets the content of IngressClassImplicitDefaultTagsAnnotation in DefinedTagsType type.
+// First return value is true if the annotation is present on the IngressClass.
+func GetIngressClassImplicitDefaultTags(ic *networkingv1.IngressClass) (bool, DefinedTagsType, error) {
 	annotation := IngressClassImplicitDefaultTagsAnnotation
 	value, ok := ic.Annotations[annotation]
 
 	defaultTags := DefinedTagsType{}
 
 	if !ok || strings.TrimSpace(value) == "" {
-		return defaultTags, nil
+		return ok, defaultTags, nil
 	}
 
 	err := json.Unmarshal([]byte(value), &defaultTags)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
+		return ok, nil, fmt.Errorf("error parsing value %s for annotation %s: %w", value, annotation, err)
 	}
 
-	return defaultTags, nil
+	return ok, defaultTags, nil
 }
 
 func GetIngressClassFreeformTags(ic *networkingv1.IngressClass) (map[string]string, error) {

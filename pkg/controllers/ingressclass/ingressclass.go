@@ -290,7 +290,7 @@ func (c *Controller) createLoadBalancer(ctx context.Context, ic *networkingv1.In
 	icp *v1beta1.IngressClassParameters) (*ociloadbalancer.LoadBalancer, error) {
 	klog.V(2).InfoS("Creating load balancer for ingress class", "ingressClass", ic.Name)
 	compartmentId := common.String(util.GetIngressClassCompartmentId(icp, c.defaultCompartmentId))
-	definedTags, err := util.GetIngressClassDefinedTags(ic)
+	_, definedTags, err := util.GetIngressClassDefinedTags(ic)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +387,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, i
 
 	// check LoadBalancerName, Defined and Freeform tags
 	displayName := util.GetIngressClassLoadBalancerName(ic, icp)
-	implicitDefaultTags, err := util.GetIngressClassImplicitDefaultTags(ic)
+	defaultTagsAnnotationPresent, implicitDefaultTags, err := util.GetIngressClassImplicitDefaultTags(ic)
 	if err != nil {
 		return err
 	}
@@ -409,7 +409,7 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, i
 		}
 	}
 
-	if !isDefinedTagsEqual(implicitDefaultTags, updatedImplicitDefaultTags) {
+	if !defaultTagsAnnotationPresent || !isDefinedTagsEqual(implicitDefaultTags, updatedImplicitDefaultTags) {
 		klog.Infof("Updating implicit default tags %+v in LB %s for IC %s", updatedImplicitDefaultTags, *lb.Id, ic.Name)
 		err = updateImplicitDefaultTagsAnnotation(wrapperClient.GetK8Client(), ic, updatedImplicitDefaultTags)
 		if err != nil {
