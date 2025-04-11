@@ -15,6 +15,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-native-ingress-controller/pkg/certificate"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	"k8s.io/klog/v2"
 	"time"
@@ -152,7 +153,7 @@ func UpdateImportedTypeCertificate(certificateId *string, tlsSecretData *TLSSecr
 	if util.IsServiceError(err, 409) {
 		klog.Infof("Update certificate returned code %d for certificate %s. Refreshing cache.", 409, *certificateId)
 		getCertificateBustCache(*certificateId, certificatesClient)
-		return nil, fmt.Errorf("unable to update certificate %s due to conflict, controller will retry later", *certificateId)
+		return nil, exception.NewTransientError(fmt.Errorf("unable to update certificate %s due to conflict, controller will retry later", *certificateId))
 	}
 
 	if err != nil {
@@ -353,7 +354,7 @@ func UpdateCaBundle(caBundleId string, certificatesClient *certificate.Certifica
 	if util.IsServiceError(err, 409) {
 		klog.Infof("Update ca bundle returned code %d for ca bundle %s. Refreshing cache.", 409, caBundleId)
 		getCaBundleBustCache(caBundleId, certificatesClient)
-		return nil, fmt.Errorf("unable to update ca bundle %s due to conflict, controller will retry later", caBundleId)
+		return nil, exception.NewTransientError(fmt.Errorf("unable to update ca bundle %s due to conflict, controller will retry later", caBundleId))
 	}
 
 	if err != nil {

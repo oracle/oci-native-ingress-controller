@@ -12,7 +12,9 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +105,10 @@ func (lbc *LoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, 
 	klog.Infof("Update LB NSG IDs request: %s", util.PrettyPrint(req))
 
 	resp, err := lbc.LbClient.UpdateNetworkSecurityGroups(ctx, req)
+	if util.IsServiceError(err, 412) {
+		return resp, exception.NewTransientError(fmt.Errorf("unable to update NSG for LB %s due to EtagMismatch", *req.LoadBalancerId))
+	}
+
 	if err != nil {
 		return resp, err
 	}
@@ -118,6 +124,9 @@ func (lbc *LoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context, 
 
 func (lbc *LoadBalancerClient) UpdateLoadBalancerShape(ctx context.Context, req loadbalancer.UpdateLoadBalancerShapeRequest) (response loadbalancer.UpdateLoadBalancerShapeResponse, err error) {
 	resp, err := lbc.LbClient.UpdateLoadBalancerShape(ctx, req)
+	if util.IsServiceError(err, 412) {
+		return resp, exception.NewTransientError(fmt.Errorf("unable to update shape for LB %s due to EtagMismatch", *req.LoadBalancerId))
+	}
 	if err != nil {
 		return resp, err
 	}
@@ -150,6 +159,10 @@ func (lbc *LoadBalancerClient) UpdateLoadBalancer(ctx context.Context, lbId stri
 
 	klog.Infof("Update lb details request: %s", util.PrettyPrint(req))
 	resp, err := lbc.LbClient.UpdateLoadBalancer(ctx, req)
+	if util.IsServiceError(err, 412) {
+		return nil, exception.NewTransientError(fmt.Errorf("unable to update LB %s due to EtagMismatch", *req.LoadBalancerId))
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +267,15 @@ func (lbc *LoadBalancerClient) createRoutingPolicy(
 		return nil
 	}
 
+	// This depends on error message specifics, no better way to handle it right now
+	if util.IsServiceError(err, 400) && strings.Contains(err.Error(), "contains a rule referencing BackendSet") &&
+		strings.Contains(err.Error(), "which does not exist in load balancer") {
+		// Can't create this RoutingPolicy for now since a related backendSet isn't created
+		klog.Errorf("Create routing policy operation returned code %d for load balancer %s due to a missing backendset for policy %s",
+			400, lbID, policyName)
+		return exception.NewTransientError(err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -315,6 +337,15 @@ func (lbc *LoadBalancerClient) DeleteBackendSet(ctx context.Context, lbID string
 		// it was already deleted so nothing to do.
 		klog.Infof("Delete backend set operation returned code %d for load balancer %s. Backend set %s may be already deleted.", 404, lbID, backendSetName)
 		return nil
+	}
+
+	// This depends on error message specifics, no better way to handle it right now
+	if util.IsServiceError(err, 400) && strings.Contains(err.Error(), "Can't remove backend set") &&
+		strings.Contains(err.Error(), "since it is used in routing policy") {
+		// Can't delete this BackendSet for now since a related routing policy isn't deleted
+		klog.Errorf("Delete backend set operation returned code %d for load balancer %s due to a routing policy referencing BackendSet %s",
+			400, lbID, backendSetName)
+		return exception.NewTransientError(err)
 	}
 
 	if err != nil {
@@ -489,6 +520,19 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 
 	klog.Infof("Updating routing policy with request: %s", util.PrettyPrint(updateRoutingPolicyRequest))
 	resp, err := lbc.LbClient.UpdateRoutingPolicy(ctx, updateRoutingPolicyRequest)
+	if util.IsServiceError(err, 412) {
+		return exception.NewTransientError(fmt.Errorf("unable to update routing policy %s for LB %s due to EtagMismatch", policyName, *lb.Id))
+	}
+
+	// This depends on error message specifics, no better way to handle it right now
+	if util.IsServiceError(err, 400) && strings.Contains(err.Error(), "contains a rule referencing BackendSet") &&
+		strings.Contains(err.Error(), "which does not exist in load balancer") {
+		// Can't update this RoutingPolicy for now since a related backendSet isn't created
+		klog.Errorf("UpdateRoutingPolicy operation returned code %d for load balancer %s due to a missing backendset for policy %s",
+			400, lbID, policyName)
+		return exception.NewTransientError(err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -507,7 +551,7 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 
 	backendSet, ok := lb.BackendSets[backendSetName]
 	if !ok {
-		return fmt.Errorf("backendset %s was not found", backendSetName)
+		return exception.NewTransientError(fmt.Errorf("backendset %s was not found", backendSetName))
 	}
 
 	actual := sets.NewString()
@@ -587,6 +631,13 @@ func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID string
 
 	klog.Infof("Updating backend set with request: %s", util.PrettyPrint(updateBackendSetRequest))
 	resp, err := lbc.LbClient.UpdateBackendSet(ctx, updateBackendSetRequest)
+
+	isTransient, errMsg := util.AsServiceError(err, 409, 412)
+	if isTransient {
+		klog.Errorf("Unable to update BackendSet %s for load balancer %s due to %s", backendSetName, lbID, errMsg)
+		return exception.NewTransientError(err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -625,7 +676,7 @@ func (lbc *LoadBalancerClient) setRoutingPolicyOnListener(
 	}
 
 	if l.Name == nil {
-		return fmt.Errorf("listener %s not found", routingPolicyName)
+		return exception.NewTransientError(fmt.Errorf("listener %s not found", routingPolicyName))
 	}
 
 	return lbc.UpdateListener(ctx, lb.Id, etag, l, &routingPolicyName, nil, l.Protocol, nil)
@@ -667,6 +718,13 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 
 	klog.Infof("Updating listener with request: %s", util.PrettyPrint(updateListenerRequest))
 	resp, err := lbc.LbClient.UpdateListener(ctx, updateListenerRequest)
+
+	isTransient, errMsg := util.AsServiceError(err, 404, 409, 412)
+	if isTransient {
+		klog.Errorf("Unable to update Listener %s on load balancer %s due to %s", *l.Name, *lbId, errMsg)
+		return exception.NewTransientError(err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -746,7 +804,16 @@ func (lbc *LoadBalancerClient) waitForWorkRequest(ctx context.Context, workReque
 		}
 
 		if resp.LifecycleState == loadbalancer.WorkRequestLifecycleStateFailed {
-			return "", fmt.Errorf("work request failed: %+v", resp.ErrorDetails)
+			err := fmt.Errorf("work request failed: %+v", resp.ErrorDetails)
+
+			// This is hacky, we don't want to publish an event here since the resources will eventually show up / request won't be tried
+			if len(resp.ErrorDetails) > 0 && resp.ErrorDetails[0].ErrorCode == loadbalancer.WorkRequestErrorErrorCodeBadInput &&
+				resp.ErrorDetails[0].Message != nil &&
+				(strings.Contains(*resp.ErrorDetails[0].Message, "has no listener") || strings.Contains(*resp.ErrorDetails[0].Message, "has no backend set")) {
+				return "", exception.NewTransientError(err)
+			}
+
+			return "", err
 		}
 
 		time.Sleep(10 * time.Second)

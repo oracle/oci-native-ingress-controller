@@ -12,9 +12,9 @@ metadata:
   labels:
     {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
 rules:
-- apiGroups: [""]
+- apiGroups: ["", "events.k8s.io"]
   resources: [events]
-  verbs: [create, patch]
+  verbs: [create, patch, update]
 - apiGroups: [""]
   resources: [pods]
   verbs: [get, list, watch]

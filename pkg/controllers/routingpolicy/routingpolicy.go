@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 	"sort"
 	"time"
 
@@ -50,6 +51,7 @@ type Controller struct {
 	queue              workqueue.RateLimitingInterface
 	informer           networkinginformers.IngressInformer
 	client             *client.ClientProvider
+	eventRecorder      events.EventRecorder
 }
 
 // NewController creates a new Controller.
@@ -60,6 +62,7 @@ func NewController(
 	saInformer coreinformers.ServiceAccountInformer,
 	serviceLister corelisters.ServiceLister,
 	client *client.ClientProvider,
+	eventRecorder events.EventRecorder,
 ) *Controller {
 
 	c := &Controller{
@@ -70,8 +73,9 @@ func NewController(
 		saLister:           saInformer.Lister(),
 		informer:           ingressInformer,
 
-		client: client,
-		queue:  workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		client:        client,
+		eventRecorder: eventRecorder,
+		queue:         workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
 
 	return c
@@ -160,6 +164,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 
 	lbID := util.GetIngressClassLoadBalancerId(ingressClass)
 
+	var ensureRoutingPolicyErr error
 	errorSyncing := false
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
@@ -183,11 +188,15 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 			})
 		}
 
+		// We purposefully only log here then return an error at the end, so we can attempt to sync all listeners
+		// Store the first error if we see any, and return it up the chain
 		err = wrapperClient.GetLbClient().EnsureRoutingPolicy(context.TODO(), lbID, listenerName, rules)
 		if err != nil {
-			// we purposefully only log here then return an error at the end, so we can attempt to sync all listeners.
 			klog.ErrorS(err, "unable to ensure route policy", "ingressClass", klog.KObj(ingressClass), "listenerName", listenerName)
 			errorSyncing = true
+			if ensureRoutingPolicyErr == nil {
+				ensureRoutingPolicyErr = err
+			}
 			continue
 		}
 	}
@@ -237,7 +246,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 	}
 
 	if errorSyncing {
-		return errors.New("error encountered syncing routing policies")
+		return fmt.Errorf("error encountered syncing routing policies: %w", ensureRoutingPolicyErr)
 	}
 
 	return nil
@@ -251,6 +260,8 @@ func (c *Controller) handleErr(err error, key interface{}) {
 		// an outdated error history.
 		c.queue.Forget(key)
 		return
+	} else if !errors.Is(err, errIngressClassNotReady) && c.eventRecorder != nil {
+		util.PublishWarningEventForIngressClass(c.eventRecorder, c.ingressClassLister, key, err, "RoutingPolicyReconcileFailed", "RoutingPolicyReconcile")
 	}
 
 	if errors.Is(err, errIngressClassNotReady) {

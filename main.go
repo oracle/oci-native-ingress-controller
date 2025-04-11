@@ -34,6 +34,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
+	events "k8s.io/client-go/tools/events"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
@@ -61,6 +62,7 @@ func main() {
 	flag.IntVar(&opts.MetricsPort, "metrics-port", 2223, "Metrics port for metrics backend")
 	flag.BoolVar(&opts.UseLbCompartmentForCertificates, "use-lb-compartment-for-certificates", false,
 		"use the compartment supplied in IngressClassParam.spec.compartmentId for certificate management")
+	flag.BoolVar(&opts.EmitEvents, "emit-events", false, "emit kubernetes events for Ingress/IngressClass errors observed during reconciliation")
 
 	var logFile string
 	flag.StringVar(&logFile, "log-file", "", "absolute path to the file where application logs will be stored")
@@ -171,11 +173,19 @@ func main() {
 
 	ingressClassInformer, ingressInformer, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer := setupInformers(informerFactory, ctx, classParamInformer)
 
+	var eventRecorder events.EventRecorder
+	if opts.EmitEvents {
+		eventBroadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: client.EventsV1()})
+		eventBroadcaster.StartStructuredLogging(5)
+		eventBroadcaster.StartRecordingToSink(make(chan struct{}))
+		eventRecorder = eventBroadcaster.NewRecorder(scheme.Scheme, opts.ControllerClass)
+	}
+
 	server.SetupWebhookServer(ingressInformer, serviceInformer, client, ctx)
 	mux := http.NewServeMux()
 	reg, err := server.SetupMetricsServer(opts.MetricsBackend, opts.MetricsPort, mux, ctx)
 
-	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer, c, reg)
+	run := server.SetUpControllers(opts, ingressClassInformer, ingressInformer, client, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer, c, reg, eventRecorder)
 
 	metric.ServeMetrics(opts.MetricsPort, mux)
 	// we use the Lease lock type since edits to Leases are less common

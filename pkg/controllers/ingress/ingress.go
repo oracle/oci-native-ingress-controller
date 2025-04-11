@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 	"reflect"
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"time"
@@ -66,13 +67,14 @@ type Controller struct {
 	metricsCollector                *metric.IngressCollector
 	ctrCache                        ctrcache.Cache
 	useLbCompartmentForCertificates bool
+	eventRecorder                   events.EventRecorder
 }
 
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, secretInformer coreinformers.SecretInformer,
-	client *client.ClientProvider, reg *prometheus.Registry, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool) *Controller {
+	client *client.ClientProvider, reg *prometheus.Registry, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
 		controllerClass:                 controllerClass,
@@ -88,6 +90,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		metricsCollector:                metric.NewIngressCollector(controllerClass, reg),
 		ctrCache:                        ctrCache,
 		useLbCompartmentForCertificates: useLbCompartmentForCertificates,
+		eventRecorder:                   eventRecorder,
 	}
 
 	ingressInformer.Informer().AddEventHandler(
@@ -695,6 +698,8 @@ func (c *Controller) handleErr(err error, key interface{}) {
 		// an outdated error history.
 		c.queue.Forget(key)
 		return
+	} else if c.eventRecorder != nil {
+		util.PublishWarningEventForIngress(c.eventRecorder, c.ingressLister, key, err, "IngressReconcileFailed", "IngressReconcile")
 	}
 
 	if errors.Is(err, errIngressClassNotReady) {

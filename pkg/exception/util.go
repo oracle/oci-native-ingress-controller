@@ -1,6 +1,7 @@
 package exception
 
 import (
+	"errors"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
@@ -57,4 +58,27 @@ func (e *ConflictServiceError) GetOpcRequestID() string {
 
 func (e *ConflictServiceError) Error() string {
 	return "Conflict"
+}
+
+// TransientError : We will not publish events for an expected transient errors
+type TransientError struct {
+	wrappedError error
+}
+
+func (e TransientError) Error() string {
+	return e.wrappedError.Error()
+}
+
+func (e TransientError) GetWrappedError() error {
+	return e.wrappedError
+}
+
+func NewTransientError(err error) TransientError {
+	return TransientError{wrappedError: err}
+}
+
+// HasTransientError is true if err has a TransientError in its wrap chain
+func HasTransientError(err error) bool {
+	transientError := TransientError{}
+	return errors.As(err, &transientError)
 }

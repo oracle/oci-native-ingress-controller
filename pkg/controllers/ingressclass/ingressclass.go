@@ -14,6 +14,7 @@ import (
 	"fmt"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/events"
 	"reflect"
 	"time"
 
@@ -53,12 +54,13 @@ type Controller struct {
 	defaultSubnetId      string
 	controllerClass      string
 
-	lister   networkinglisters.IngressClassLister
-	queue    workqueue.RateLimitingInterface
-	informer networkinginformers.IngressClassInformer
-	saLister corelisters.ServiceAccountLister
-	client   *client.ClientProvider
-	cache    ctrcache.Cache
+	lister        networkinglisters.IngressClassLister
+	queue         workqueue.RateLimitingInterface
+	informer      networkinginformers.IngressClassInformer
+	saLister      corelisters.ServiceAccountLister
+	client        *client.ClientProvider
+	cache         ctrcache.Cache
+	eventRecorder events.EventRecorder
 }
 
 // NewController creates a new Controller.
@@ -68,7 +70,7 @@ func NewController(
 	controllerClass string,
 	informer networkinginformers.IngressClassInformer,
 	saInformer coreinformers.ServiceAccountInformer,
-	client *client.ClientProvider, ctrcache ctrcache.Cache) *Controller {
+	client *client.ClientProvider, ctrcache ctrcache.Cache, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
 		defaultCompartmentId: defaultCompartmentId,
@@ -79,6 +81,7 @@ func NewController(
 		saLister:             saInformer.Lister(),
 		client:               client,
 		cache:                ctrcache,
+		eventRecorder:        eventRecorder,
 		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
 	}
 
@@ -645,6 +648,8 @@ func (c *Controller) handleErr(err error, key interface{}) {
 		// an outdated error history.
 		c.queue.Forget(key)
 		return
+	} else if c.eventRecorder != nil {
+		util.PublishWarningEventForIngressClass(c.eventRecorder, c.lister, key, err, "IngressClassReconcileFailed", "IngressClassReconcile")
 	}
 
 	// This controller retries 5 times if something goes wrong. After that, it stops trying.

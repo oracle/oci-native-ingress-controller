@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 	"sync"
 	"testing"
 	"time"
@@ -223,7 +224,8 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		DefaultConfigGetter: &MockConfigGetter{},
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client)
+	fakeRecorder := events.NewFakeRecorder(10)
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client, fakeRecorder)
 	return c
 }
 

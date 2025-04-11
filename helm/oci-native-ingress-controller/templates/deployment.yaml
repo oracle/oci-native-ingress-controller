@@ -69,6 +69,7 @@ spec:
           - --metrics-port={{.Values.metrics.port}}
           - --v=4
           - --use-lb-compartment-for-certificates={{ .Values.useLbCompartmentForCertificates }}
+          - --emit-events={{ .Values.emitEvents }}
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"

@@ -37,6 +37,7 @@ type IngressOpts struct {
 	MetricsBackend                  string
 	MetricsPort                     int
 	UseLbCompartmentForCertificates bool
+	EmitEvents                      bool
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {
