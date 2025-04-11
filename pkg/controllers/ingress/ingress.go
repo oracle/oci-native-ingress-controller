@@ -398,9 +398,11 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	for bsName := range lb.BackendSets {
 		actualBackendSets.Insert(bsName)
 
-		err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, certificateCompartmentId, c)
-		if err != nil {
-			return err
+		if desiredBackendSets.Has(bsName) {
+			err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, certificateCompartmentId, c)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -430,11 +432,14 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	// Determine listeners... This is based off path ports.
 	actualListenerPorts := sets.NewInt32()
 	for _, listener := range lb.Listeners {
-		actualListenerPorts.Insert(int32(*listener.Port))
+		listenerPort := int32(*listener.Port)
+		actualListenerPorts.Insert(listenerPort)
 
-		err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, certificateCompartmentId, c)
-		if err != nil {
-			return err
+		if desiredPorts.Has(listenerPort) {
+			err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, certificateCompartmentId, c)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
