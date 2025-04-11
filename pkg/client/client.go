@@ -144,8 +144,10 @@ func (c *WrapperClient) GetContainerEngineClient() *containerengine.ContainerEng
 
 func GetClientContext(ingressClass *v1.IngressClass, saLister v12.ServiceAccountLister, provider *ClientProvider, namespace, name string) (context.Context, error) {
 	saName, useWorkloadIdentity := "", false
-	if annotations := ingressClass.Annotations; annotations != nil {
-		saName, useWorkloadIdentity = annotations[util.IngressClassServiceAccountName]
+	if ingressClass != nil {
+		if annotations := ingressClass.Annotations; annotations != nil {
+			saName, useWorkloadIdentity = annotations[util.IngressClassServiceAccountName]
+		}
 	}
 
 	var ctx context.Context

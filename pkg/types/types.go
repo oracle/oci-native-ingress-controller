@@ -38,6 +38,7 @@ type IngressOpts struct {
 	MetricsPort                     int
 	UseLbCompartmentForCertificates bool
 	EmitEvents                      bool
+	CertDeletionGracePeriodInDays   int64
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {

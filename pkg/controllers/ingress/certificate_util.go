@@ -103,7 +103,7 @@ func CreateImportedTypeCertificate(tlsSecretData *TLSSecretData, certificateName
 		CertificateConfig: configDetails,
 		CompartmentId:     &compartmentId,
 		FreeformTags: map[string]string{
-			certificateHashTagKey: hashPublicTlsData(tlsSecretData),
+			util.CertificateHashTagKey: hashPublicTlsData(tlsSecretData),
 		},
 	}
 	createCertificateRequest := certificatesmanagement.CreateCertificateRequest{
@@ -137,7 +137,7 @@ func UpdateImportedTypeCertificate(certificateId *string, tlsSecretData *TLSSecr
 	updateCertificateDetails := certificatesmanagement.UpdateCertificateDetails{
 		CertificateConfig: configDetails,
 		FreeformTags: map[string]string{
-			certificateHashTagKey: hashPublicTlsData(tlsSecretData),
+			util.CertificateHashTagKey: hashPublicTlsData(tlsSecretData),
 		},
 	}
 
@@ -289,7 +289,7 @@ func FindCaBundleWithName(certificateName string, compartmentId string,
 	}
 
 	klog.Infof("Searching for ca bundles with name %s in compartment %s.", certificateName, compartmentId)
-	listCaBundles, err := certificatesClient.ListCaBundles(context.TODO(), listCaBundlesRequest)
+	listCaBundles, _, err := certificatesClient.ListCaBundles(context.TODO(), listCaBundlesRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +312,7 @@ func CreateCaBundle(certificateName string, compartmentId string, certificatesCl
 		CompartmentId: &compartmentId,
 		CaBundlePem:   certificateContents,
 		FreeformTags: map[string]string{
-			caBundleHashTagKey: hashString(certificateContents),
+			util.CaBundleHashTagKey: hashString(certificateContents),
 		},
 	}
 	createCaBundleRequest := certificatesmanagement.CreateCaBundleRequest{
@@ -338,7 +338,7 @@ func UpdateCaBundle(caBundleId string, certificatesClient *certificate.Certifica
 	caBundleDetails := certificatesmanagement.UpdateCaBundleDetails{
 		CaBundlePem: certificateContents,
 		FreeformTags: map[string]string{
-			caBundleHashTagKey: hashString(certificateContents),
+			util.CaBundleHashTagKey: hashString(certificateContents),
 		},
 	}
 

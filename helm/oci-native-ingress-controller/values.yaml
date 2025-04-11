@@ -130,3 +130,8 @@ useLbCompartmentForCertificates: false
 
 # Emit kubernetes events for Ingress/IngressClass errors observed during reconciliation
 emitEvents: false
+
+# Integer number of days to wait before an unused OCI Certificate service resource managed by NIC is deleted
+# This cleanup is done periodically by NIC
+# If less than 0, certificate resource cleanup is disabled
+certDeletionGracePeriodInDays: 0

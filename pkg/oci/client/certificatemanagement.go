@@ -19,6 +19,7 @@ type CertificateManagementInterface interface {
 	ListCaBundles(ctx context.Context, request certificatesmanagement.ListCaBundlesRequest) (certificatesmanagement.ListCaBundlesResponse, error)
 	UpdateCaBundle(ctx context.Context, request certificatesmanagement.UpdateCaBundleRequest) (certificatesmanagement.UpdateCaBundleResponse, error)
 	DeleteCaBundle(ctx context.Context, request certificatesmanagement.DeleteCaBundleRequest) (certificatesmanagement.DeleteCaBundleResponse, error)
+	ListAssociations(ctx context.Context, request certificatesmanagement.ListAssociationsRequest) (certificatesmanagement.ListAssociationsResponse, error)
 }
 
 type CertificateManagementClient struct {
@@ -89,4 +90,9 @@ func (client CertificateManagementClient) UpdateCaBundle(ctx context.Context,
 func (client CertificateManagementClient) DeleteCaBundle(ctx context.Context,
 	request certificatesmanagement.DeleteCaBundleRequest) (certificatesmanagement.DeleteCaBundleResponse, error) {
 	return client.managementClient.DeleteCaBundle(ctx, request)
+}
+
+func (client CertificateManagementClient) ListAssociations(ctx context.Context,
+	request certificatesmanagement.ListAssociationsRequest) (certificatesmanagement.ListAssociationsResponse, error) {
+	return client.managementClient.ListAssociations(ctx, request)
 }

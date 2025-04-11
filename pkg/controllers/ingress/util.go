@@ -30,8 +30,6 @@ import (
 )
 
 const (
-	certificateHashTagKey              = "oci-native-ingress-controller-certificate-hash"
-	caBundleHashTagKey                 = "oci-native-ingress-controller-ca-bundle-hash"
 	certificateVersionsToPreserveCount = 5
 )
 
@@ -151,7 +149,7 @@ func getCertificateNameFromSecret(namespace string, secretName string, secretLis
 		return "", fmt.Errorf("unable to GET secret %s: %w", klog.KRef(namespace, secretName), err)
 	}
 
-	return fmt.Sprintf("oci-nic-%s", secret.UID), nil
+	return fmt.Sprintf("%s-%s", util.CertificateResourcePrefix, secret.UID), nil
 }
 
 func GetSSLConfigForBackendSet(namespace string, artifactType string, artifact string, lb *ociloadbalancer.LoadBalancer, bsName string,
@@ -287,7 +285,7 @@ func ensureCertificateForListener(inputCertificateId string, namespace string, s
 			return "", err
 		}
 
-		if cert.FreeformTags == nil || hashPublicTlsData(tlsSecretData) != cert.FreeformTags[certificateHashTagKey] {
+		if cert.FreeformTags == nil || hashPublicTlsData(tlsSecretData) != cert.FreeformTags[util.CertificateHashTagKey] {
 			klog.Infof("Need to update certificate %s for secret %s", certificateId, klog.KRef(namespace, secretName))
 			cert, err = UpdateImportedTypeCertificate(&certificateId, tlsSecretData, client.GetCertClient())
 			if err != nil {
@@ -343,7 +341,7 @@ func ensureCaBundleForBackendSet(inputCaBundleId string, namespace string, secre
 			return nil, err
 		}
 
-		if caBundle.FreeformTags == nil || hashString(tlsSecretData.CaCertificateChain) != caBundle.FreeformTags[caBundleHashTagKey] {
+		if caBundle.FreeformTags == nil || hashString(tlsSecretData.CaCertificateChain) != caBundle.FreeformTags[util.CaBundleHashTagKey] {
 			klog.Infof("Detected hash mismatch for ca bundle related to secret %s, will update ca bundle %s",
 				klog.KRef(namespace, secretName), *caBundle.Id)
 			_, err = UpdateCaBundle(*caBundleId, client.GetCertClient(), tlsSecretData.CaCertificateChain)

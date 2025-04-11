@@ -12,8 +12,10 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"github.com/oracle/oci-native-ingress-controller/pkg/task/certificatecleanup"
 	"net/http"
 	"os"
+	"time"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -146,6 +148,20 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				eventRecorder,
 			)
 			go backendController.Run(3, ctx.Done())
+		}
+
+		if opts.CertDeletionGracePeriodInDays > 0 {
+			certificateCleanUpTask := certificatecleanup.NewTask(
+				opts.ControllerClass,
+				ingressClassInformer,
+				serviceAccountInformer,
+				opts.UseLbCompartmentForCertificates,
+				opts.CompartmentId,
+				time.Duration(opts.CertDeletionGracePeriodInDays)*(24*time.Hour),
+				client,
+				c,
+			)
+			go certificateCleanUpTask.Run(ctx.Done())
 		}
 	}
 }

@@ -11,34 +11,32 @@ package main
 import (
 	"context"
 	"flag"
-	corev1 "k8s.io/api/core/v1"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
-	"github.com/oracle/oci-native-ingress-controller/pkg/server"
-	"github.com/oracle/oci-native-ingress-controller/pkg/types"
-	v1 "k8s.io/client-go/informers/core/v1"
-	networkinginformers "k8s.io/client-go/informers/networking/v1"
-	"k8s.io/klog/v2"
-
-	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
-
 	"github.com/google/uuid"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
+	v1 "k8s.io/client-go/informers/core/v1"
+	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	events "k8s.io/client-go/tools/events"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/klog/v2"
+	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
 	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
+	"github.com/oracle/oci-native-ingress-controller/pkg/server"
+	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 )
 
 func main() {
@@ -63,6 +61,8 @@ func main() {
 	flag.BoolVar(&opts.UseLbCompartmentForCertificates, "use-lb-compartment-for-certificates", false,
 		"use the compartment supplied in IngressClassParam.spec.compartmentId for certificate management")
 	flag.BoolVar(&opts.EmitEvents, "emit-events", false, "emit kubernetes events for Ingress/IngressClass errors observed during reconciliation")
+	flag.Int64Var(&opts.CertDeletionGracePeriodInDays, "cert-deletion-grace-period-in-days", 0,
+		"number of days before an unused oci certificate service resource is deleted, if non-positive this cleanup is disabled")
 
 	var logFile string
 	flag.StringVar(&logFile, "log-file", "", "absolute path to the file where application logs will be stored")
@@ -177,7 +177,7 @@ func main() {
 	if opts.EmitEvents {
 		eventBroadcaster := events.NewBroadcaster(&events.EventSinkImpl{Interface: client.EventsV1()})
 		eventBroadcaster.StartStructuredLogging(5)
-		eventBroadcaster.StartRecordingToSink(make(chan struct{}))
+		eventBroadcaster.StartRecordingToSink(ctx.Done())
 		eventRecorder = eventBroadcaster.NewRecorder(scheme.Scheme, opts.ControllerClass)
 	}
 
