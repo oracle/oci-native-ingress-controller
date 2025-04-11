@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"strings"
 	"time"
@@ -108,6 +110,25 @@ const (
 type DefinedTagsType = map[string]map[string]interface{}
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")
+
+func GetIngressClassParameters(ic *networkingv1.IngressClass, ctrCache ctrcache.Cache) (*v1beta1.IngressClassParameters, error) {
+	icp := &v1beta1.IngressClassParameters{}
+	if ic.Spec.Parameters != nil {
+		namespace := ""
+		if ic.Spec.Parameters.Namespace != nil {
+			namespace = *ic.Spec.Parameters.Namespace
+		}
+		err := ctrCache.Get(context.TODO(), ctrclient.ObjectKey{
+			Name:      ic.Spec.Parameters.Name,
+			Namespace: namespace,
+		}, icp)
+		if err != nil {
+			return icp, fmt.Errorf("unable to fetch IngressClassParameters %s: %w", ic.Spec.Parameters.Name, err)
+		}
+	}
+
+	return icp, nil
+}
 
 func GetIngressClassCompartmentId(p *v1beta1.IngressClassParameters, defaultCompartment string) string {
 	if strings.TrimSpace(p.Spec.CompartmentId) == "" {

@@ -20,9 +20,6 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"k8s.io/klog/v2"
 
-	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
-	ctrclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +31,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
+	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
 	"github.com/pkg/errors"
 
@@ -240,19 +238,9 @@ func (c *Controller) ensureLoadBalancer(ctx context.Context, ic *networkingv1.In
 		return err
 	}
 
-	icp := &v1beta1.IngressClassParameters{}
-	if ic.Spec.Parameters != nil {
-		namespace := ""
-		if ic.Spec.Parameters.Namespace != nil {
-			namespace = *ic.Spec.Parameters.Namespace
-		}
-		err = c.cache.Get(context.TODO(), ctrclient.ObjectKey{
-			Name:      ic.Spec.Parameters.Name,
-			Namespace: namespace,
-		}, icp)
-		if err != nil {
-			return fmt.Errorf("unable to fetch IngressClassParameters %s: %w", ic.Spec.Parameters.Name, err)
-		}
+	icp, err := util.GetIngressClassParameters(ic, c.cache)
+	if err != nil {
+		return err
 	}
 
 	if lb == nil {

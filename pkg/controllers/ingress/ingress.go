@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"reflect"
+	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
@@ -54,36 +55,39 @@ type Controller struct {
 	controllerClass      string
 	defaultCompartmentId string
 
-	ingressClassLister networkinglisters.IngressClassLister
-	ingressLister      networkinglisters.IngressLister
-	serviceLister      corelisters.ServiceLister
-	saLister           corelisters.ServiceAccountLister
-	secretLister       corelisters.SecretLister
-	queue              workqueue.RateLimitingInterface
-	informer           networkinginformers.IngressInformer
-	client             *client.ClientProvider
-	metricsCollector   *metric.IngressCollector
+	ingressClassLister              networkinglisters.IngressClassLister
+	ingressLister                   networkinglisters.IngressLister
+	serviceLister                   corelisters.ServiceLister
+	saLister                        corelisters.ServiceAccountLister
+	secretLister                    corelisters.SecretLister
+	queue                           workqueue.RateLimitingInterface
+	informer                        networkinginformers.IngressInformer
+	client                          *client.ClientProvider
+	metricsCollector                *metric.IngressCollector
+	ctrCache                        ctrcache.Cache
+	useLbCompartmentForCertificates bool
 }
 
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, secretInformer coreinformers.SecretInformer,
-	client *client.ClientProvider,
-	reg *prometheus.Registry) *Controller {
+	client *client.ClientProvider, reg *prometheus.Registry, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool) *Controller {
 
 	c := &Controller{
-		controllerClass:      controllerClass,
-		defaultCompartmentId: defaultCompartmentId,
-		ingressClassLister:   ingressClassInformer.Lister(),
-		ingressLister:        ingressInformer.Lister(),
-		informer:             ingressInformer,
-		serviceLister:        serviceLister,
-		saLister:             saInformer.Lister(),
-		secretLister:         secretInformer.Lister(),
-		client:               client,
-		queue:                workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
-		metricsCollector:     metric.NewIngressCollector(controllerClass, reg),
+		controllerClass:                 controllerClass,
+		defaultCompartmentId:            defaultCompartmentId,
+		ingressClassLister:              ingressClassInformer.Lister(),
+		ingressLister:                   ingressInformer.Lister(),
+		informer:                        ingressInformer,
+		serviceLister:                   serviceLister,
+		saLister:                        saInformer.Lister(),
+		secretLister:                    secretInformer.Lister(),
+		client:                          client,
+		queue:                           workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		metricsCollector:                metric.NewIngressCollector(controllerClass, reg),
+		ctrCache:                        ctrCache,
+		useLbCompartmentForCertificates: useLbCompartmentForCertificates,
 	}
 
 	ingressInformer.Informer().AddEventHandler(
@@ -357,6 +361,16 @@ func (c *Controller) ensureLoadBalancerIP(ctx context.Context, lbID string, ingr
 func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass) error {
 
 	klog.Infof("Processing ingress %s/%s", ingressClass.Name, ingress.Name)
+
+	certificateCompartmentId := c.defaultCompartmentId
+	if c.useLbCompartmentForCertificates {
+		ingressClassParameters, err := util.GetIngressClassParameters(ingressClass, c.ctrCache)
+		if err != nil {
+			return err
+		}
+		certificateCompartmentId = util.GetIngressClassCompartmentId(ingressClassParameters, c.defaultCompartmentId)
+	}
+
 	stateStore := state.NewStateStore(c.ingressClassLister, c.ingressLister, c.serviceLister, c.metricsCollector)
 	ingressConfigError := stateStore.BuildState(ingressClass)
 
@@ -384,7 +398,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	for bsName := range lb.BackendSets {
 		actualBackendSets.Insert(bsName)
 
-		err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, c)
+		err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, certificateCompartmentId, c)
 		if err != nil {
 			return err
 		}
@@ -396,7 +410,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
 		klog.V(2).InfoS("creating backend set for ingress", "ingress", klog.KObj(ingress), "backendSetName", bsName)
 		artifact, artifactType := stateStore.GetTLSConfigForBackendSet(bsName)
-		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, c.defaultCompartmentId, c.secretLister, wrapperClient)
+		backendSetSslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, bsName, certificateCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -418,7 +432,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	for _, listener := range lb.Listeners {
 		actualListenerPorts.Insert(int32(*listener.Port))
 
-		err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, c)
+		err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, certificateCompartmentId, c)
 		if err != nil {
 			return err
 		}
@@ -431,7 +445,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		artifact, artifactType := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, c.defaultCompartmentId, c.secretLister, wrapperClient)
+		listenerSslConfig, err := GetSSLConfigForListener(ingress.Namespace, nil, artifactType, artifact, certificateCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -538,7 +552,8 @@ func deleteListeners(actualListeners sets.Int32, desiredListeners sets.Int32, lb
 	return nil
 }
 
-func syncListener(ctx context.Context, namespace string, stateStore *state.StateStore, lbId *string, listenerName string, c *Controller) error {
+func syncListener(ctx context.Context, namespace string, stateStore *state.StateStore, lbId *string,
+	listenerName string, certificateCompartmentId string, c *Controller) error {
 	startTime := util.GetCurrentTimeInUnixMillis()
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
@@ -558,7 +573,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 	artifact, artifactType := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
 	if artifact != "" {
-		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, c.defaultCompartmentId, c.secretLister, wrapperClient)
+		sslConfig, err = GetSSLConfigForListener(namespace, &listener, artifactType, artifact, certificateCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -598,7 +613,8 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 	return nil
 }
 
-func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID string, backendSetName string, stateStore *state.StateStore, c *Controller) error {
+func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID string, backendSetName string,
+	stateStore *state.StateStore, certificateCompartmentId string, c *Controller) error {
 
 	startTime := util.GetCurrentTimeInUnixMillis()
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
@@ -617,7 +633,7 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 
 	needsUpdate := false
 	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, c.defaultCompartmentId, c.secretLister, wrapperClient)
+	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, certificateCompartmentId, c.secretLister, wrapperClient)
 	if err != nil {
 		return err
 	}

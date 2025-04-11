@@ -73,6 +73,7 @@ func (certificatesClient *CertificatesClient) GetFromCaBundleCache(id string) *C
 
 func (certificatesClient *CertificatesClient) CreateCertificate(ctx context.Context,
 	req certificatesmanagement.CreateCertificateRequest) (*certificatesmanagement.Certificate, string, error) {
+	klog.Infof("Creating certicate %s in compartment %s", *req.Name, *req.CompartmentId)
 	resp, err := certificatesClient.ManagementClient.CreateCertificate(ctx, req)
 	if err != nil {
 		klog.Errorf("Error creating certificate %s, %s ", *req.Name, err.Error())
@@ -84,6 +85,7 @@ func (certificatesClient *CertificatesClient) CreateCertificate(ctx context.Cont
 
 func (certificatesClient *CertificatesClient) CreateCaBundle(ctx context.Context,
 	req certificatesmanagement.CreateCaBundleRequest) (*certificatesmanagement.CaBundle, string, error) {
+	klog.Infof("Creating cabundle %s in compartment %s", *req.Name, *req.CompartmentId)
 	resp, err := certificatesClient.ManagementClient.CreateCaBundle(ctx, req)
 	if err != nil {
 		klog.Errorf("Error creating ca bundle %s, %s ", *req.Name, err.Error())

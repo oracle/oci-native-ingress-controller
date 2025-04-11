@@ -233,6 +233,22 @@ func TestHashPublicTlsData(t *testing.T) {
 	Expect(hashPublicTlsData(&tlsData)).Should(Equal(hashedString))
 }
 
+func TestHashString(t *testing.T) {
+	RegisterTestingT(t)
+
+	testString := "test-string"
+	hashedString := hashString(&testString)
+	Expect(hashedString).Should(Equal("ffe65f1d98fafedea3514adc956c8ada5980c6c5d2552fd61f48401aefd5c00e"))
+}
+
+func TestHashStringShort(t *testing.T) {
+	RegisterTestingT(t)
+
+	testString := "test-string"
+	hashedString := hashStringShort(&testString)
+	Expect(hashedString).Should(Equal("ffe65f1d98fafedea3514adc956c8ada"))
+}
+
 func TestGetSSLConfigForBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	c, lb, secretLister := initsUtil(&corev1.SecretList{
