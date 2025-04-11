@@ -11,6 +11,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"os"
 
@@ -187,7 +188,15 @@ func setupClient(ctx context.Context, opts types.IngressOpts, k8client clientset
 func SetupWebhookServer(ingressInformer networkinginformers.IngressInformer, serviceInformer v1.ServiceInformer, client *clientset.Clientset, ctx context.Context) {
 	klog.Info("setting up webhook server")
 
-	server := &webhook.DefaultServer{}
+	server := &webhook.DefaultServer{
+		Options: webhook.Options{
+			TLSOpts: []func(*tls.Config){
+				func(config *tls.Config) {
+					config.MinVersion = tls.VersionTLS12
+				},
+			},
+		},
+	}
 	server.Register("/mutate-v1-pod", &webhook.Admission{Handler: podreadiness.NewWebhook(ingressInformer.Lister(), serviceInformer.Lister(), client)})
 
 	go func() {
