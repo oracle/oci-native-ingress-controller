@@ -68,6 +68,7 @@ spec:
           - --metrics-backend={{.Values.metrics.backend}}
           - --metrics-port={{.Values.metrics.port}}
           - --v=4
+          - --use-lb-compartment-for-certificates={{ .Values.useLbCompartmentForCertificates }}
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"

@@ -89,6 +89,14 @@ func hashString(data *string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+func hashStringShort(data *string) string {
+	hash := hashString(data)
+	if len(hash) > 32 {
+		hash = hash[:32]
+	}
+	return hash
+}
+
 func getTlsSecretContent(namespace string, secretName string, secretLister v1.SecretLister) (*TLSSecretData, error) {
 	secret, err := secretLister.Secrets(namespace).Get(secretName)
 	if err != nil {

@@ -59,6 +59,8 @@ func main() {
 	flag.StringVar(&opts.AuthSecretName, "auth-secret-name", "", "Secret name used for auth, cannot be empty if authType is user principal")
 	flag.StringVar(&opts.MetricsBackend, "metrics-backend", "prometheus", "Backend used for metrics")
 	flag.IntVar(&opts.MetricsPort, "metrics-port", 2223, "Metrics port for metrics backend")
+	flag.BoolVar(&opts.UseLbCompartmentForCertificates, "use-lb-compartment-for-certificates", false,
+		"use the compartment supplied in IngressClassParam.spec.compartmentId for certificate management")
 
 	var logFile string
 	flag.StringVar(&logFile, "log-file", "", "absolute path to the file where application logs will be stored")
@@ -105,6 +107,10 @@ func main() {
 		if opts.AuthSecretName == "" {
 			klog.Fatal("unable to get secret name (missing secret-name flag) since authType is user.")
 		}
+	}
+
+	if opts.UseLbCompartmentForCertificates {
+		klog.Info("use-lb-compartment-for-certificates flag set to true, will use LB compartment for certificate management")
 	}
 
 	// leader election uses the Kubernetes API by writing to a

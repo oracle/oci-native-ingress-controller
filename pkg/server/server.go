@@ -85,6 +85,8 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			secretInformer,
 			client,
 			reg,
+			c,
+			opts.UseLbCompartmentForCertificates,
 		)
 
 		routingPolicyController := routingpolicy.NewController(

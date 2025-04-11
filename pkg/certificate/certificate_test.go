@@ -38,10 +38,13 @@ func TestCertificatesClient_Cache(t *testing.T) {
 	client := setup()
 
 	request := certificatesmanagement.CreateCertificateRequest{
-		CreateCertificateDetails: certificatesmanagement.CreateCertificateDetails{},
-		OpcRequestId:             nil,
-		OpcRetryToken:            nil,
-		RequestMetadata:          common.RequestMetadata{},
+		CreateCertificateDetails: certificatesmanagement.CreateCertificateDetails{
+			Name:          common.String("certificate-name"),
+			CompartmentId: common.String("compartment-id"),
+		},
+		OpcRequestId:    nil,
+		OpcRetryToken:   nil,
+		RequestMetadata: common.RequestMetadata{},
 	}
 	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
@@ -54,10 +57,13 @@ func TestCertificatesClient_CreateCertificate(t *testing.T) {
 	client := setup()
 
 	request := certificatesmanagement.CreateCertificateRequest{
-		CreateCertificateDetails: certificatesmanagement.CreateCertificateDetails{},
-		OpcRequestId:             nil,
-		OpcRetryToken:            nil,
-		RequestMetadata:          common.RequestMetadata{},
+		CreateCertificateDetails: certificatesmanagement.CreateCertificateDetails{
+			Name:          common.String("certificate-name"),
+			CompartmentId: common.String("compartment-id"),
+		},
+		OpcRequestId:    nil,
+		OpcRetryToken:   nil,
+		RequestMetadata: common.RequestMetadata{},
 	}
 	cert, _, err := client.CreateCertificate(context.TODO(), request)
 	Expect(err).Should(BeNil())
@@ -70,10 +76,13 @@ func TestCertificatesClient_CreateCaBundle(t *testing.T) {
 	client := setup()
 
 	request := certificatesmanagement.CreateCaBundleRequest{
-		CreateCaBundleDetails: certificatesmanagement.CreateCaBundleDetails{},
-		OpcRequestId:          nil,
-		OpcRetryToken:         nil,
-		RequestMetadata:       common.RequestMetadata{},
+		CreateCaBundleDetails: certificatesmanagement.CreateCaBundleDetails{
+			Name:          common.String("cabundle-name"),
+			CompartmentId: common.String("compartment-id"),
+		},
+		OpcRequestId:    nil,
+		OpcRetryToken:   nil,
+		RequestMetadata: common.RequestMetadata{},
 	}
 	cert, _, err := client.CreateCaBundle(context.TODO(), request)
 	Expect(err).Should(BeNil())

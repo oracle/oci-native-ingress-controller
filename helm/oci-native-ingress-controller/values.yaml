@@ -123,3 +123,6 @@ objectSelector:
 metrics:
   backend: prometheus
   port: 2223
+
+# Use the compartment supplied in IngressClassParam.spec.compartmentId for certificate management
+useLbCompartmentForCertificates: false

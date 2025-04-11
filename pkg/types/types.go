@@ -24,18 +24,19 @@ const (
 )
 
 type IngressOpts struct {
-	KubeConfig         string
-	LeaseLockName      string
-	LeaseLockNamespace string
-	LeaseID            string
-	CompartmentId      string
-	SubnetId           string
-	ClusterId          string
-	ControllerClass    string
-	AuthType           string
-	AuthSecretName     string
-	MetricsBackend     string
-	MetricsPort        int
+	KubeConfig                      string
+	LeaseLockName                   string
+	LeaseLockNamespace              string
+	LeaseID                         string
+	CompartmentId                   string
+	SubnetId                        string
+	ClusterId                       string
+	ControllerClass                 string
+	AuthType                        string
+	AuthSecretName                  string
+	MetricsBackend                  string
+	MetricsPort                     int
+	UseLbCompartmentForCertificates bool
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {

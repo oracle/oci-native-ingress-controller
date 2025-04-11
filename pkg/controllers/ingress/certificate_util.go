@@ -107,7 +107,7 @@ func CreateImportedTypeCertificate(tlsSecretData *TLSSecretData, certificateName
 	}
 	createCertificateRequest := certificatesmanagement.CreateCertificateRequest{
 		CreateCertificateDetails: certificateDetails,
-		OpcRetryToken:            &certificateName,
+		OpcRetryToken:            common.String(hashStringShort(common.String(certificateName + compartmentId))),
 	}
 
 	createCertificate, etag, err := certificatesClient.CreateCertificate(context.TODO(), createCertificateRequest)
@@ -316,7 +316,7 @@ func CreateCaBundle(certificateName string, compartmentId string, certificatesCl
 	}
 	createCaBundleRequest := certificatesmanagement.CreateCaBundleRequest{
 		CreateCaBundleDetails: caBundleDetails,
-		OpcRetryToken:         &certificateName,
+		OpcRetryToken:         common.String(hashStringShort(common.String(certificateName + compartmentId))),
 	}
 	createCaBundle, etag, err := certificatesClient.CreateCaBundle(context.TODO(), createCaBundleRequest)
 	if err != nil {

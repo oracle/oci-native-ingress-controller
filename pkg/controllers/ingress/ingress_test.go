@@ -92,7 +92,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil)
+		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false)
 	return c
 }
 
