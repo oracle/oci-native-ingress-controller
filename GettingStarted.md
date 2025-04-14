@@ -56,6 +56,7 @@ Currently supported kubernetes versions are:
 - 1.29
 - 1.30
 - 1.31
+- 1.32
   
 We set up the cluster with either native pod networking or flannel CNI and update the security rules. 
 The documentation for NPN : [Doc Ref](https://docs.oracle.com/en-us/iaas/Content/ContEng/Concepts/contengpodnetworking_topic-OCI_CNI_plugin.htm).
@@ -484,6 +485,7 @@ type: kubernetes.io/tls
 Note: If `ca.crt` field is missing/empty, the entire certificate chain is expected to be present in `tls.crt`. The server certificate MUST be first, followed by chain of CAs.
 For certificate renewals, update the secret with the renewed certificate contents.
 In case the certificate subject information like CN, SAN, Organization, etc. are changed, the secret must be recreated.
+Certificate resource clean-up can be enabled by setting the `certDeletionGracePeriodInDays` parameter in the helm chart's `value.yaml` file.
 
 Ingress Format: 
 ```

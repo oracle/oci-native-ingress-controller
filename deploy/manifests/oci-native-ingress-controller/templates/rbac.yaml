@@ -11,15 +11,15 @@ kind: ClusterRole
 metadata:
   name: oci-native-ingress-controller-role
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.4.1
+    helm.sh/chart: oci-native-ingress-controller-1.4.2
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.4.1"
+    app.kubernetes.io/version: "1.4.2"
     app.kubernetes.io/managed-by: Helm
 rules:
-- apiGroups: [""]
+- apiGroups: ["", "events.k8s.io"]
   resources: [events]
-  verbs: [create, patch]
+  verbs: [create, patch, update]
 - apiGroups: [""]
   resources: [pods]
   verbs: [get, list, watch]
@@ -51,10 +51,10 @@ kind: ClusterRoleBinding
 metadata:
   name: oci-native-ingress-controller-rolebinding
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.4.1
+    helm.sh/chart: oci-native-ingress-controller-1.4.2
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.4.1"
+    app.kubernetes.io/version: "1.4.2"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -72,10 +72,10 @@ metadata:
   name: oci-native-ingress-controller-leader-election-role
   namespace: native-ingress-controller-system
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.4.1
+    helm.sh/chart: oci-native-ingress-controller-1.4.2
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.4.1"
+    app.kubernetes.io/version: "1.4.2"
     app.kubernetes.io/managed-by: Helm
 rules:
 - apiGroups: ["coordination.k8s.io"]
@@ -93,10 +93,10 @@ metadata:
   name: oci-native-ingress-controller-leader-election-rolebinding
   namespace: native-ingress-controller-system
   labels:
-    helm.sh/chart: oci-native-ingress-controller-1.4.1
+    helm.sh/chart: oci-native-ingress-controller-1.4.2
     app.kubernetes.io/name: oci-native-ingress-controller
     app.kubernetes.io/instance: oci-native-ingress-controller
-    app.kubernetes.io/version: "1.4.1"
+    app.kubernetes.io/version: "1.4.2"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
