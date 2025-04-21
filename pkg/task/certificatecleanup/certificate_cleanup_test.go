@@ -12,6 +12,10 @@ package certificatecleanup
 import (
 	"context"
 	"errors"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/client-go/informers"
+	fakeclientset "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
 	"net/http"
 	"testing"
 	"time"
@@ -145,6 +149,39 @@ func inits() (context.Context, *certificate.CertificatesClient) {
 
 	ctx, _ := client.GetClientContext(nil, nil, fakeClient, "", "")
 	return ctx, certificatesClient
+}
+
+func TestRun(t *testing.T) {
+	RegisterTestingT(t)
+
+	controllerClass := "oci.oraclecloud.com/native-ingress-controller"
+	fakeClient := fakeclientset.NewSimpleClientset()
+	util.UpdateFakeClientCall(fakeClient, "list", "ingressclasses", &networkingv1.IngressClassList{
+		Items: []networkingv1.IngressClass{
+			*util.GetIngressClassResource("ingressClass1", true, controllerClass),
+			*util.GetIngressClassResource("ingressClass2", false, controllerClass),
+		},
+	})
+	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
+	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()
+	ingressClassInformer.Lister()
+	saInformer := informerFactory.Core().V1().ServiceAccounts()
+	saInformer.Lister()
+	informerFactory.Start(context.TODO().Done())
+	cache.WaitForCacheSync(context.TODO().Done(), ingressClassInformer.Informer().HasSynced)
+	cache.WaitForCacheSync(context.TODO().Done(), saInformer.Informer().HasSynced)
+
+	_, certClient := inits()
+	wrapperClient := client.NewWrapperClient(fakeClient, nil, nil, certClient, nil)
+	client := &client.ClientProvider{
+		K8sClient:           fakeClient,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
+	cleanupTask := NewTask(controllerClass, ingressClassInformer, saInformer, true,
+		"compartmentId", time.Hour, client, nil)
+
+	cleanupTask.run()
 }
 
 func TestCleanupCompartment(t *testing.T) {
