@@ -31,6 +31,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	v1beta1 "github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -381,10 +382,19 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		return ingressConfigError
 	}
 
+	// Fetch IngressClassParameters once early, to be used by both backend set and listener logic
+	var ingressClassParams *v1beta1.IngressClassParameters
+	if ingressClass != nil && ingressClass.Spec.Parameters != nil {
+		var icpErr error
+		ingressClassParams, icpErr = util.GetIngressClassParameters(ingressClass, c.ctrCache)
+		if icpErr != nil {
+			// Log the error but proceed; downstream logic should handle nil ingressClassParams
+			klog.Errorf("Failed to get IngressClassParameters for IngressClass %s: %v. Defaults from IngressClassParameters may not apply.", ingressClass.Name, icpErr)
+		}
+	}
+
 	desiredPorts := stateStore.GetIngressPorts(ingress.Name)
-
 	desiredBackendSets := stateStore.GetIngressBackendSets(ingress.Name)
-
 	lbId := util.GetIngressClassLoadBalancerId(ingressClass)
 
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
@@ -402,7 +412,8 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		actualBackendSets.Insert(bsName)
 
 		if desiredBackendSets.Has(bsName) {
-			err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, certificateCompartmentId, c)
+			// Ensure ingressClass is passed to syncBackendSet
+			err = syncBackendSet(ctx, ingress, lbId, bsName, stateStore, certificateCompartmentId, c, ingressClass) // ingressClass is now passed
 			if err != nil {
 				return err
 			}
@@ -422,7 +433,32 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		healthChecker := stateStore.GetBackendSetHealthChecker(bsName)
 		policy := stateStore.GetBackendSetPolicy(bsName)
-		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig)
+
+		// Get session persistence config from IngressClassParameters (ingressClassParams is now fetched above)
+		var appCookieSpc *ociloadbalancer.SessionPersistenceConfigurationDetails
+		var lbCookieSpc *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails
+
+		if ingressClassParams != nil { // Check if fetching was successful
+			// Assuming SessionPersistenceConfiguration might be added to CRD later for app cookies
+			// if ingressClassParams.Spec.SessionPersistenceConfiguration != nil {
+			//    appCookieSpc = &ociloadbalancer.SessionPersistenceConfigurationDetails{ ... }
+			// }
+			if ingressClassParams.Spec.LbCookieSessionPersistenceConfiguration != nil {
+				config := ingressClassParams.Spec.LbCookieSessionPersistenceConfiguration
+				lbCookieSpc = &ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+					CookieName:      config.CookieName,
+					DisableFallback: config.IsDisableFallback,
+					MaxAgeInSeconds: config.TimeoutInSeconds, // Maps from CRD's TimeoutInSeconds
+					IsSecure:        config.IsSecure,
+					IsHttpOnly:      config.IsHttpOnly,
+					Domain:          config.Domain,
+					Path:            config.Path,
+				}
+				klog.V(4).Infof("Applying LbCookieSessionPersistenceConfiguration to new backend set %s", bsName)
+			}
+		}
+
+		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig, appCookieSpc, lbCookieSpc)
 		if err != nil {
 			return err
 		}
@@ -439,7 +475,8 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		actualListenerPorts.Insert(listenerPort)
 
 		if desiredPorts.Has(listenerPort) {
-			err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, certificateCompartmentId, c)
+			// Pass ingressClass to syncListener
+			err := syncListener(ctx, ingress.Namespace, stateStore, &lbId, *listener.Name, certificateCompartmentId, c, ingressClass) // ingressClass is now passed
 			if err != nil {
 				return err
 			}
@@ -447,6 +484,13 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	}
 
 	toCreate := desiredPorts.Difference(actualListenerPorts)
+
+	// ingressClassParams is already fetched and available here
+	var defaultIdleTimeout *int64
+	if ingressClassParams != nil && ingressClassParams.Spec.DefaultListenerIdleTimeoutInSeconds != nil {
+		defaultIdleTimeout = ingressClassParams.Spec.DefaultListenerIdleTimeoutInSeconds
+		klog.V(4).Infof("Using DefaultListenerIdleTimeoutInSeconds: %d for new listeners of IngressClass %s", *defaultIdleTimeout, ingressClass.Name)
+	}
 
 	for _, port := range toCreate.List() {
 		klog.V(2).InfoS("adding listener for ingress", "ingress", klog.KObj(ingress), "port", port)
@@ -460,7 +504,8 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		protocol := stateStore.GetListenerProtocol(port)
 		defaultBackendSet := stateStore.GetListenerDefaultBackendSet(port)
-		err = wrapperClient.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, defaultBackendSet, listenerSslConfig)
+		// Pass the defaultIdleTimeout to the CreateListener helper
+		err = wrapperClient.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, defaultBackendSet, listenerSslConfig, defaultIdleTimeout)
 		if err != nil {
 			return err
 		}
@@ -561,7 +606,7 @@ func deleteListeners(actualListeners sets.Int32, desiredListeners sets.Int32, lb
 }
 
 func syncListener(ctx context.Context, namespace string, stateStore *state.StateStore, lbId *string,
-	listenerName string, certificateCompartmentId string, c *Controller) error {
+	listenerName string, certificateCompartmentId string, c *Controller, ingressClass *networkingv1.IngressClass) error {
 	startTime := util.GetCurrentTimeInUnixMillis()
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
@@ -608,8 +653,39 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 		needsUpdate = true
 	}
 
+	// Get desired idle timeout from IngressClassParameters
+	var desiredIdleTimeout *int64
+	if ingressClass != nil && ingressClass.Spec.Parameters != nil {
+		ingressClassParams, icpErr := util.GetIngressClassParameters(ingressClass, c.ctrCache)
+		if icpErr != nil {
+			klog.Errorf("Failed to get IngressClassParameters for IngressClass %s in syncListener: %v. Cannot reconcile idle timeout.", ingressClass.Name, icpErr)
+		} else if ingressClassParams != nil && ingressClassParams.Spec.DefaultListenerIdleTimeoutInSeconds != nil {
+			desiredIdleTimeout = ingressClassParams.Spec.DefaultListenerIdleTimeoutInSeconds
+		}
+	}
+
+	// Check if listener's idle timeout needs update
+	var currentIdleTimeout *int64
+	if listener.ConnectionConfiguration != nil && listener.ConnectionConfiguration.IdleTimeout != nil {
+		currentIdleTimeout = listener.ConnectionConfiguration.IdleTimeout
+	}
+
+	if !reflect.DeepEqual(currentIdleTimeout, desiredIdleTimeout) {
+		// Simplified logging for pointer values
+		currentValStr, desiredValStr := "nil", "nil"
+		if currentIdleTimeout != nil {
+			currentValStr = fmt.Sprintf("%d", *currentIdleTimeout)
+		}
+		if desiredIdleTimeout != nil {
+			desiredValStr = fmt.Sprintf("%d", *desiredIdleTimeout)
+		}
+		klog.Infof("Listener %s idle timeout needs update. Current: %s, Desired: %s", listenerName, currentValStr, desiredValStr)
+		needsUpdate = true
+	}
+
 	if needsUpdate {
-		err := wrapperClient.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet)
+		// Pass desiredIdleTimeout to UpdateListener
+		err := wrapperClient.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet, desiredIdleTimeout)
 		if err != nil {
 			return err
 		}
@@ -622,61 +698,169 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 }
 
 func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID string, backendSetName string,
-	stateStore *state.StateStore, certificateCompartmentId string, c *Controller) error {
+	stateStore *state.StateStore, certificateCompartmentId string, c *Controller, ingressClass *networkingv1.IngressClass) error {
 
 	startTime := util.GetCurrentTimeInUnixMillis()
+	defer func() {
+		endTime := util.GetCurrentTimeInUnixMillis()
+		if c.metricsCollector != nil {
+			// Assuming AddIngressBackendSyncTime is the correct metric method name
+			c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+		}
+	}()
+
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
-	lb, etag, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
+
+	// Get OCI LoadBalancer ETag, needed for the UpdateBackendSet helper
+	ociLb, lbEtag, err := wrapperClient.GetLbClient().GetLoadBalancer(context.TODO(), lbID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get load balancer %s for etag: %w", lbID, err)
 	}
 
-	bs, ok := lb.BackendSets[backendSetName]
-	if !ok {
-		return fmt.Errorf("during update, backendset %s was not found", backendSetName)
+	// Get current OCI BackendSet state from the fetched LoadBalancer object
+	currentBs, backendSetExists := ociLb.BackendSets[backendSetName]
+	if !backendSetExists {
+		return fmt.Errorf("backendset %s was not found in load balancer %s during update", backendSetName, lbID)
 	}
 
-	needsUpdate := false
-	artifact, artifactType := stateStore.GetTLSConfigForBackendSet(*bs.Name)
-	sslConfig, err := GetSSLConfigForBackendSet(ingress.Namespace, artifactType, artifact, lb, *bs.Name, certificateCompartmentId, c.secretLister, wrapperClient)
+	// --- Determine Desired State from local configuration (stateStore, IngressClassParameters) ---
+	desiredPolicyStr := stateStore.GetBackendSetPolicy(backendSetName)
+	desiredHcDetails := stateStore.GetBackendSetHealthChecker(backendSetName) // Already *HealthCheckerDetails
+
+	tlsArtifact, tlsArtifactType := stateStore.GetTLSConfigForBackendSet(backendSetName)
+	desiredSslDetails, err := GetSSLConfigForBackendSet(ingress.Namespace, tlsArtifactType, tlsArtifact, ociLb, backendSetName, certificateCompartmentId, c.secretLister, wrapperClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to determine desired SSL config for backend set %s: %w", backendSetName, err)
 	}
 
-	if backendSetSslConfigNeedsUpdate(sslConfig, &bs) {
-		klog.Infof("SSL config for backend set %s update is %s", *bs.Name, util.PrettyPrint(sslConfig))
-		needsUpdate = true
-	}
-
-	healthChecker := stateStore.GetBackendSetHealthChecker(*bs.Name)
-	healthCheckerExisting := bs.HealthChecker
-	if healthChecker != nil && !compareHealthCheckers(healthChecker, healthCheckerExisting) {
-		klog.Infof("Health checker for backend set %s needs update, new health checker %s", *bs.Name, util.PrettyPrint(healthChecker))
-		needsUpdate = true
-	}
-
-	policy := stateStore.GetBackendSetPolicy(*bs.Name)
-	policyExisting := bs.Policy
-	if policy != "" && policy != *policyExisting {
-		klog.Infof("Policy for backend set %s needs update, new policy %s", *bs.Name, policy)
-		needsUpdate = true
-	}
-
-	if needsUpdate {
-		err = wrapperClient.GetLbClient().UpdateBackendSetDetails(context.TODO(), *lb.Id, etag, &bs, sslConfig, healthChecker, policy)
-		if err != nil {
-			return err
+	var desiredAppCookieSpcSdk *ociloadbalancer.SessionPersistenceConfigurationDetails // Placeholder
+	var desiredLbCookieSpcSdk *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails
+	if ingressClass != nil && ingressClass.Spec.Parameters != nil {
+		ingressClassParams, icpErr := util.GetIngressClassParameters(ingressClass, c.ctrCache)
+		if icpErr != nil {
+			klog.Errorf("Failed to get IngressClassParameters for IngressClass %s in syncBackendSet: %v. Cannot reconcile session persistence.", ingressClass.Name, icpErr)
+		} else if ingressClassParams != nil {
+			if ingressClassParams.Spec.LbCookieSessionPersistenceConfiguration != nil {
+				cfg := ingressClassParams.Spec.LbCookieSessionPersistenceConfiguration
+				desiredLbCookieSpcSdk = &ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+					CookieName:      cfg.CookieName,
+					DisableFallback: cfg.IsDisableFallback,
+					MaxAgeInSeconds: cfg.TimeoutInSeconds,
+					IsSecure:        cfg.IsSecure,
+					IsHttpOnly:      cfg.IsHttpOnly,
+					Domain:          cfg.Domain,
+					Path:            cfg.Path,
+				}
+			}
+			// TODO: Populate desiredAppCookieSpcSdk if app cookie persistence is added to CRD
 		}
 	}
 
-	endTime := util.GetCurrentTimeInUnixMillis()
-	if c.metricsCollector != nil {
-		c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
+	// --- Compare Desired State with Current OCI State ---
+	backendSetRequiresUpdate := false
+	if desiredPolicyStr != "" && (currentBs.Policy == nil || desiredPolicyStr != *currentBs.Policy) {
+		klog.V(2).Infof("BackendSet %s: Policy requires update. Current: %v, Desired: %s", backendSetName, currentBs.Policy, desiredPolicyStr)
+		backendSetRequiresUpdate = true
 	}
-	return nil
+
+	// Convert currentBs.HealthChecker (*HealthChecker) to *HealthCheckerDetails for comparison and potential use
+	var currentHcDetails *ociloadbalancer.HealthCheckerDetails
+	if currentBs.HealthChecker != nil {
+		currentHcDetails = &ociloadbalancer.HealthCheckerDetails{ // Manual conversion
+			Protocol: currentBs.HealthChecker.Protocol, UrlPath: currentBs.HealthChecker.UrlPath, Port: currentBs.HealthChecker.Port,
+			ReturnCode: currentBs.HealthChecker.ReturnCode, Retries: currentBs.HealthChecker.Retries, TimeoutInMillis: currentBs.HealthChecker.TimeoutInMillis,
+			IntervalInMillis: currentBs.HealthChecker.IntervalInMillis, ResponseBodyRegex: currentBs.HealthChecker.ResponseBodyRegex, IsForcePlainText: currentBs.HealthChecker.IsForcePlainText,
+		}
+	}
+	if !reflect.DeepEqual(desiredHcDetails, currentHcDetails) {
+		klog.V(2).Infof("BackendSet %s: HealthChecker requires update.", backendSetName)
+		backendSetRequiresUpdate = true
+	}
+
+	// Convert currentBs.SslConfiguration (*SslConfiguration) to *SslConfigurationDetails
+	var currentSslDetails *ociloadbalancer.SslConfigurationDetails
+	if currentBs.SslConfiguration != nil {
+		currentSslDetails = &ociloadbalancer.SslConfigurationDetails{ // Manual conversion
+			VerifyDepth: currentBs.SslConfiguration.VerifyDepth, VerifyPeerCertificate: currentBs.SslConfiguration.VerifyPeerCertificate,
+			HasSessionResumption: currentBs.SslConfiguration.HasSessionResumption, TrustedCertificateAuthorityIds: currentBs.SslConfiguration.TrustedCertificateAuthorityIds,
+			CertificateIds: currentBs.SslConfiguration.CertificateIds, CertificateName: currentBs.SslConfiguration.CertificateName,
+			Protocols: currentBs.SslConfiguration.Protocols, CipherSuiteName: currentBs.SslConfiguration.CipherSuiteName,
+			ServerOrderPreference: ociloadbalancer.SslConfigurationDetailsServerOrderPreferenceEnum(currentBs.SslConfiguration.ServerOrderPreference),
+		}
+	}
+	if !reflect.DeepEqual(desiredSslDetails, currentSslDetails) {
+		klog.V(2).Infof("BackendSet %s: SslConfiguration requires update.", backendSetName)
+		backendSetRequiresUpdate = true
+	}
+
+	if !reflect.DeepEqual(desiredLbCookieSpcSdk, currentBs.LbCookieSessionPersistenceConfiguration) {
+		klog.V(2).Infof("BackendSet %s: LbCookieSessionPersistenceConfiguration requires update.", backendSetName)
+		backendSetRequiresUpdate = true
+	}
+	if !reflect.DeepEqual(desiredAppCookieSpcSdk, currentBs.SessionPersistenceConfiguration) { // Assuming desiredAppCookieSpcSdk is nil for now
+		klog.V(2).Infof("BackendSet %s: SessionPersistenceConfiguration requires update.", backendSetName)
+		backendSetRequiresUpdate = true
+	}
+
+	if !backendSetRequiresUpdate {
+		klog.V(4).Infof("BackendSet %s is already in desired state.", backendSetName)
+		return nil
+	}
+
+	klog.Infof("Updating backend set %s for load balancer %s due to detected changes.", backendSetName, lbID)
+
+	// Prepare arguments for the UpdateBackendSet helper, using desired if set, else current from bs.
+	// Policy
+	policyToUpdate := desiredPolicyStr
+	if policyToUpdate == "" && currentBs.Policy != nil { // If desired is empty (no opinion from stateStore), keep current
+		policyToUpdate = *currentBs.Policy
+	}
+
+	// HealthChecker
+	hcToUpdate := desiredHcDetails // This is already *HealthCheckerDetails
+	if hcToUpdate == nil {      // If stateStore had no opinion, use current (converted)
+		hcToUpdate = currentHcDetails
+	}
+
+	// SslConfiguration
+	sslToUpdate := desiredSslDetails // This is already *SslConfigurationDetails
+	if sslToUpdate == nil {        // If stateStore had no opinion, use current (converted)
+		sslToUpdate = currentSslDetails
+	}
+	
+	// Backends: Must preserve existing backends. Convert []Backend to []BackendDetails.
+	var backendDetailsList []ociloadbalancer.BackendDetails
+	if currentBs.Backends != nil {
+		backendDetailsList = make([]ociloadbalancer.BackendDetails, len(currentBs.Backends))
+		for i, be := range currentBs.Backends {
+			backendDetailsList[i] = ociloadbalancer.BackendDetails{
+				IpAddress: be.IpAddress, Port: be.Port, Weight: be.Weight,
+				MaxConnections: be.MaxConnections, Backup: be.Backup, Drain: be.Drain, Offline: be.Offline,
+			}
+		}
+	}
+
+	// Session Persistence: Use desired if available, else current from bs
+	appSpcToUpdate := desiredAppCookieSpcSdk
+	if appSpcToUpdate == nil {
+		appSpcToUpdate = currentBs.SessionPersistenceConfiguration
+	}
+	lbSpcToUpdate := desiredLbCookieSpcSdk
+	if lbSpcToUpdate == nil {
+		lbSpcToUpdate = currentBs.LbCookieSessionPersistenceConfiguration
+	}
+
+	return wrapperClient.GetLbClient().UpdateBackendSet(ctx, lbID, lbEtag, backendSetName,
+		policyToUpdate,
+		hcToUpdate,
+		sslToUpdate,
+		backendDetailsList, // Preserved backends
+		appSpcToUpdate,
+		lbSpcToUpdate,
+	)
 }
 
 func (c *Controller) deleteIngress(i *networkingv1.Ingress) error {

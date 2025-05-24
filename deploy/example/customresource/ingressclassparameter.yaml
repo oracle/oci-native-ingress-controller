@@ -16,3 +16,15 @@ spec:
   isPrivate: false
   maxBandwidthMbps: 400
   minBandwidthMbps: 100
+  # Example for LB Cookie Session Persistence:
+  # lbCookieSessionPersistenceConfiguration:
+  #   cookieName: "OCI_STICKY_COOKIE" # Optional: if not provided, OCI will generate one
+  #   isDisableFallback: false         # Optional: defaults to false
+  #   timeoutInSeconds: 3600           # Optional: OCI default if not set (e.g., 7200 seconds)
+  #   isSecure: true                   # Optional: defaults to false
+  #   isHttpOnly: true                 # Optional: defaults to false
+  #   domain: "example.com"            # Optional
+  #   path: "/"                        # Optional
+  #
+  # Example for Default Listener Idle Timeout:
+  # defaultListenerIdleTimeoutInSeconds: 60 # Optional: OCI defaults will apply if not set (e.g., 60s for HTTP, 300s for TCP)
