@@ -1,14 +1,9 @@
 ---
-# Source: oci-native-ingress-controller/crds/ingress.oraclecloud.com_ingressclassparameters.yaml
-#
-# OCI Native Ingress Controller
-#
-# Copyright (c) 2023 Oracle America, Inc. and its affiliates.
-# Licensed under the Universal Permissive License v 1.0 as shown at https://oss.oracle.com/licenses/upl/
-#
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
   name: ingressclassparameters.ingress.oraclecloud.com
 spec:
   group: ingress.oraclecloud.com
@@ -23,7 +18,7 @@ spec:
     - jsonPath: .spec.loadBalancerName
       name: LoadBalancerName
       type: string
-    - jsonPath: .spec.compartmentId
+    - jsonPath: .spec.compartmentID
       name: Compartment
       type: string
     - jsonPath: .spec.isPrivate
@@ -35,17 +30,23 @@ spec:
     name: v1beta1
     schema:
       openAPIV3Schema:
-        description: IngressClassParameters is the Schema for the IngressClassParameters API
+        description: IngressClassParameters is the Schema for the IngressClassParameterss
+          API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -56,8 +57,65 @@ spec:
                 maxLength: 255
                 minLength: 1
                 type: string
+              defaultListenerIdleTimeoutInSeconds:
+                description: |-
+                  DefaultListenerIdleTimeoutInSeconds specifies the default idle timeout in seconds for listeners created for this IngressClass.
+                  If not set, the OCI Load Balancing service default will be used (e.g., 60 seconds for HTTP, 300 for TCP).
+                  Refer to OCI documentation for specific default values and ranges.
+                  Example: OCI LB allows 1-7200 for TCP listeners. Adjust if needed.
+                format: int64
+                maximum: 7200
+                minimum: 1
+                type: integer
               isPrivate:
                 type: boolean
+              lbCookieSessionPersistenceConfiguration:
+                description: |-
+                  LbCookieSessionPersistenceConfiguration defines the LB cookie-based session persistence settings.
+                  Note: This is mutually exclusive with SessionPersistenceConfiguration (application cookie stickiness).
+                properties:
+                  cookieName:
+                    description: |-
+                      The name of the cookie used to detect a session initiated by the backend server.
+                      If unspecified, the cookie name will be chosen by the OCI Load Balancing service.
+                      Example: `X-Oracle-OCILB-Cookie`
+                    type: string
+                  domain:
+                    description: |-
+                      The domain of the session cookie.
+                      Example: `example.com`
+                    type: string
+                  isDisableFallback:
+                    description: |-
+                      Whether the load balancer is prevented from directing traffic from a persistent session client to
+                      a different backend server if the original server is unavailable. Defaults to false.
+                      Example: `true`
+                    type: boolean
+                  isHttpOnly:
+                    description: |-
+                      Whether the session cookie should be HttpOnly. For a HttpOnly cookie, the `Set-Cookie` header
+                      includes the `HttpOnly` attribute.
+                      Example: `true`
+                    type: boolean
+                  isSecure:
+                    description: |-
+                      Whether the session cookie should be secure. For a secure cookie, the `Set-Cookie` header
+                      includes the `Secure` attribute.
+                      Example: `true`
+                    type: boolean
+                  path:
+                    description: |-
+                      The path of the session cookie.
+                      Example: `/`
+                    type: string
+                  timeoutInSeconds:
+                    description: |-
+                      The maximum time, in seconds, to independently maintain a session sticking connection.
+                      Access to this server will be prevented after the session timeout occurs.
+                      If unspecified, the OCI Load Balancing service default will be used.
+                      Example: `300`
+                    type: integer
+                type: object
               loadBalancerName:
                 type: string
               maxBandwidthMbps:
@@ -78,17 +136,11 @@ spec:
                 type: string
             type: object
           status:
-            description: IngressClassParametersStatus defines the observed state of IngressClassParameters
+            description: IngressClassParametersStatus defines the observed state of
+              IngressClassParameters
             type: object
         type: object
     served: true
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
-

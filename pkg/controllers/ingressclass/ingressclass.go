@@ -309,16 +309,35 @@ func (c *Controller) createLoadBalancer(ctx context.Context, ic *networkingv1.In
 		SubnetIds:               []string{util.GetIngressClassSubnetId(icp, c.defaultSubnetId)},
 		IsPrivate:               common.Bool(icp.Spec.IsPrivate),
 		NetworkSecurityGroupIds: util.GetIngressClassNetworkSecurityGroupIds(ic),
-		BackendSets: map[string]ociloadbalancer.BackendSetDetails{
-			util.DefaultBackendSetName: {
-				Policy: common.String("LEAST_CONNECTIONS"),
-				HealthChecker: &ociloadbalancer.HealthCheckerDetails{
-					Protocol: common.String("TCP"),
-				},
-			},
+		BackendSets:             make(map[string]ociloadbalancer.BackendSetDetails), // Initialize empty map
+		FreeformTags:            freeformTags,
+		DefinedTags:             definedTags,
+	}
+
+	// Configure Default Backend Set
+	defaultBackendSetDetails := ociloadbalancer.BackendSetDetails{
+		Policy: common.String("LEAST_CONNECTIONS"),
+		HealthChecker: &ociloadbalancer.HealthCheckerDetails{
+			Protocol: common.String("TCP"),
 		},
-		FreeformTags: freeformTags,
-		DefinedTags:  definedTags,
+	}
+
+	if icp.Spec.LbCookieSessionPersistenceConfiguration != nil {
+		klog.V(4).InfoS("Applying LbCookieSessionPersistenceConfiguration to default backend set during creation", "ingressClass", ic.Name)
+		config := icp.Spec.LbCookieSessionPersistenceConfiguration
+		defaultBackendSetDetails.LbCookieSessionPersistenceConfiguration = &ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+			CookieName:        config.CookieName, // SDK handles nil if user doesn't specify
+			DisableFallback:   config.IsDisableFallback, // CRD IsDisableFallback maps to SDK DisableFallback
+			MaxAgeInSeconds:   config.TimeoutInSeconds,  // CRD TimeoutInSeconds maps to SDK MaxAgeInSeconds
+			IsSecure:          config.IsSecure,
+			IsHttpOnly:        config.IsHttpOnly,
+			Domain:            config.Domain,
+			Path:              config.Path,
+		}
+	}
+	createDetails.BackendSets[util.DefaultBackendSetName] = defaultBackendSetDetails
+
+	if icp.Spec.ReservedPublicAddressId != "" {
 	}
 
 	if icp.Spec.ReservedPublicAddressId != "" {
@@ -449,6 +468,114 @@ func (c *Controller) checkForIngressClassParameterUpdates(ctx context.Context, i
 		}
 
 	}
+
+	// Check for BackendSet updates (Session Persistence)
+	// Get current backend set details
+	backendSet, err := wrapperClient.GetLbClient().GetBackendSet(context.Background(), *lb.Id, util.DefaultBackendSetName)
+	if err != nil {
+		// If backend set is not found, it might be an issue or a state where LB is still provisioning.
+		// For now, we'll return an error. Depending on behavior, might need more sophisticated handling.
+		return fmt.Errorf("failed to get backend set %s for load balancer %s: %w", util.DefaultBackendSetName, *lb.Id, err)
+	}
+
+	desiredLbCookieSpcSpec := icp.Spec.LbCookieSessionPersistenceConfiguration
+	var desiredLbCookieSpcSdk *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails
+
+	if desiredLbCookieSpcSpec != nil {
+		desiredLbCookieSpcSdk = &ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails{
+			CookieName:       desiredLbCookieSpcSpec.CookieName,
+			DisableFallback:  desiredLbCookieSpcSpec.IsDisableFallback, // CRD IsDisableFallback maps to SDK DisableFallback
+			MaxAgeInSeconds:  desiredLbCookieSpcSpec.TimeoutInSeconds,  // CRD TimeoutInSeconds maps to SDK MaxAgeInSeconds
+			IsSecure:         desiredLbCookieSpcSpec.IsSecure,
+			IsHttpOnly:       desiredLbCookieSpcSpec.IsHttpOnly,
+			Domain:           desiredLbCookieSpcSpec.Domain,
+			Path:             desiredLbCookieSpcSpec.Path,
+		}
+	}
+
+	currentLbCookieSpcSdk := backendSet.LbCookieSessionPersistenceConfiguration
+
+	// Compare desired state from IngressClassParameters with current state on OCI
+	if !reflect.DeepEqual(currentLbCookieSpcSdk, desiredLbCookieSpcSdk) {
+		klog.InfoS("LbCookieSessionPersistenceConfiguration change detected, updating backend set.",
+			"ingressClass", klog.KObj(ic), "loadBalancerId", *lb.Id, "backendSetName", util.DefaultBackendSetName)
+
+		// Prepare arguments for the UpdateBackendSet helper
+		// The 'etag' for the load balancer was fetched earlier in this function
+		// 'lb' is the load balancer object, 'backendSet' is the fetched backend set object
+
+		var policyStr string
+		if backendSet.Policy != nil {
+			policyStr = *backendSet.Policy
+		}
+
+		// Convert HealthChecker to HealthCheckerDetails
+		var hcDetails *ociloadbalancer.HealthCheckerDetails
+		if backendSet.HealthChecker != nil {
+			hcDetails = &ociloadbalancer.HealthCheckerDetails{
+				Protocol:          backendSet.HealthChecker.Protocol,
+				UrlPath:           backendSet.HealthChecker.UrlPath,
+				Port:              backendSet.HealthChecker.Port,
+				ReturnCode:        backendSet.HealthChecker.ReturnCode,
+				Retries:           backendSet.HealthChecker.Retries,
+				TimeoutInMillis:   backendSet.HealthChecker.TimeoutInMillis,
+				IntervalInMillis:  backendSet.HealthChecker.IntervalInMillis,
+				ResponseBodyRegex: backendSet.HealthChecker.ResponseBodyRegex,
+				IsForcePlainText:  backendSet.HealthChecker.IsForcePlainText,
+			}
+		}
+
+		// Convert SslConfiguration to SslConfigurationDetails
+		var sslDetails *ociloadbalancer.SslConfigurationDetails
+		if backendSet.SslConfiguration != nil {
+			sslDetails = &ociloadbalancer.SslConfigurationDetails{
+				VerifyDepth:                    backendSet.SslConfiguration.VerifyDepth,
+				VerifyPeerCertificate:          backendSet.SslConfiguration.VerifyPeerCertificate,
+				HasSessionResumption:           backendSet.SslConfiguration.HasSessionResumption,
+				TrustedCertificateAuthorityIds: backendSet.SslConfiguration.TrustedCertificateAuthorityIds,
+				CertificateIds:                 backendSet.SslConfiguration.CertificateIds,
+				CertificateName:                backendSet.SslConfiguration.CertificateName,
+				Protocols:                      backendSet.SslConfiguration.Protocols,
+				CipherSuiteName:                backendSet.SslConfiguration.CipherSuiteName,
+				ServerOrderPreference:          ociloadbalancer.SslConfigurationDetailsServerOrderPreferenceEnum(backendSet.SslConfiguration.ServerOrderPreference),
+			}
+		}
+
+		// Convert []Backend to []BackendDetails
+		var backendDetailsList []ociloadbalancer.BackendDetails
+		if backendSet.Backends != nil {
+			backendDetailsList = make([]ociloadbalancer.BackendDetails, len(backendSet.Backends))
+			for i, be := range backendSet.Backends {
+				backendDetailsList[i] = ociloadbalancer.BackendDetails{
+					IpAddress:      be.IpAddress,
+					Port:           be.Port,
+					Weight:         be.Weight,
+					MaxConnections: be.MaxConnections,
+					Backup:         be.Backup,
+					Drain:          be.Drain,
+					Offline:        be.Offline,
+				}
+			}
+		}
+
+		// Call the updated UpdateBackendSet helper
+		err = wrapperClient.GetLbClient().UpdateBackendSet(context.Background(),
+			*lb.Id,                                  // lbID string
+			etag,                                    // etag string (for the LB)
+			util.DefaultBackendSetName,              // backendSetName string
+			policyStr,                               // policy string
+			hcDetails,                               // healthCheckerDetails
+			sslDetails,                              // sslConfig
+			backendDetailsList,                      // backends (pass converted existing to preserve)
+			backendSet.SessionPersistenceConfiguration, // sessionPersistenceConfig (preserve existing app cookie config)
+			desiredLbCookieSpcSdk,                   // lbCookieSessionPersistenceConfiguration (new/updated)
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update backend set %s for LbCookieSessionPersistenceConfiguration on load balancer %s: %w", util.DefaultBackendSetName, *lb.Id, err)
+		}
+		klog.InfoS("Successfully updated backend set for LbCookieSessionPersistenceConfiguration.", "ingressClass", klog.KObj(ic), "loadBalancerId", *lb.Id)
+	}
+
 	return nil
 }
 
