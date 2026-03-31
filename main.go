@@ -279,5 +279,10 @@ func setupInformers(informerFactory informers.SharedInformerFactory, ctx context
 
 		klog.Fatal("failed to sync informers")
 	}
+
+	// Mark caches as synced for health checks
+	healthChecker := server.GetHealthChecker()
+	healthChecker.SetCachesSynced(true)
+
 	return ingressClassInformer, ingressInformer, serviceInformer, secretInformer, endpointInformer, podInformer, nodeInformer, serviceAccountInformer
 }

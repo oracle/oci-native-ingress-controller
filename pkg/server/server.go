@@ -12,10 +12,11 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"github.com/oracle/oci-native-ingress-controller/pkg/task/certificatecleanup"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/oracle/oci-native-ingress-controller/pkg/task/certificatecleanup"
 
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -163,6 +164,13 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			)
 			go certificateCleanUpTask.Run(ctx.Done())
 		}
+
+		// Mark controllers as ready for health checks
+		go func() {
+			time.Sleep(2 * time.Second) // Give controllers a moment to start
+			GetHealthChecker().SetControllersReady(true)
+			klog.Info("Controllers marked as ready for health checks")
+		}()
 	}
 }
 
@@ -233,6 +241,11 @@ func SetupMetricsServer(metricsBackend string, metricsPort int, mux *http.ServeM
 		return nil, err
 	}
 	metric.RegisterMetrics(reg, mux)
+
+	// Register health check endpoints
+	hc := GetHealthChecker()
+	mux.HandleFunc("/healthz/ready", hc.HandleReadiness)
+	mux.HandleFunc("/healthz/live", hc.HandleLiveness)
 
 	return reg, nil
 }

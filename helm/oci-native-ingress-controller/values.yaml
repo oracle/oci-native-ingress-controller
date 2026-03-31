@@ -120,6 +120,10 @@ objectSelector:
   matchLabels:
   #   key: value
 
+# Metrics server configuration
+# Health probes for operational reliability and Cloud Guard compliance
+# Readiness probe: HTTP GET /healthz/ready on metrics-server port (initialDelaySeconds: 30)
+# Liveness probe: HTTP GET /healthz/live on metrics-server port (initialDelaySeconds: 60)
 metrics:
   backend: prometheus
   port: 2223

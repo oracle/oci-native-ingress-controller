@@ -86,6 +86,24 @@ spec:
               protocol: TCP
             - name: metrics-server
               containerPort: 2223
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: metrics-server
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz/live
+              port: metrics-server
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
