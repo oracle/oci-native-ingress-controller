@@ -12,8 +12,9 @@ package podreadiness
 import (
 	"context"
 	"encoding/json"
-	"k8s.io/client-go/kubernetes/scheme"
 	"net/http"
+
+	"k8s.io/client-go/kubernetes/scheme"
 
 	"k8s.io/klog/v2"
 
@@ -68,7 +69,16 @@ func (prg *PodReadinessGate) handleCreate(ctx context.Context, req admission.Req
 	var targetHealthCondTypes []corev1.PodConditionType
 	for _, ingress := range ingresses {
 		for _, rule := range ingress.Spec.Rules {
+			if !util.HasHTTPPaths(rule) {
+				klog.V(4).InfoS("skipping ingress rule without HTTP paths for pod readiness", "ingress", klog.KObj(ingress), "host", rule.Host)
+				continue
+			}
 			for _, path := range rule.HTTP.Paths {
+				if !util.HasServiceBackend(path) {
+					util.LogAndPublishIngressBackendValidationWarning(nil, ingress, rule.Host, path, " for pod readiness")
+					continue
+				}
+
 				svc, err := prg.serviceLister.Services(pod.Namespace).Get(path.Backend.Service.Name)
 				if err != nil {
 					return admission.Errored(http.StatusInternalServerError, err)

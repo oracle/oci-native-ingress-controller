@@ -34,6 +34,7 @@ const (
 	PolicyConflictMessage            = "validation failure: conflict with policy configured for backend set %s"
 	ProtocolConflictMessage          = "validation failure: conflict with protocol configured for listener %d"
 	DefaultBackendSetConflictMessage = "validation failure: conflict with default backend set for TCP listener %d"
+	SessionPersistenceEmptyMessage   = "validation failure: empty session persistence configuration for backend set %s"
 )
 
 type TlsConfig struct {
@@ -51,20 +52,30 @@ type StateStore struct {
 }
 
 type IngressClassState struct {
-	BackendSets                sets.String
-	BackendSetHealthCheckerMap map[string]*ociloadbalancer.HealthCheckerDetails
-	BackendSetPolicyMap        map[string]string
-	BackendSetTLSConfigMap     map[string]TlsConfig
-	Listeners                  sets.Int32
-	ListenerProtocolMap        map[int32]string
-	ListenerTLSConfigMap       map[int32]TlsConfig
-	ListenerDefaultBsMap       map[int32]string
+	BackendSets                     sets.String
+	BackendSetHealthCheckerMap      map[string]*ociloadbalancer.HealthCheckerDetails
+	BackendSetPolicyMap             map[string]string
+	BackendSetTLSConfigMap          map[string]TlsConfig
+	BackendSetSessionPersistenceMap map[string]SessionPersistence
+	Listeners                       sets.Int32
+	ListenerProtocolMap             map[int32]string
+	ListenerTLSConfigMap            map[int32]TlsConfig
+	ListenerDefaultBsMap            map[int32]string
 }
 
 type IngressState struct {
 	BackendSets sets.String
 	Ports       sets.Int32
 	ClassName   string
+}
+
+// SessionPersistence holds desired session persistence config for a backend set.
+// Exactly one of the pointers should be non-nil. If both are nil and the session
+// persistence annotation is present on the ingress, this is treated as a validation error.
+// If no annotation is present, both may be nil (persistence disabled).
+type SessionPersistence struct {
+	AppCookie *ociloadbalancer.SessionPersistenceConfigurationDetails
+	LbCookie  *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails
 }
 
 func NewStateStore(ingressClassLister networkinglisters.IngressClassLister,
@@ -105,6 +116,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	listenerDefaultBsMap := make(map[int32]string)
 	bsHealthCheckerMap := make(map[string]*ociloadbalancer.HealthCheckerDetails)
 	bsPolicyMap := make(map[string]string)
+	bsSessionPersistenceMap := make(map[string]SessionPersistence)
 	allBackendSets := sets.NewString(util.DefaultBackendSetName)
 	allListeners := sets.NewInt32()
 
@@ -132,8 +144,16 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 		for _, rule := range ing.Spec.Rules {
 			host := rule.Host
+			if !util.HasHTTPPaths(rule) {
+				klog.V(4).InfoS("skipping ingress rule without HTTP paths while building state", "ingress", klog.KObj(ing), "host", host)
+				continue
+			}
 
 			for _, path := range rule.HTTP.Paths {
+				if !util.HasServiceBackend(path) {
+					util.LogAndPublishIngressBackendValidationWarning(nil, ing, host, path, " while building state")
+					continue
+				}
 				serviceName, servicePort, err := util.PathToServiceAndPort(ing.Namespace, path, s.ServiceLister)
 				if err != nil {
 					return errors.Wrap(err, "error finding service and port")
@@ -171,6 +191,11 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 					return err
 				}
 
+				err = validateBackendSetSessionPersistence(ing, bsSessionPersistenceMap, bsName)
+				if err != nil {
+					return err
+				}
+
 				err = validateTlsConfig(ing, listenerPort, bsName, host, listenerTLSConfigMap, bsTLSConfigMap, hostSecretMap)
 				if err != nil {
 					return err
@@ -185,14 +210,15 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		}
 	}
 	s.IngressGroupState = IngressClassState{
-		BackendSets:                allBackendSets,
-		BackendSetHealthCheckerMap: bsHealthCheckerMap,
-		BackendSetPolicyMap:        bsPolicyMap,
-		BackendSetTLSConfigMap:     bsTLSConfigMap,
-		Listeners:                  allListeners,
-		ListenerProtocolMap:        listenerProtocolMap,
-		ListenerTLSConfigMap:       listenerTLSConfigMap,
-		ListenerDefaultBsMap:       listenerDefaultBsMap,
+		BackendSets:                     allBackendSets,
+		BackendSetHealthCheckerMap:      bsHealthCheckerMap,
+		BackendSetPolicyMap:             bsPolicyMap,
+		BackendSetTLSConfigMap:          bsTLSConfigMap,
+		BackendSetSessionPersistenceMap: bsSessionPersistenceMap,
+		Listeners:                       allListeners,
+		ListenerProtocolMap:             listenerProtocolMap,
+		ListenerTLSConfigMap:            listenerTLSConfigMap,
+		ListenerDefaultBsMap:            listenerDefaultBsMap,
 	}
 
 	klog.Infof("Ingress Group state %s, Ingress state %s", util.PrettyPrint(s.IngressGroupState), util.PrettyPrint(s.IngressState))
@@ -287,6 +313,66 @@ func validateBackendSetPolicy(ingressResource *networkingv1.Ingress, bsPolicyMap
 	return nil
 }
 
+func validateBackendSetSessionPersistence(ingressResource *networkingv1.Ingress,
+	bsPersistenceMap map[string]SessionPersistence, bsName string) error {
+	appCookie, lbCookie, err := util.GetSessionPersistenceConfigs(ingressResource)
+	if err != nil {
+		return fmt.Errorf("invalid session persistence configuration on ingress %s/%s: %w", ingressResource.Namespace, ingressResource.Name, err)
+	}
+
+	// Ensure mutual exclusivity (only one or none)
+	if appCookie != nil && lbCookie != nil {
+		// Prefer LB cookie if both provided; log and continue
+		return fmt.Errorf("Provide only one of LB cookie or App cookie config for %s.", bsName)
+	}
+
+	// If annotation is present but both configs are nil, treat as validation error
+	if util.HasSessionPersistenceAnnotation(ingressResource) && appCookie == nil && lbCookie == nil {
+		return fmt.Errorf(SessionPersistenceEmptyMessage, bsName)
+	}
+
+	incoming := SessionPersistence{AppCookie: appCookie, LbCookie: lbCookie}
+
+	current, ok := bsPersistenceMap[bsName]
+	if ok {
+		// Reconcile conflicts instead of erroring out
+		if !reflect.DeepEqual(current, incoming) {
+			// If either side has lbCookie, prefer lbCookie (LB-managed persistence)
+			if current.LbCookie != nil || incoming.LbCookie != nil {
+				// If current already lbCookie, keep it; else adopt incoming lbCookie
+				if current.LbCookie != nil {
+					klog.Warningf("session persistence conflict for %s; keeping existing lbCookie configuration", bsName)
+					// keep current as-is
+				} else {
+					klog.Warningf("session persistence conflict for %s; adopting lbCookie configuration from ingress %s", bsName, ingressResource.Name)
+					current = SessionPersistence{LbCookie: incoming.LbCookie}
+				}
+			} else if current.AppCookie != nil || incoming.AppCookie != nil {
+				// Both sides appCookie but may differ on cookieName; keep existing to avoid churn
+				if current.AppCookie != nil {
+					klog.Warningf("session persistence conflict (appCookie) for %s; keeping existing configuration", bsName)
+					// keep current
+				} else {
+					klog.Warningf("session persistence conflict (appCookie) for %s; adopting configuration from ingress %s", bsName, ingressResource.Name)
+					current = SessionPersistence{AppCookie: incoming.AppCookie}
+				}
+			} else {
+				// Both nil or one nil and other nil: end up nil
+				current = SessionPersistence{}
+			}
+			bsPersistenceMap[bsName] = current
+			return nil
+		}
+		// No change; keep current
+		bsPersistenceMap[bsName] = current
+		return nil
+	}
+
+	// First writer wins
+	bsPersistenceMap[bsName] = incoming
+	return nil
+}
+
 func validateListenerProtocol(ingressResource *networkingv1.Ingress, listenerProtocolMap map[int32]string, listenerPort int32) error {
 	protocol := util.GetIngressProtocol(ingressResource)
 
@@ -359,6 +445,14 @@ func (s *StateStore) GetTLSConfigForBackendSet(bsName string) (string, string) {
 		return bsTLSConfig.Artifact, bsTLSConfig.Type
 	}
 	return "", ""
+}
+
+func (s *StateStore) GetBackendSetSessionPersistence(bsName string) (*ociloadbalancer.SessionPersistenceConfigurationDetails, *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails) {
+	p, ok := s.IngressGroupState.BackendSetSessionPersistenceMap[bsName]
+	if ok {
+		return p.AppCookie, p.LbCookie
+	}
+	return nil, nil
 }
 
 func (s *StateStore) GetAllBackendSetForIngressClass() sets.String {

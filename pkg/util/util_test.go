@@ -12,12 +12,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	networkingListers "k8s.io/client-go/listers/networking/v1"
-	"strings"
-	"testing"
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -953,4 +954,150 @@ func TestAsServiceError(t *testing.T) {
 	Expect(isSvcErr).To(BeFalse())
 	isSvcErr, _ = AsServiceError(wrappedNotFoundSvcErr, 409, 404)
 	Expect(isSvcErr).To(BeFalse())
+}
+
+func TestGetSessionPersistenceConfigs_AppCookie_DefaultStar(t *testing.T) {
+	RegisterTestingT(t)
+
+	jsonCfg := `{"cookieName":""}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressSessionPersistenceJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(lb).To(BeNil())
+	Expect(app).NotTo(BeNil())
+	Expect(*app.CookieName).To(Equal("*"))
+}
+
+func TestGetSessionPersistenceConfigs_AppCookie_SpecificName(t *testing.T) {
+	RegisterTestingT(t)
+
+	jsonCfg := `{"cookieName":"APPSESS"}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressSessionPersistenceJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(lb).To(BeNil())
+	Expect(app).NotTo(BeNil())
+	Expect(*app.CookieName).To(Equal("APPSESS"))
+}
+
+func TestGetSessionPersistenceConfigs_LbCookie_Parsing(t *testing.T) {
+	RegisterTestingT(t)
+
+	jsonCfg := `{"cookieName":"X-Oracle-OCI-MyRoute","disableFallback":true,"domain":"example.com","path":"/","maxAgeInSeconds":120,"isSecure":true,"isHttpOnly":true}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressLbCookieJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(app).To(BeNil())
+	Expect(lb).NotTo(BeNil())
+	Expect(*lb.CookieName).To(Equal("X-Oracle-OCI-MyRoute"))
+	Expect(*lb.DisableFallback).To(BeTrue())
+	Expect(*lb.Domain).To(Equal("example.com"))
+	Expect(*lb.Path).To(Equal("/"))
+	Expect(*lb.MaxAgeInSeconds).To(Equal(120))
+	Expect(*lb.IsSecure).To(BeTrue())
+	Expect(*lb.IsHttpOnly).To(BeTrue())
+}
+
+func TestGetSessionPersistenceConfigs_NewExplicit_LbCookie(t *testing.T) {
+	RegisterTestingT(t)
+
+	jsonCfg := `{"cookieName":"X-Oracle-OCI-MyRoute","disableFallback":true,"domain":"example.com","path":"/","maxAgeInSeconds":120,"isSecure":true,"isHttpOnly":true}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressLbCookieJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(app).To(BeNil())
+	Expect(lb).NotTo(BeNil())
+	Expect(*lb.CookieName).To(Equal("X-Oracle-OCI-MyRoute"))
+	Expect(*lb.DisableFallback).To(BeTrue())
+	Expect(*lb.Domain).To(Equal("example.com"))
+}
+
+func TestGetSessionPersistenceConfigs_NewExplicit_AppCookie(t *testing.T) {
+	RegisterTestingT(t)
+
+	jsonCfg := `{"cookieName":"APPSESS"}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressSessionPersistenceJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(lb).To(BeNil())
+	Expect(app).NotTo(BeNil())
+	Expect(*app.CookieName).To(Equal("APPSESS"))
+}
+
+func TestGetSessionPersistenceConfigs_NewExplicit_TakesPrecedenceOverLegacyEnvelope(t *testing.T) {
+	RegisterTestingT(t)
+
+	// legacy envelope removed; keep a sanity test that JSON-only annotations work.
+	jsonCfg := `{"cookieName":"APPSESS"}`
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{IngressSessionPersistenceJSONAnnotation: jsonCfg}}}
+
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(lb).To(BeNil())
+	Expect(app).NotTo(BeNil())
+	Expect(*app.CookieName).To(Equal("APPSESS"))
+}
+
+func TestGetSessionPersistenceConfigs_NoneOrUnknown(t *testing.T) {
+	RegisterTestingT(t)
+
+	i := networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}
+	app, lb, err := GetSessionPersistenceConfigs(&i)
+	Expect(err).To(BeNil())
+	Expect(app).To(BeNil())
+	Expect(lb).To(BeNil())
+
+	// invalid JSON should disable persistence (parsing error => nil,nil)
+	i.ObjectMeta.Annotations = map[string]string{IngressSessionPersistenceJSONAnnotation: `{"cookieName":123}`}
+	app, lb, err = GetSessionPersistenceConfigs(&i)
+	Expect(err).ToNot(BeNil())
+	Expect(app).To(BeNil())
+	Expect(lb).To(BeNil())
+}
+
+func TestPathTypeOrDefaultReturnsImplementationSpecificForNilPathType(t *testing.T) {
+	RegisterTestingT(t)
+
+	path := networkingv1.HTTPIngressPath{}
+
+	Expect(PathTypeOrDefault(path)).Should(Equal(networkingv1.PathTypeImplementationSpecific))
+}
+
+func TestPathTypeOrDefaultReturnsConfiguredPathType(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, pathType := range []networkingv1.PathType{networkingv1.PathTypeExact, networkingv1.PathTypePrefix} {
+		path := networkingv1.HTTPIngressPath{PathType: &pathType}
+
+		Expect(PathTypeOrDefault(path)).Should(Equal(pathType))
+	}
+}
+
+func TestHasHTTPPaths(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(HasHTTPPaths(networkingv1.IngressRule{})).Should(BeFalse())
+	Expect(HasHTTPPaths(networkingv1.IngressRule{IngressRuleValue: networkingv1.IngressRuleValue{
+		HTTP: &networkingv1.HTTPIngressRuleValue{},
+	}})).Should(BeTrue())
+}
+
+func TestHasServiceBackend(t *testing.T) {
+	RegisterTestingT(t)
+
+	serviceBackend := networkingv1.HTTPIngressPath{Backend: networkingv1.IngressBackend{
+		Service: &networkingv1.IngressServiceBackend{Name: "service"},
+	}}
+	resourceBackend := networkingv1.HTTPIngressPath{Backend: networkingv1.IngressBackend{
+		Resource: &v1.TypedLocalObjectReference{Name: "resource"},
+	}}
+
+	Expect(HasServiceBackend(networkingv1.HTTPIngressPath{})).Should(BeFalse())
+	Expect(HasServiceBackend(resourceBackend)).Should(BeFalse())
+	Expect(HasServiceBackend(serviceBackend)).Should(BeTrue())
 }

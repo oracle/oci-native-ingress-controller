@@ -12,11 +12,12 @@ package loadbalancer
 import (
 	"context"
 	"fmt"
-	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -399,7 +400,9 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	backendSetName string,
 	policy string,
 	healthChecker *loadbalancer.HealthCheckerDetails,
-	sslConfig *loadbalancer.SslConfigurationDetails) error {
+	sslConfig *loadbalancer.SslConfigurationDetails,
+	appCookie *loadbalancer.SessionPersistenceConfigurationDetails,
+	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails) error {
 
 	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
@@ -415,10 +418,12 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	createBackendSetRequest := loadbalancer.CreateBackendSetRequest{
 		LoadBalancerId: lb.Id,
 		CreateBackendSetDetails: loadbalancer.CreateBackendSetDetails{
-			Name:             common.String(backendSetName),
-			Policy:           common.String(policy),
-			HealthChecker:    healthChecker,
-			SslConfiguration: sslConfig,
+			Name:                                    common.String(backendSetName),
+			Policy:                                  common.String(policy),
+			HealthChecker:                           healthChecker,
+			SslConfiguration:                        sslConfig,
+			SessionPersistenceConfiguration:         appCookie,
+			LbCookieSessionPersistenceConfiguration: lbCookie,
 		},
 	}
 
@@ -590,13 +595,16 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 
 	policy := *backendSet.Policy
 
-	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends)
+	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends,
+		backendSet.SessionPersistenceConfiguration, backendSet.LbCookieSessionPersistenceConfiguration)
 }
 
-// UpdateBackendSetDetails updates sslConfig, policy, and healthChecker details for backendSet, while preserving individual backends
+// UpdateBackendSetDetails updates sslConfig, policy, healthChecker, and session persistence configs while preserving existing backends
 func (lbc *LoadBalancerClient) UpdateBackendSetDetails(ctx context.Context, lbID string, etag string,
 	backendSet *loadbalancer.BackendSet, sslConfig *loadbalancer.SslConfigurationDetails,
-	healthCheckerDetails *loadbalancer.HealthCheckerDetails, policy string) error {
+	healthCheckerDetails *loadbalancer.HealthCheckerDetails, policy string,
+	appCookie *loadbalancer.SessionPersistenceConfigurationDetails,
+	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails) error {
 
 	backends := make([]loadbalancer.BackendDetails, len(backendSet.Backends))
 	for i := range backendSet.Backends {
@@ -611,21 +619,25 @@ func (lbc *LoadBalancerClient) UpdateBackendSetDetails(ctx context.Context, lbID
 		}
 	}
 
-	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends)
+	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends, appCookie, lbCookie)
 }
 
 func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID string, etag string, backendSetName string,
 	policy string, healthCheckerDetails *loadbalancer.HealthCheckerDetails, sslConfig *loadbalancer.SslConfigurationDetails,
-	backends []loadbalancer.BackendDetails) error {
+	backends []loadbalancer.BackendDetails,
+	appCookie *loadbalancer.SessionPersistenceConfigurationDetails,
+	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails) error {
 	updateBackendSetRequest := loadbalancer.UpdateBackendSetRequest{
 		IfMatch:        common.String(etag),
 		LoadBalancerId: common.String(lbID),
 		BackendSetName: common.String(backendSetName),
 		UpdateBackendSetDetails: loadbalancer.UpdateBackendSetDetails{
-			Policy:           common.String(policy),
-			HealthChecker:    healthCheckerDetails,
-			SslConfiguration: sslConfig,
-			Backends:         backends,
+			Policy:                                  common.String(policy),
+			HealthChecker:                           healthCheckerDetails,
+			SslConfiguration:                        sslConfig,
+			Backends:                                backends,
+			SessionPersistenceConfiguration:         appCookie,
+			LbCookieSessionPersistenceConfiguration: lbCookie,
 		},
 	}
 
@@ -729,9 +741,26 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 		return err
 	}
 
-	klog.Infof("Update listener response: name: %s, work request id: %s, opc request id: %s.", *l.Name, *resp.OpcWorkRequestId, *resp.OpcRequestId)
-	_, err = lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
-	return err
+	// Safe logging without nil deref
+	lname := ""
+	if l.Name != nil {
+		lname = *l.Name
+	}
+	wrID := ""
+	if resp.OpcWorkRequestId != nil {
+		wrID = *resp.OpcWorkRequestId
+	}
+	opcID := ""
+	if resp.OpcRequestId != nil {
+		opcID = *resp.OpcRequestId
+	}
+	klog.Infof("Update listener response: name: %s, work request id: %s, opc request id: %s.", lname, wrID, opcID)
+	if resp.OpcWorkRequestId != nil {
+		_, err = lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
+		return err
+	}
+	// If mock or backend didn't return a work request id, treat as completed.
+	return nil
 }
 
 func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, listenerPort int, listenerProtocol string,

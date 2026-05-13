@@ -13,10 +13,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	coreinformers "k8s.io/client-go/informers/core/v1"
-	"k8s.io/client-go/tools/events"
 	"sort"
 	"time"
+
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -157,7 +158,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 	listenerPaths := map[string][]*listenerPath{}
 	desiredRoutingPolicies := sets.NewString()
 
-	err = processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies)
+	err = processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies, c.eventRecorder)
 	if err != nil {
 		return err
 	}
@@ -171,22 +172,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 	for listenerName, paths := range listenerPaths {
-		var rules []ociloadbalancer.RoutingRule
-		// Sort the listener paths based on the actual path values so that the specific ones come first
-		sort.Sort(ByPath(paths))
-		for _, path := range paths {
-			policyName := util.PathToRoutePolicyName(path.IngressName, path.Host, *path.Path)
-			policyCondition := PathToRoutePolicyCondition(path.ListenerPort, path.Host, *path.Path)
-			rules = append(rules, ociloadbalancer.RoutingRule{
-				Name:      common.String(policyName),
-				Condition: common.String(policyCondition),
-				Actions: []ociloadbalancer.Action{
-					ociloadbalancer.ForwardToBackendSet{
-						BackendSetName: common.String(path.BackendSetName),
-					},
-				},
-			})
-		}
+		rules := buildRoutingRules(listenerName, paths)
 
 		// We purposefully only log here then return an error at the end, so we can attempt to sync all listeners
 		// Store the first error if we see any, and return it up the chain
@@ -250,6 +236,31 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 	}
 
 	return nil
+}
+
+func buildRoutingRules(listenerName string, paths []*listenerPath) []ociloadbalancer.RoutingRule {
+	var rules []ociloadbalancer.RoutingRule
+	// Sort the listener paths based on the actual path values so that the specific ones come first
+	sort.Sort(ByPath(paths))
+	for _, path := range paths {
+		if path == nil || path.Path == nil {
+			klog.Warningf("skipping routing policy path with nil ingress path for listener %s", listenerName)
+			continue
+		}
+
+		policyName := util.PathToRoutePolicyName(path.IngressName, path.Host, *path.Path)
+		policyCondition := PathToRoutePolicyCondition(path.ListenerPort, path.Host, *path.Path)
+		rules = append(rules, ociloadbalancer.RoutingRule{
+			Name:      common.String(policyName),
+			Condition: common.String(policyCondition),
+			Actions: []ociloadbalancer.Action{
+				ociloadbalancer.ForwardToBackendSet{
+					BackendSetName: common.String(path.BackendSetName),
+				},
+			},
+		})
+	}
+	return rules
 }
 
 // handleErr checks if an error happened and makes sure we will retry later.

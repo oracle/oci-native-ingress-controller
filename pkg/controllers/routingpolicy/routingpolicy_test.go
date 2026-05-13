@@ -118,7 +118,7 @@ func TestProcessRoutingPolicy(t *testing.T) {
 	}
 	ingresses = append(ingresses, &ingress)
 
-	err := processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies)
+	err := processRoutingPolicy(ingresses, c.serviceLister, listenerPaths, desiredRoutingPolicies, c.eventRecorder)
 	Expect(err == nil).Should(Equal(true))
 	Expect(len(listenerPaths)).Should(Equal(3))
 	var pathss = sets.NewString()
