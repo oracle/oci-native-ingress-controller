@@ -36,6 +36,7 @@ The native ingress controller itself is lightweight process and pushes all the r
     + [Web Firewall Integration](#web-firewall-integration)
     + [Ingress Level HTTP(S) Listener Ports](#ingress-level-https-listener-ports)
     + [TCP Listener Support](#tcp-listener-support)
+    + [Cookie Session Persistence](#cookie-session-persistence)
     + [Network Security Groups Support](#network-security-groups-support)
     + [Tagging Support](#tagging-support)
       + [Default Tag Support](#default-tag-support)
@@ -623,6 +624,17 @@ spec:
                 port:
                   number: 8081
 ```
+
+#### Cookie Session Persistence
+Cookie session persistence can be enabled using annotations on the Ingress resource. It is supported starting from OCI Native Ingress Controller version `1.4.3`. The minimum supported Kubernetes cluster version is `1.32.0`.
+
+Two modes are supported:
+* Application cookie
+* Load balancer cookie
+
+Only one cookie session persistence mode can be enabled for a backend set.
+
+For configuration examples, see [Configuring Cookie-Based Session Persistence](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengsettingupnativeingresscontroller-configuring.htm#contengsettingupnativeingresscontroller_configuringcookie-basedsessionpersistence).
 
 ### Network Security Groups Support
 Users can use the optional `IngressClass` resource annotation `oci-native-ingress.oraclecloud.com/network-security-group-ids` to supply
