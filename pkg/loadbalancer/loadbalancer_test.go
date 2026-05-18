@@ -135,7 +135,7 @@ func TestLoadBalancerClient_UpdateBackendSetDetails(t *testing.T) {
 	bs := lb.BackendSets[bsName]
 
 	err := loadBalancerClient.UpdateBackendSetDetails(context.TODO(), lbId, etag, &bs, &sslConfigDetails,
-		&healthCheckerDetails, policy)
+		&healthCheckerDetails, policy, nil, nil)
 	Expect(err).To(BeNil())
 }
 
@@ -176,11 +176,11 @@ func TestLoadBalancerClient_CreateBackendSet(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
 	sslConfig := getSslConfigurationDetails("id")
-	err := loadBalancerClient.CreateBackendSet(context.TODO(), "id", "bs_f151df96ee98ff0", "", nil, &sslConfig)
+	err := loadBalancerClient.CreateBackendSet(context.TODO(), "id", "bs_f151df96ee98ff0", "", nil, &sslConfig, nil, nil)
 	Expect(err).To(BeNil())
-	err = loadBalancerClient.CreateBackendSet(context.TODO(), "id", "bs_f151df96ee98778", "", nil, &sslConfig)
+	err = loadBalancerClient.CreateBackendSet(context.TODO(), "id", "bs_f151df96ee98778", "", nil, &sslConfig, nil, nil)
 	Expect(err).To(BeNil())
-	err = loadBalancerClient.CreateBackendSet(context.TODO(), "id", "error", "", nil, &sslConfig)
+	err = loadBalancerClient.CreateBackendSet(context.TODO(), "id", "error", "", nil, &sslConfig, nil, nil)
 	Expect(err).To(Not(BeNil()))
 }
 

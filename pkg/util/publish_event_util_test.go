@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func getListers(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass) (networkinglisters.IngressLister, networkinglisters.IngressClassLister) {
@@ -94,4 +95,65 @@ func TestPublishWarningEvent(t *testing.T) {
 
 	PublishWarningEvent(fakeRecorder, ingress, err, reason, action)
 	Eventually(fakeRecorder.Events).Should(Receive())
+}
+
+func TestPublishIngressBackendValidationEvents(t *testing.T) {
+	RegisterTestingT(t)
+
+	fakeRecorder := events.NewFakeRecorder(10)
+	ingress := &networkingv1.Ingress{ObjectMeta: v1.ObjectMeta{Name: "name", Namespace: "namespace"}}
+	path := networkingv1.HTTPIngressPath{
+		Path: "/resource",
+		Backend: networkingv1.IngressBackend{
+			Resource: &corev1.TypedLocalObjectReference{Name: "unsupported-resource"},
+		},
+	}
+
+	PublishUnsupportedBackendEvent(nil, ingress, "example.com", path)
+	PublishUnsupportedBackendEvent(fakeRecorder, nil, "example.com", path)
+	PublishMissingServiceBackendEvent(nil, ingress, "example.com", path)
+	PublishMissingServiceBackendEvent(fakeRecorder, nil, "example.com", path)
+	Eventually(fakeRecorder.Events).ShouldNot(Receive())
+
+	PublishUnsupportedBackendEvent(fakeRecorder, ingress, "example.com", path)
+	Eventually(fakeRecorder.Events).Should(Receive(And(
+		ContainSubstring(UnsupportedBackendReason),
+		ContainSubstring("resource backend is not supported"),
+		ContainSubstring("/resource"),
+		ContainSubstring("unsupported-resource"),
+	)))
+
+	missingServicePath := networkingv1.HTTPIngressPath{Path: "/missing-service"}
+	PublishMissingServiceBackendEvent(fakeRecorder, ingress, "example.com", missingServicePath)
+	Eventually(fakeRecorder.Events).Should(Receive(And(
+		ContainSubstring(MissingServiceBackendReason),
+		ContainSubstring("service backend is not configured"),
+		ContainSubstring("/missing-service"),
+	)))
+}
+
+func TestLogAndPublishIngressBackendValidationWarning(t *testing.T) {
+	RegisterTestingT(t)
+
+	fakeRecorder := events.NewFakeRecorder(10)
+	ingress := &networkingv1.Ingress{ObjectMeta: v1.ObjectMeta{Name: "name", Namespace: "namespace"}}
+	resourcePath := networkingv1.HTTPIngressPath{
+		Path: "/resource",
+		Backend: networkingv1.IngressBackend{
+			Resource: &corev1.TypedLocalObjectReference{Name: "unsupported-resource"},
+		},
+	}
+
+	LogAndPublishIngressBackendValidationWarning(fakeRecorder, nil, "example.com", resourcePath, "")
+	Eventually(fakeRecorder.Events).ShouldNot(Receive())
+
+	LogAndPublishIngressBackendValidationWarning(fakeRecorder, ingress, "example.com", resourcePath, " while testing")
+	Eventually(fakeRecorder.Events).Should(Receive(And(
+		ContainSubstring(UnsupportedBackendReason),
+		ContainSubstring("unsupported-resource"),
+	)))
+
+	missingServicePath := networkingv1.HTTPIngressPath{Path: "/missing-service"}
+	LogAndPublishIngressBackendValidationWarning(fakeRecorder, ingress, "example.com", missingServicePath, " while testing")
+	Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring(MissingServiceBackendReason)))
 }

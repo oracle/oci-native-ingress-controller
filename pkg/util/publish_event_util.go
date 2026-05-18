@@ -15,12 +15,19 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	networkinglisters "k8s.io/client-go/listers/networking/v1"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
+)
+
+const (
+	UnsupportedBackendReason       = "UnsupportedBackend"
+	MissingServiceBackendReason    = "MissingServiceBackend"
+	IngressBackendValidationAction = "IngressBackendValidation"
 )
 
 func PublishWarningEventForIngress(eventRecorder events.EventRecorder, ingressLister networkinglisters.IngressLister,
@@ -63,4 +70,37 @@ Request Endpoint: %s`, serviceErr.GetOperationName(), serviceErr.GetTargetServic
 	}
 
 	eventRecorder.Eventf(regarding, nil, corev1.EventTypeWarning, reason, action, message)
+}
+
+func PublishUnsupportedBackendEvent(eventRecorder events.EventRecorder, ingress *networkingv1.Ingress, host string, path networkingv1.HTTPIngressPath) {
+	if eventRecorder == nil || ingress == nil {
+		return
+	}
+
+	eventRecorder.Eventf(ingress, nil, corev1.EventTypeWarning, UnsupportedBackendReason, IngressBackendValidationAction,
+		"Skipping ingress path because resource backend is not supported by OCI Native Ingress Controller: host=%q, path=%q, resource=%v", host, path.Path, path.Backend.Resource)
+}
+
+func PublishMissingServiceBackendEvent(eventRecorder events.EventRecorder, ingress *networkingv1.Ingress, host string, path networkingv1.HTTPIngressPath) {
+	if eventRecorder == nil || ingress == nil {
+		return
+	}
+
+	eventRecorder.Eventf(ingress, nil, corev1.EventTypeWarning, MissingServiceBackendReason, IngressBackendValidationAction,
+		"Skipping ingress path because service backend is not configured: host=%q, path=%q", host, path.Path)
+}
+
+func LogAndPublishIngressBackendValidationWarning(eventRecorder events.EventRecorder, ingress *networkingv1.Ingress, host string, path networkingv1.HTTPIngressPath, logContext string) {
+	if ingress == nil {
+		return
+	}
+
+	if path.Backend.Resource != nil {
+		klog.Warningf("skipping ingress path with unsupported resource backend%s for ingress %s/%s, host=%q, path=%q, resource=%v", logContext, ingress.Namespace, ingress.Name, host, path.Path, path.Backend.Resource)
+		PublishUnsupportedBackendEvent(eventRecorder, ingress, host, path)
+		return
+	}
+
+	klog.Warningf("skipping ingress path without service backend%s for ingress %s/%s, host=%q, path=%q", logContext, ingress.Namespace, ingress.Name, host, path.Path)
+	PublishMissingServiceBackendEvent(eventRecorder, ingress, host, path)
 }

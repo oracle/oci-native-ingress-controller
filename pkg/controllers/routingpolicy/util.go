@@ -19,6 +19,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/events"
 )
 
 type listenerPath struct {
@@ -34,8 +35,20 @@ type ByPath []*listenerPath
 func (pathArray ByPath) Len() int { return len(pathArray) }
 
 func (pathArray ByPath) Less(i, j int) bool {
-	if pathArray[i].Path.Path == pathArray[j].Path.Path {
-		if *pathArray[i].Path.PathType == *pathArray[j].Path.PathType {
+	if pathArray[i] == nil || pathArray[j] == nil {
+		// Keep nil listener paths first so sorting remains deterministic and panic-free for malformed inputs.
+		return pathArray[j] != nil
+	}
+	if pathArray[i].Path == nil || pathArray[j].Path == nil {
+		// Keep nil listener paths first so sorting remains deterministic and panic-free for malformed inputs.
+		return pathArray[j].Path != nil
+	}
+	pathI := pathArray[i].Path
+	pathJ := pathArray[j].Path
+	pathTypeI := util.PathTypeOrDefault(*pathI)
+	pathTypeJ := util.PathTypeOrDefault(*pathJ)
+	if pathI.Path == pathJ.Path {
+		if pathTypeI == pathTypeJ {
 			if strings.EqualFold(pathArray[i].Host, pathArray[j].Host) {
 				if pathArray[i].BackendSetName == pathArray[j].BackendSetName {
 					return pathArray[i].IngressName > pathArray[j].IngressName
@@ -44,9 +57,9 @@ func (pathArray ByPath) Less(i, j int) bool {
 			}
 			return pathArray[i].Host > pathArray[j].Host
 		}
-		return *pathArray[i].Path.PathType < *pathArray[j].Path.PathType
+		return pathTypeI < pathTypeJ
 	}
-	return pathArray[i].Path.Path > pathArray[j].Path.Path
+	return pathI.Path > pathJ.Path
 }
 
 func (pathArray ByPath) Swap(i, j int) { pathArray[i], pathArray[j] = pathArray[j], pathArray[i] }
@@ -55,7 +68,7 @@ func PathToRoutePolicyCondition(listenerPort int32, host string, path networking
 	var conditions []string
 
 	if host != "" {
-		if host[:2] == "*." {
+		if strings.HasPrefix(host, "*.") {
 			conditions = append(conditions, fmt.Sprintf("any(http.request.headers[(i 'Host')][0] ew '%s', http.request.headers[(i 'Host')][0] ew '%s:%d')",
 				host[1:], host[1:], listenerPort))
 		} else {
@@ -64,7 +77,7 @@ func PathToRoutePolicyCondition(listenerPort int32, host string, path networking
 		}
 
 	}
-	if *path.PathType == networkingv1.PathTypeExact {
+	if util.PathTypeOrDefault(path) == networkingv1.PathTypeExact {
 		conditions = append(conditions, fmt.Sprintf("http.request.url.path eq '%s'", path.Path))
 	} else {
 		conditions = append(conditions, fmt.Sprintf("http.request.url.path sw '%s'", path.Path))
@@ -78,7 +91,7 @@ func PathToRoutePolicyCondition(listenerPort int32, host string, path networking
 }
 
 func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corelisters.ServiceLister,
-	listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String) error {
+	listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String, eventRecorder events.EventRecorder) error {
 	for _, ingress := range ingresses {
 		tlsConfiguredHosts := sets.NewString()
 		for tlsIdx := range ingress.Spec.TLS {
@@ -90,8 +103,17 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 
 		for _, rule := range ingress.Spec.Rules {
 			host := rule.Host
+			if !util.HasHTTPPaths(rule) {
+				klog.V(4).InfoS("skipping ingress rule without HTTP paths while processing routing policy", "ingress", klog.KObj(ingress), "host", host)
+				continue
+			}
 
 			for _, path := range rule.HTTP.Paths {
+				if !util.HasServiceBackend(path) {
+					util.LogAndPublishIngressBackendValidationWarning(eventRecorder, ingress, host, path, " while processing routing policy")
+					continue
+				}
+
 				serviceName, servicePort, err := util.PathToServiceAndPort(ingress.Namespace, path, serviceLister)
 				if err != nil {
 					return fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err)

@@ -8,8 +8,8 @@ apiVersion: v2
 name: oci-native-ingress-controller
 description: OCI Native Ingress Controller
 type: application
-version: 1.4.2
-appVersion: "1.4.2"
+version: 1.4.3
+appVersion: "1.4.3"
 
 maintainers:
   - name: OKE Foundations team

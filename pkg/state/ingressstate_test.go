@@ -19,6 +19,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
 	corelisters "k8s.io/client-go/listers/core/v1"
@@ -489,4 +490,124 @@ func TestValidateListenerDefaultBackendSetWithConflict(t *testing.T) {
 	Expect(err).Should(HaveOccurred())
 
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(DefaultBackendSetConflictMessage, 8080)))
+}
+
+// Helper to build a minimal Ingress targeting a service/port with optional annotations
+func makeIngress(name string, annotations map[string]string, svcName string, port int32) networkingv1.Ingress {
+	pathType := networkingv1.PathType("Prefix")
+	return networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   "default",
+			Annotations: annotations,
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathType,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: svcName,
+											Port: networkingv1.ServiceBackendPort{Number: port},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestValidateSessionPersistence_NoConflict_LbCookie(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+
+	// OCI SDK envelope: LB cookie
+	ann := map[string]string{
+		util.IngressLbCookieJSONAnnotation: `{}`,
+	}
+	ing := makeIngress("ing-lb-cookie", ann, "test-persist", 8080)
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{ing}}
+
+	testService := util.GetServiceListResource("default", "test-persist", 8080)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	bsName := util.GenerateBackendSetName("default", "test-persist", 8080)
+	app, lb := stateStore.GetBackendSetSessionPersistence(bsName)
+	Expect(app).To(BeNil())
+	Expect(lb).NotTo(BeNil())
+}
+
+func TestValidateSessionPersistence_NoConflict_AppCookie(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+
+	// OCI SDK envelope: App cookie
+	ann := map[string]string{
+		util.IngressSessionPersistenceJSONAnnotation: `{"cookieName":"APPSESS"}`,
+	}
+	ing := makeIngress("ing-app-cookie", ann, "test-persist", 8081)
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{ing}}
+
+	testService := util.GetServiceListResource("default", "test-persist", 8081)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	bsName := util.GenerateBackendSetName("default", "test-persist", 8081)
+	app, lb := stateStore.GetBackendSetSessionPersistence(bsName)
+	Expect(lb).To(BeNil())
+	Expect(app).NotTo(BeNil())
+	Expect(*app.CookieName).To(Equal("APPSESS"))
+}
+
+func TestValidateSessionPersistence_ReconcileOnConflict(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+
+	// Two ingresses pointing to the same backend set but different persistence modes -> reconcile (prefer lbCookie)
+	annLb := map[string]string{
+		util.IngressLbCookieJSONAnnotation: `{}`,
+	}
+	annApp := map[string]string{
+		util.IngressSessionPersistenceJSONAnnotation: `{"cookieName":"APPSESS"}`,
+	}
+	ing1 := makeIngress("ing-lb", annLb, "test-persist", 8082)
+	ing2 := makeIngress("ing-app", annApp, "test-persist", 8082)
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{ing1, ing2}}
+
+	testService := util.GetServiceListResource("default", "test-persist", 8082)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	bsName := util.GenerateBackendSetName("default", "test-persist", 8082)
+	app, lb := stateStore.GetBackendSetSessionPersistence(bsName)
+	Expect(app).To(BeNil())
+	Expect(lb).NotTo(BeNil())
 }

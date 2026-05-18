@@ -13,13 +13,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/events"
-	"reflect"
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
-	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/prometheus/client_golang/prometheus"
@@ -422,7 +423,8 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		healthChecker := stateStore.GetBackendSetHealthChecker(bsName)
 		policy := stateStore.GetBackendSetPolicy(bsName)
-		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig)
+		appCookie, lbCookie := stateStore.GetBackendSetSessionPersistence(bsName)
+		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig, appCookie, lbCookie)
 		if err != nil {
 			return err
 		}
@@ -596,14 +598,14 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 
 	protocol := stateStore.GetListenerProtocol(int32(*listener.Port))
 	protocolExisting := listener.Protocol
-	if protocol != "" && protocol != *protocolExisting {
+	if protocol != "" && (protocolExisting == nil || protocol != *protocolExisting) {
 		klog.Infof("Protocol for listener %d needs update, new protocol %s", *listener.Name, protocol)
 		needsUpdate = true
 	}
 
 	defaultBackendSet := stateStore.GetListenerDefaultBackendSet(int32(*listener.Port))
 	defaultBackendSetExisting := listener.DefaultBackendSetName
-	if defaultBackendSet != *defaultBackendSetExisting {
+	if defaultBackendSetExisting == nil || defaultBackendSet != *defaultBackendSetExisting {
 		klog.Infof("Default BackendSet for listener %d needs update, new Default Backend Set %s", *listener.Name, defaultBackendSet)
 		needsUpdate = true
 	}
@@ -665,8 +667,24 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 		needsUpdate = true
 	}
 
+	desiredAppCookie, desiredLbCookie := stateStore.GetBackendSetSessionPersistence(*bs.Name)
+	if !reflect.DeepEqual(bs.SessionPersistenceConfiguration, desiredAppCookie) || !reflect.DeepEqual(bs.LbCookieSessionPersistenceConfiguration, desiredLbCookie) {
+		var desiredConfig string
+		var currentConfig string
+		if desiredLbCookie != nil {
+			desiredConfig = util.PrettyPrint(desiredLbCookie)
+			currentConfig = util.PrettyPrint(bs.LbCookieSessionPersistenceConfiguration)
+		} else {
+			desiredConfig = util.PrettyPrint(desiredAppCookie)
+			currentConfig = util.PrettyPrint(bs.SessionPersistenceConfiguration)
+		}
+
+		klog.Infof("Session persistence for backend set %s needs update. Current configurations : %s, Desired configurations : %s", *bs.Name, currentConfig, desiredConfig)
+		needsUpdate = true
+	}
+
 	if needsUpdate {
-		err = wrapperClient.GetLbClient().UpdateBackendSetDetails(context.TODO(), *lb.Id, etag, &bs, sslConfig, healthChecker, policy)
+		err = wrapperClient.GetLbClient().UpdateBackendSetDetails(context.TODO(), *lb.Id, etag, &bs, sslConfig, healthChecker, policy, desiredAppCookie, desiredLbCookie)
 		if err != nil {
 			return err
 		}

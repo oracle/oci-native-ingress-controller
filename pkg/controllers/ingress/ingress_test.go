@@ -16,7 +16,7 @@ import (
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
@@ -96,6 +96,89 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
 		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
 	return c
+}
+
+// Helper to build controller with a custom LB client to simulate edge cases
+func initsWithCustomLB(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, lbIface ociclient.LoadBalancerInterface) *Controller {
+	testService := util.GetServiceListResource(namespace, "testecho1", 80)
+	certClient := GetCertClient()
+	certManageClient := GetCertManageClient()
+
+	loadBalancerClient := &lb.LoadBalancerClient{
+		LbClient: lbIface,
+		Mu:       sync.Mutex{},
+		Cache:    map[string]*lb.LbCacheObj{},
+	}
+
+	certificatesClient := &certificate.CertificatesClient{
+		ManagementClient:   certManageClient,
+		CertificatesClient: certClient,
+		CertCache:          map[string]*ociclient.CertCacheObj{},
+		CaBundleCache:      map[string]*ociclient.CaBundleCacheObj{},
+	}
+
+	ingressClassInformer, ingressInformer, saInformer, serviceLister, secretInformer, k8client := setUp(ctx, ingressClassList, ingressList, testService)
+	wrapperClient := client.NewWrapperClient(k8client, nil, loadBalancerClient, certificatesClient, nil)
+	fakeClient := &client.ClientProvider{
+		K8sClient:           k8client,
+		DefaultConfigGetter: &MockConfigGetter{},
+		Cache:               NewMockCacheStore(wrapperClient),
+	}
+	fakeRecorder := events.NewFakeRecorder(10)
+	return NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
+		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+}
+
+// Mock that returns a listener with nil Protocol
+type MockLoadBalancerClientNilProtocol struct{ MockLoadBalancerClient }
+
+func (m MockLoadBalancerClientNilProtocol) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	res := util.SampleLoadBalancerResponse()
+	for k, l := range res.LoadBalancer.Listeners {
+		lCopy := l
+		lCopy.Protocol = nil
+		res.LoadBalancer.Listeners[k] = lCopy
+		break
+	}
+	return res, nil
+}
+
+// Mock that returns a listener with nil DefaultBackendSetName
+type MockLoadBalancerClientNilDefaultBS struct{ MockLoadBalancerClient }
+
+func (m MockLoadBalancerClientNilDefaultBS) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	res := util.SampleLoadBalancerResponse()
+	for k, l := range res.LoadBalancer.Listeners {
+		lCopy := l
+		lCopy.DefaultBackendSetName = nil
+		res.LoadBalancer.Listeners[k] = lCopy
+		break
+	}
+	return res, nil
+}
+
+func TestEnsureIngress_NilListenerProtocol_DoesNotPanic(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, MockLoadBalancerClientNilProtocol{})
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func TestEnsureIngress_NilDefaultBackendSet_DoesNotPanic(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, MockLoadBalancerClientNilDefaultBS{})
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
 }
 
 func TestSync(t *testing.T) {

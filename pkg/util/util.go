@@ -15,14 +15,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -87,6 +88,11 @@ const (
 	IngressHealthCheckForcePlainTextAnnotation       = "oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext"
 	IngressHttpListenerPortAnnotation                = "oci-native-ingress.oraclecloud.com/http-listener-port"
 	IngressHttpsListenerPortAnnotation               = "oci-native-ingress.oraclecloud.com/https-listener-port"
+
+	// Explicit JSON annotations (preferred) for cookie persistence.
+	// Exactly one should be set for a given ingress/backend-set.
+	IngressLbCookieJSONAnnotation           = "oci-native-ingress.oraclecloud.com/lb-cookie-session-persistence-config" // JSON: LbCookieSessionPersistenceConfigurationDetails
+	IngressSessionPersistenceJSONAnnotation = "oci-native-ingress.oraclecloud.com/session-persistence-config"           // JSON: SessionPersistenceConfigurationDetails
 
 	ProtocolTCP                            = "TCP"
 	ProtocolHTTP                           = "HTTP"
@@ -428,14 +434,134 @@ func GetIngressHttpsListenerPort(i *networkingv1.Ingress) (int, error) {
 	return strconv.Atoi(value)
 }
 
+// HasSessionPersistenceAnnotation returns true if any cookie/session persistence annotation is present and non-empty.
+func HasSessionPersistenceAnnotation(i *networkingv1.Ingress) bool {
+	if i == nil || i.Annotations == nil {
+		return false
+	}
+	// explicit
+	if raw, ok := i.Annotations[IngressLbCookieJSONAnnotation]; ok && strings.TrimSpace(raw) != "" {
+		return true
+	}
+	if raw, ok := i.Annotations[IngressSessionPersistenceJSONAnnotation]; ok && strings.TrimSpace(raw) != "" {
+		return true
+	}
+	return false
+}
+
+func getLbCookieFromJSONOnly(i *networkingv1.Ingress) (*ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails, bool, error) {
+	raw, ok := i.Annotations[IngressLbCookieJSONAnnotation]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, false, nil
+	}
+	var cfg ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, true, fmt.Errorf("invalid JSON in %s: %w", IngressLbCookieJSONAnnotation, err)
+	}
+	// normalize empty cookieName -> nil
+	if cfg.CookieName != nil && strings.TrimSpace(*cfg.CookieName) == "" {
+		cfg.CookieName = nil
+	}
+	return &cfg, true, nil
+}
+
+func getSessionPersistenceFromJSONOnly(i *networkingv1.Ingress) (*ociloadbalancer.SessionPersistenceConfigurationDetails, bool, error) {
+	raw, ok := i.Annotations[IngressSessionPersistenceJSONAnnotation]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil, false, nil
+	}
+	var cfg ociloadbalancer.SessionPersistenceConfigurationDetails
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, true, fmt.Errorf("invalid JSON in %s: %w", IngressSessionPersistenceJSONAnnotation, err)
+	}
+	cn := "*"
+	if cfg.CookieName != nil && strings.TrimSpace(*cfg.CookieName) != "" {
+		cn = strings.TrimSpace(*cfg.CookieName)
+	}
+	return &ociloadbalancer.SessionPersistenceConfigurationDetails{CookieName: common.String(cn)}, true, nil
+}
+
+// GetSessionPersistenceConfigs reads annotations on Ingress and returns the desired session persistence configs.
+// Exactly one of the returned pointers can be non-nil. If both are nil, persistence is disabled.
+// Returns an error if JSON is invalid or if both annotations are specified.
+func GetSessionPersistenceConfigs(i *networkingv1.Ingress) (*ociloadbalancer.SessionPersistenceConfigurationDetails, *ociloadbalancer.LbCookieSessionPersistenceConfigurationDetails, error) {
+	if i == nil || i.Annotations == nil {
+		return nil, nil, nil
+	}
+
+	app, usedApp, err := getSessionPersistenceFromJSONOnly(i)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	lb, usedLb, err := getLbCookieFromJSONOnly(i)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Both annotations set is a configuration error.
+	if app != nil && lb != nil {
+		return nil, nil, fmt.Errorf("both %s and %s are set; exactly one session persistence annotation must be specified", IngressSessionPersistenceJSONAnnotation, IngressLbCookieJSONAnnotation)
+	}
+
+	if usedApp || usedLb {
+		return app, lb, nil
+	}
+
+	return nil, nil, nil
+}
+
+// parseOptionalBool parses a bool string. Returns (value, true) if provided and valid, otherwise (false, false).
+func parseOptionalBool(v string) (bool, bool) {
+	if strings.TrimSpace(v) == "" {
+		return false, false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		klog.Errorf("Error parsing boolean value '%s'", v)
+		return false, false
+	}
+	return b, true
+}
+
+// parseOptionalInt parses an int string. Returns (value, true) if provided and valid, otherwise (0, false).
+func parseOptionalInt(v string) (int, bool) {
+	if strings.TrimSpace(v) == "" {
+		return 0, false
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		klog.Errorf("Error parsing integer value '%s'", v)
+		return 0, false
+	}
+	return i, true
+}
+
 func PathToRoutePolicyName(ingressName string, host string, path networkingv1.HTTPIngressPath) string {
 	h := sha256.New()
 	h.Write([]byte(ingressName))
 	h.Write([]byte(host))
-	h.Write([]byte(*path.PathType))
+	h.Write([]byte(PathTypeOrDefault(path)))
 	h.Write([]byte(path.Path))
-	h.Write([]byte(path.Backend.Service.Name))
+	if path.Backend.Service != nil {
+		h.Write([]byte(path.Backend.Service.Name))
+	}
 	return fmt.Sprintf("k8s_%.10s", hex.EncodeToString(h.Sum(nil)))
+}
+
+func PathTypeOrDefault(path networkingv1.HTTPIngressPath) networkingv1.PathType {
+	if path.PathType == nil {
+		return networkingv1.PathTypeImplementationSpecific
+	}
+	return *path.PathType
+}
+
+func HasHTTPPaths(rule networkingv1.IngressRule) bool {
+	return rule.HTTP != nil
+}
+
+func HasServiceBackend(path networkingv1.HTTPIngressPath) bool {
+	return path.Backend.Service != nil
 }
 
 func GenerateBackendSetName(namespace string, serviceName string, port int32) string {

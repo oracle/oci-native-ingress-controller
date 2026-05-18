@@ -3,11 +3,12 @@ package backend
 import (
 	"bytes"
 	"context"
-	coreinformers "k8s.io/client-go/informers/core/v1"
-	"k8s.io/client-go/tools/events"
 	"sync"
 	"testing"
 	"time"
+
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/tools/events"
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -81,6 +82,39 @@ func TestEnsureBackend(t *testing.T) {
 
 	err := c.ensureBackends(getContextWithClient(c, ctx), &ingressClassList.Items[0], "id")
 	Expect(err == nil).Should(Equal(true))
+}
+
+func TestEnsureBackendPublishesEventsForNonServiceBackends(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressClassList := util.GetIngressClassList()
+	c := inits(ctx, ingressClassList, backendPath)
+	fakeRecorder := c.eventRecorder.(*events.FakeRecorder)
+	pathType := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "ingress", Namespace: namespace},
+		Spec: networkingv1.IngressSpec{Rules: []networkingv1.IngressRule{{
+			Host: "example.com",
+			IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{
+				{
+					Path:     "/resource",
+					PathType: &pathType,
+					Backend:  networkingv1.IngressBackend{Resource: &corev1.TypedLocalObjectReference{Name: "unsupported-resource"}},
+				},
+				{
+					Path:     "/missing-service",
+					PathType: &pathType,
+				},
+			}}},
+		}}},
+	}
+
+	err := c.ensureBackendsForIngress(context.TODO(), ingress, &ingressClassList.Items[0], "id", nil)
+
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring(util.UnsupportedBackendReason)))
+	Eventually(fakeRecorder.Events).Should(Receive(ContainSubstring(util.MissingServiceBackendReason)))
 }
 
 func TestRunPusher(t *testing.T) {

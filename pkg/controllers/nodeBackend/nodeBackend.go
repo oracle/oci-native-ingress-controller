@@ -3,9 +3,10 @@ package nodeBackend
 import (
 	"context"
 	"fmt"
+	"time"
+
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/events"
-	"time"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"k8s.io/klog/v2"
@@ -194,7 +195,15 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass,
 	nodes []*corev1.Node, lbID string, wrapperClient *client.WrapperClient) error {
 	for _, rule := range ingress.Spec.Rules {
+		if !util.HasHTTPPaths(rule) {
+			klog.V(4).InfoS("skipping ingress rule without HTTP paths", "ingress", klog.KObj(ingress), "host", rule.Host)
+			continue
+		}
 		for _, path := range rule.HTTP.Paths {
+			if !util.HasServiceBackend(path) {
+				util.LogAndPublishIngressBackendValidationWarning(c.eventRecorder, ingress, rule.Host, path, "")
+				continue
+			}
 
 			pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
 			if err != nil {
