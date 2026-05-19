@@ -210,7 +210,7 @@ func (c *Controller) ensureRoutingRules(ctx context.Context, ingressClass *netwo
 			listener, listenerFound := lb.Listeners[routingPolicyToDelete]
 			if listenerFound {
 				klog.Infof("Detaching the routing policy %s from listener.", routingPolicyToDelete)
-				err = wrapperClient.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil)
+				err = wrapperClient.GetLbClient().UpdateListener(context.TODO(), lb.Id, etag, listener, nil, nil, listener.Protocol, nil, true)
 				if err != nil {
 					return err
 				}

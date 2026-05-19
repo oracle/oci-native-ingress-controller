@@ -15,6 +15,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -211,6 +212,46 @@ func getContextWithClient(c *Controller, ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, util.WrapperClient, wc)
 	return ctx
 }
+
+func TestSyncListenerClearsStaleSSLConfigWhenTLSNotDesired(t *testing.T) {
+	RegisterTestingT(t)
+	port := 10901
+	lbId := "id"
+	listenerName := util.GenerateListenerName(int32(port))
+	defaultBackendSet := util.GenerateBackendSetName(namespace, "testecho1", int32(port))
+	mockClient := &staleSSLLoadBalancerClient{
+		listenerName:      listenerName,
+		port:              port,
+		defaultBackendSet: defaultBackendSet,
+		protocol:          util.ProtocolTCP,
+		certificateIds:    []string{"certificate-id"},
+	}
+	loadBalancerClient := &lb.LoadBalancerClient{
+		LbClient: mockClient,
+		Mu:       sync.Mutex{},
+		Cache:    map[string]*lb.LbCacheObj{},
+	}
+	wrapperClient := client.NewWrapperClient(nil, nil, loadBalancerClient, nil, nil)
+	ctx := context.WithValue(context.Background(), util.WrapperClient, wrapperClient)
+	stateStore := &state.StateStore{
+		IngressGroupState: state.IngressClassState{
+			ListenerProtocolMap: map[int32]string{
+				int32(port): util.ProtocolTCP,
+			},
+			ListenerDefaultBsMap: map[int32]string{
+				int32(port): defaultBackendSet,
+			},
+			ListenerTLSConfigMap: map[int32]state.TlsConfig{},
+		},
+	}
+
+	err := syncListener(ctx, namespace, stateStore, &lbId, listenerName, "", &Controller{})
+
+	Expect(err).To(BeNil())
+	Expect(mockClient.updateListenerRequest).ToNot(BeNil())
+	Expect(mockClient.updateListenerRequest.UpdateListenerDetails.SslConfiguration).To(BeNil())
+}
+
 func TestEnsureLoadBalancerIP(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -445,6 +486,49 @@ func (m MockLoadBalancerClient) CreateListener(ctx context.Context, request ocil
 
 func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {
 	return ociloadbalancer.UpdateListenerResponse{}, nil
+}
+
+type staleSSLLoadBalancerClient struct {
+	MockLoadBalancerClient
+	listenerName          string
+	port                  int
+	defaultBackendSet     string
+	protocol              string
+	certificateIds        []string
+	updateListenerRequest *ociloadbalancer.UpdateListenerRequest
+}
+
+func (m *staleSSLLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	lbId := "id"
+	etag := "etag"
+	listener := ociloadbalancer.Listener{
+		Name:                  common.String(m.listenerName),
+		Port:                  common.Int(m.port),
+		Protocol:              common.String(m.protocol),
+		DefaultBackendSetName: common.String(m.defaultBackendSet),
+		SslConfiguration: &ociloadbalancer.SslConfiguration{
+			CertificateIds: m.certificateIds,
+		},
+	}
+	return ociloadbalancer.GetLoadBalancerResponse{
+		LoadBalancer: ociloadbalancer.LoadBalancer{
+			Id: common.String(lbId),
+			Listeners: map[string]ociloadbalancer.Listener{
+				m.listenerName: listener,
+			},
+		},
+		ETag: common.String(etag),
+	}, nil
+}
+
+func (m *staleSSLLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {
+	m.updateListenerRequest = &request
+	id := "id"
+	return ociloadbalancer.UpdateListenerResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: &id,
+		OpcRequestId:     &id,
+	}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {

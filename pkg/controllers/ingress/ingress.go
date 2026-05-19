@@ -599,6 +599,9 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 				needsUpdate = true
 			}
 		}
+	} else if listener.SslConfiguration != nil {
+		klog.Infof("SSL config for listener %s needs removal", *listener.Name)
+		needsUpdate = true
 	}
 
 	protocol := stateStore.GetListenerProtocol(int32(*listener.Port))
@@ -616,7 +619,7 @@ func syncListener(ctx context.Context, namespace string, stateStore *state.State
 	}
 
 	if needsUpdate {
-		err := wrapperClient.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet)
+		err := wrapperClient.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet, false)
 		if err != nil {
 			return err
 		}
