@@ -205,6 +205,68 @@ func TestLoadBalancerClient_UpdateListener(t *testing.T) {
 	Expect(err).To(BeNil())
 }
 
+func TestLoadBalancerClient_UpdateListenerPreservesExistingSSLByDefault(t *testing.T) {
+	RegisterTestingT(t)
+	mockClient := &captureLoadBalancerClient{}
+	loadBalancerClient := &LoadBalancerClient{
+		LbClient: mockClient,
+		Mu:       sync.Mutex{},
+		Cache:    map[string]*LbCacheObj{},
+	}
+	id := "id"
+	name := "route_10901"
+	proto := util.ProtocolTCP
+	defaultBackendSet := util.DefaultBackendSetName
+	port := 10901
+	listener := ociloadbalancer.Listener{
+		Name:                  &name,
+		Port:                  &port,
+		Protocol:              &proto,
+		DefaultBackendSetName: &defaultBackendSet,
+		SslConfiguration: &ociloadbalancer.SslConfiguration{
+			CertificateIds: []string{"certificate-id"},
+		},
+	}
+
+	err := loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, nil, nil, &proto, &defaultBackendSet)
+
+	Expect(err).To(BeNil())
+	Expect(mockClient.updateListenerRequest).ToNot(BeNil())
+	sslConfig := mockClient.updateListenerRequest.UpdateListenerDetails.SslConfiguration
+	Expect(sslConfig).ToNot(BeNil())
+	Expect(sslConfig.CertificateIds).To(Equal([]string{"certificate-id"}))
+}
+
+func TestLoadBalancerClient_UpdateListenerClearsSSLWhenNotPreserved(t *testing.T) {
+	RegisterTestingT(t)
+	mockClient := &captureLoadBalancerClient{}
+	loadBalancerClient := &LoadBalancerClient{
+		LbClient: mockClient,
+		Mu:       sync.Mutex{},
+		Cache:    map[string]*LbCacheObj{},
+	}
+	id := "id"
+	name := "route_10901"
+	proto := util.ProtocolTCP
+	defaultBackendSet := util.DefaultBackendSetName
+	port := 10901
+	listener := ociloadbalancer.Listener{
+		Name:                  &name,
+		Port:                  &port,
+		Protocol:              &proto,
+		DefaultBackendSetName: &defaultBackendSet,
+		SslConfiguration: &ociloadbalancer.SslConfiguration{
+			CertificateIds: []string{"certificate-id"},
+		},
+	}
+
+	err := loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, nil, nil, &proto, &defaultBackendSet, false)
+
+	Expect(err).To(BeNil())
+	Expect(mockClient.updateListenerRequest).ToNot(BeNil())
+	Expect(mockClient.updateListenerRequest.UpdateListenerDetails.SslConfiguration).To(BeNil())
+}
+
 func TestLoadBalancerClient_UpdateNetworkSecurityGroups(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
@@ -385,6 +447,21 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 		OpcWorkRequestId: &id,
 		OpcRequestId:     &id,
 	}, err
+}
+
+type captureLoadBalancerClient struct {
+	MockLoadBalancerClient
+	updateListenerRequest *ociloadbalancer.UpdateListenerRequest
+}
+
+func (m *captureLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {
+	m.updateListenerRequest = &request
+	id := "id"
+	return ociloadbalancer.UpdateListenerResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: &id,
+		OpcRequestId:     &id,
+	}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ociloadbalancer.DeleteListenerRequest) (ociloadbalancer.DeleteListenerResponse, error) {
