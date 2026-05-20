@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"k8s.io/klog/v2"
 
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
@@ -47,11 +48,12 @@ type Controller struct {
 
 	queue workqueue.RateLimitingInterface
 
-	client *client.ClientProvider
+	client           *client.ClientProvider
+	metricsCollector *metric.IngressCollector
 }
 
 func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
-	client *client.ClientProvider, eventRecorder events.EventRecorder) *Controller {
+	client *client.ClientProvider, metricsCollector *metric.IngressCollector, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
 		controllerClass:    controllerClass,
@@ -65,6 +67,7 @@ func NewController(controllerClass string, ingressClassInformer networkinginform
 		client:             client,
 		eventRecorder:      eventRecorder,
 		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		metricsCollector:   metricsCollector,
 	}
 
 	return c
@@ -91,6 +94,17 @@ func (c *Controller) processNextItem() bool {
 
 // sync is the business logic of the controller.
 func (c *Controller) sync(key string) error {
+	if c.metricsCollector != nil {
+		c.metricsCollector.IncrementSyncCount()
+	}
+
+	startSyncTime := time.Now()
+	defer func() {
+		if c.metricsCollector != nil {
+			c.metricsCollector.AddIngressBackendSyncTime(time.Since(startSyncTime).Seconds())
+		}
+	}()
+
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		klog.ErrorS(err, "Failed to split meta namespace cache key", "cacheKey", key)
