@@ -267,8 +267,17 @@ func TestIngressUpdate(t *testing.T) {
 	ingressClassList := util.GetIngressClassList()
 	ingressList := util.ReadResourceAsIngressList(ingressPathWithFinalizer)
 	c := inits(ctx, ingressClassList, ingressList)
+
 	queueSize := c.queue.Len()
 	c.ingressUpdate(&ingressList.Items[0], &ingressList.Items[1])
+	Expect(c.queue.Len()).Should(Equal(queueSize))
+
+	oldIngress := ingressList.Items[0].DeepCopy()
+	newIngress := ingressList.Items[1].DeepCopy()
+	oldIngress.ResourceVersion = "1"
+	newIngress.ResourceVersion = "2"
+
+	c.ingressUpdate(oldIngress, newIngress)
 	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
 }
 func TestIngressDelete(t *testing.T) {
