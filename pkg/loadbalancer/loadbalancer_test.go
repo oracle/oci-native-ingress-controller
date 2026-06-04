@@ -481,6 +481,26 @@ func TestLoadBalancerClient_UpdateBackendSet_PassesDesiredTLSPolicy(t *testing.T
 	Expect(capturedSslConfig.Protocols).To(Equal([]string{"TLSv1.2"}))
 }
 
+func TestLoadBalancerClient_CreateBackendSetIncludesInitialBackends(t *testing.T) {
+	RegisterTestingT(t)
+	mockClient := &captureLoadBalancerClient{}
+	loadBalancerClient := &LoadBalancerClient{
+		LbClient: mockClient,
+		Mu:       sync.Mutex{},
+		Cache:    map[string]*LbCacheObj{},
+	}
+
+	backends := []ociloadbalancer.BackendDetails{util.NewBackend("10.0.0.1", 8080)}
+	err := loadBalancerClient.CreateBackendSet(context.TODO(), "id", "new_backend_set", "LEAST_CONNECTIONS",
+		util.GetDefaultHeathChecker(), nil, nil, nil, backends)
+
+	Expect(err).To(BeNil())
+	Expect(mockClient.createBackendSetRequest).ToNot(BeNil())
+	Expect(mockClient.createBackendSetRequest.CreateBackendSetDetails.Backends).To(HaveLen(1))
+	Expect(*mockClient.createBackendSetRequest.CreateBackendSetDetails.Backends[0].IpAddress).To(Equal("10.0.0.1"))
+	Expect(*mockClient.createBackendSetRequest.CreateBackendSetDetails.Backends[0].Port).To(Equal(8080))
+}
+
 func TestLoadBalancerClient_UpdateListener(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
@@ -1154,7 +1174,18 @@ func (m MockLoadBalancerClient) UpdateListener(ctx context.Context, request ocil
 
 type captureLoadBalancerClient struct {
 	MockLoadBalancerClient
-	updateListenerRequest *ociloadbalancer.UpdateListenerRequest
+	createBackendSetRequest *ociloadbalancer.CreateBackendSetRequest
+	updateListenerRequest   *ociloadbalancer.UpdateListenerRequest
+}
+
+func (m *captureLoadBalancerClient) CreateBackendSet(ctx context.Context, request ociloadbalancer.CreateBackendSetRequest) (ociloadbalancer.CreateBackendSetResponse, error) {
+	m.createBackendSetRequest = &request
+	id := "id"
+	return ociloadbalancer.CreateBackendSetResponse{
+		RawResponse:      nil,
+		OpcWorkRequestId: &id,
+		OpcRequestId:     &id,
+	}, nil
 }
 
 func (m *captureLoadBalancerClient) UpdateListener(ctx context.Context, request ociloadbalancer.UpdateListenerRequest) (ociloadbalancer.UpdateListenerResponse, error) {

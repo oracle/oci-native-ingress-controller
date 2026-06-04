@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 )
 
 const (
@@ -111,7 +112,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
 	return c
 }
 
@@ -154,7 +155,34 @@ func initsWithCustomLBAndServicesSecretsAndCertManager(ctx context.Context, ingr
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	return NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+}
+
+func TestGetInitialBackendsByBackendSetUsesEndpointBackends(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+	c := inits(ctx, ingressClassList, ingressList)
+	c.serviceLister = getServiceLister(util.GetServiceListResource("default", "testecho1", 80))
+	c.endpointLister = util.GetEndpointsListerResource(util.GetEndpointsResourceList("testecho1", "default", false))
+
+	backendsByBackendSet, err := c.getInitialBackendsByBackendSet(&ingressList.Items[0])
+
+	Expect(err).To(BeNil())
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
+	Expect(backendsByBackendSet[backendSetName]).To(HaveLen(1))
+	Expect(*backendsByBackendSet[backendSetName][0].IpAddress).To(Equal("6.7.8.9"))
+}
+
+func getServiceLister(services *v1.ServiceList) corelisters.ServiceLister {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	for i := range services.Items {
+		_ = indexer.Add(&services.Items[i])
+	}
+	return corelisters.NewServiceLister(indexer)
 }
 
 func drainControllerQueue(c *Controller, initialIngressCount int) {
@@ -1810,6 +1838,29 @@ func TestDeleteIngress(t *testing.T) {
 	Expect(err == nil).Should(Equal(true))
 }
 
+func drainIngressQueue(c *Controller) []interface{} {
+	var items []interface{}
+	for c.queue.Len() > 0 {
+		item, shutdown := c.queue.Get()
+		if shutdown {
+			return items
+		}
+		items = append(items, item)
+		c.queue.Forget(item)
+		c.queue.Done(item)
+	}
+	return items
+}
+
+func queueItemsContain(items []interface{}, key string) bool {
+	for _, item := range items {
+		if item == key {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIngressAdd(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1820,9 +1871,10 @@ func TestIngressAdd(t *testing.T) {
 	drainControllerQueue(c, len(ingressList.Items))
 	ingress := ingressList.Items[0].DeepCopy()
 	ingress.Name = "ingress-add-unique"
-	queueSize := c.queue.Len()
+	expectedKey, err := cache.MetaNamespaceKeyFunc(ingress)
+	Expect(err).ShouldNot(HaveOccurred())
 	c.ingressAdd(ingress)
-	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+	Expect(queueItemsContain(drainIngressQueue(c), expectedKey)).Should(BeTrue())
 }
 
 func TestIngressUpdate(t *testing.T) {
@@ -1837,15 +1889,18 @@ func TestIngressUpdate(t *testing.T) {
 	newIngress := ingressList.Items[1].DeepCopy()
 	oldIngress.Name = "ingress-update-unique"
 	newIngress.Name = oldIngress.Name
-	queueSize := c.queue.Len()
 	c.ingressUpdate(&ingressList.Items[0], &ingressList.Items[1])
-	Expect(c.queue.Len()).Should(Equal(queueSize))
+	Expect(c.queue.Len()).Should(Equal(0))
 
 	oldIngress.ResourceVersion = "1"
 	newIngress.ResourceVersion = "2"
+
+	expectedKey, err := cache.MetaNamespaceKeyFunc(newIngress)
+	Expect(err).ShouldNot(HaveOccurred())
 	c.ingressUpdate(oldIngress, newIngress)
-	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+	Expect(queueItemsContain(drainIngressQueue(c), expectedKey)).Should(BeTrue())
 }
+
 func TestIngressDelete(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1856,9 +1911,10 @@ func TestIngressDelete(t *testing.T) {
 	drainControllerQueue(c, len(ingressList.Items))
 	ingress := ingressList.Items[0].DeepCopy()
 	ingress.Name = "ingress-delete-unique"
-	queueSize := c.queue.Len()
+	expectedKey, err := cache.MetaNamespaceKeyFunc(ingress)
+	Expect(err).ShouldNot(HaveOccurred())
 	c.ingressDelete(ingress)
-	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+	Expect(queueItemsContain(drainIngressQueue(c), expectedKey)).Should(BeTrue())
 }
 
 func TestSecretAdd(t *testing.T) {
@@ -1869,22 +1925,21 @@ func TestSecretAdd(t *testing.T) {
 	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
 	c := inits(ctx, ingressClassList, ingressList)
 	drainControllerQueue(c, len(ingressList.Items))
-	queueSize := c.queue.Len()
+	expectedKey, err := cache.MetaNamespaceKeyFunc(&ingressList.Items[0])
+	Expect(err).ShouldNot(HaveOccurred())
 	c.secretAdd(&v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: "default"}}, false)
-	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+	Expect(queueItemsContain(drainIngressQueue(c), expectedKey)).Should(BeTrue())
 }
 
 func TestSecretAdd_IsInInitialList(t *testing.T) {
 	RegisterTestingT(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	ingressClassList := util.GetIngressClassList()
-	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
-	c := inits(ctx, ingressClassList, ingressList)
-	drainControllerQueue(c, len(ingressList.Items))
-	queueSize := c.queue.Len()
+	c := &Controller{
+		queue: workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(time.Second, time.Second)),
+	}
+	defer c.queue.ShutDown()
+
 	c.secretAdd(&v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: "default"}}, true)
-	Expect(c.queue.Len()).Should(Equal(queueSize))
+	Expect(c.queue.Len()).Should(Equal(0))
 }
 
 func TestSecretUpdate(t *testing.T) {
@@ -1895,9 +1950,10 @@ func TestSecretUpdate(t *testing.T) {
 	ingressList := util.ReadResourceAsIngressList(ingressPathWithTlsSecret)
 	c := inits(ctx, ingressClassList, ingressList)
 	drainControllerQueue(c, len(ingressList.Items))
-	queueSize := c.queue.Len()
+	expectedKey, err := cache.MetaNamespaceKeyFunc(&ingressList.Items[0])
+	Expect(err).ShouldNot(HaveOccurred())
 	c.secretUpdate(nil, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: "default"}})
-	Expect(c.queue.Len()).Should(Equal(queueSize + 1))
+	Expect(queueItemsContain(drainIngressQueue(c), expectedKey)).Should(BeTrue())
 }
 
 func TestProcessNextItem(t *testing.T) {
