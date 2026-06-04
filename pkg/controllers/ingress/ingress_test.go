@@ -94,7 +94,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
 	return c
 }
 
@@ -126,7 +126,34 @@ func initsWithCustomLB(ctx context.Context, ingressClassList *networkingv1.Ingre
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	return NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+}
+
+func TestGetInitialBackendsByBackendSetUsesEndpointBackends(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+	c := inits(ctx, ingressClassList, ingressList)
+	c.serviceLister = getServiceLister(util.GetServiceListResource("default", "testecho1", 80))
+	c.endpointLister = util.GetEndpointsListerResource(util.GetEndpointsResourceList("testecho1", "default", false))
+
+	backendsByBackendSet, err := c.getInitialBackendsByBackendSet(&ingressList.Items[0])
+
+	Expect(err).To(BeNil())
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
+	Expect(backendsByBackendSet[backendSetName]).To(HaveLen(1))
+	Expect(*backendsByBackendSet[backendSetName][0].IpAddress).To(Equal("6.7.8.9"))
+}
+
+func getServiceLister(services *v1.ServiceList) corelisters.ServiceLister {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	for i := range services.Items {
+		_ = indexer.Add(&services.Items[i])
+	}
+	return corelisters.NewServiceLister(indexer)
 }
 
 // Mock that returns a listener with nil Protocol

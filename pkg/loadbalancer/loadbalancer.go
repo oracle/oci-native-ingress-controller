@@ -207,6 +207,10 @@ func (lbc *LoadBalancerClient) GetLoadBalancer(ctx context.Context, lbID string)
 	return lbc.getLoadBalancerBustCache(ctx, lbID)
 }
 
+func (lbc *LoadBalancerClient) RefreshLoadBalancer(ctx context.Context, lbID string) (*loadbalancer.LoadBalancer, string, error) {
+	return lbc.getLoadBalancerBustCache(ctx, lbID)
+}
+
 func (lbc *LoadBalancerClient) DeleteLoadBalancer(ctx context.Context, lbID string) error {
 
 	deleteLoadBalancerRequest := loadbalancer.DeleteLoadBalancerRequest{
@@ -402,7 +406,8 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	healthChecker *loadbalancer.HealthCheckerDetails,
 	sslConfig *loadbalancer.SslConfigurationDetails,
 	appCookie *loadbalancer.SessionPersistenceConfigurationDetails,
-	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails) error {
+	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails,
+	backends ...[]loadbalancer.BackendDetails) error {
 
 	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
@@ -425,6 +430,9 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 			SessionPersistenceConfiguration:         appCookie,
 			LbCookieSessionPersistenceConfiguration: lbCookie,
 		},
+	}
+	if len(backends) > 0 {
+		createBackendSetRequest.CreateBackendSetDetails.Backends = backends[0]
 	}
 
 	klog.Infof("Creating backend set with request: %s", util.PrettyPrint(createBackendSetRequest))
