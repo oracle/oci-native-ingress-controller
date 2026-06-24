@@ -2040,7 +2040,6 @@ func TestIngressUpdate(t *testing.T) {
 
 	oldIngress.ResourceVersion = "1"
 	newIngress.ResourceVersion = "2"
-
 	expectedKey, err := cache.MetaNamespaceKeyFunc(newIngress)
 	Expect(err).ShouldNot(HaveOccurred())
 	c.ingressUpdate(oldIngress, newIngress)
