@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -276,6 +277,12 @@ func (c *Controller) handleErr(err error, key interface{}) {
 	}
 
 	if errors.Is(err, errIngressClassNotReady) {
+		c.queue.AddAfter(key, 10*time.Second)
+		return
+	}
+
+	if exception.HasTransientError(err) {
+		klog.Infof("Transient error syncing routing policy %v: %v", key, err)
 		c.queue.AddAfter(key, 10*time.Second)
 		return
 	}
