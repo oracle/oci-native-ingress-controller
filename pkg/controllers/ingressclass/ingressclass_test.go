@@ -23,6 +23,7 @@ import (
 	WAF "github.com/oracle/oci-native-ingress-controller/pkg/waf"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -298,10 +299,18 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList)
 }
 
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList) (networkinginformers.IngressClassInformer, coreinformers.ServiceAccountInformer, *fakeclientset.Clientset) {
-	fakeClient := fakeclientset.NewSimpleClientset()
-
-	util.UpdateFakeClientCall(fakeClient, "list", "ingressclasses", ingressClassList)
-	util.UpdateFakeClientCall(fakeClient, "patch", "ingressclasses", &ingressClassList.Items[0])
+	objects := make([]runtime.Object, 0, len(ingressClassList.Items))
+	hasDeleteFinalizerTestClass := false
+	for i := range ingressClassList.Items {
+		if ingressClassList.Items[i].Name == "name" {
+			hasDeleteFinalizerTestClass = true
+		}
+		objects = append(objects, ingressClassList.Items[i].DeepCopy())
+	}
+	if !hasDeleteFinalizerTestClass {
+		objects = append(objects, (&networkingv1.IngressClass{ObjectMeta: metav1.ObjectMeta{Name: "name"}}).DeepCopy())
+	}
+	fakeClient := fakeclientset.NewSimpleClientset(objects...)
 
 	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 	ingressClassInformer := informerFactory.Networking().V1().IngressClasses()

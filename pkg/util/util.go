@@ -42,6 +42,8 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
+
 	"github.com/pkg/errors"
 
 	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
@@ -121,6 +123,8 @@ const (
 type DefinedTagsType = map[string]map[string]interface{}
 
 var ErrIngressClassNotReady = errors.New("ingress class not ready")
+
+var errIngressClassAnnotationNotApplied = errors.New("ingress class annotation was not applied")
 
 func GetIngressClassParameters(ic *networkingv1.IngressClass, ctrCache ctrcache.Cache) (*v1beta1.IngressClassParameters, error) {
 	icp := &v1beta1.IngressClassParameters{}
@@ -738,9 +742,22 @@ func PatchIngressClassWithAnnotation(client kubernetes.Interface, ic *networking
 	}
 
 	klog.Infof("Will try patching IngressClass %s for annotation %s: %s", ic.Name, annotationName, annotationValue)
-	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+	err = retry.OnError(retry.DefaultBackoff, func(err error) bool {
+		return apierrors.IsConflict(err) || errors.Is(err, errIngressClassAnnotationNotApplied)
+	}, func() error {
 		_, err := client.NetworkingV1().IngressClasses().Patch(context.TODO(), ic.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
-		return err
+		if err != nil {
+			return err
+		}
+
+		updated, err := client.NetworkingV1().IngressClasses().Get(context.TODO(), ic.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if updated.Annotations[annotationName] != annotationValue {
+			return errors.Wrapf(errIngressClassAnnotationNotApplied, "IngressClass %s expected %s=%s", ic.Name, annotationName, annotationValue)
+		}
+		return nil
 	})
 
 	if apierrors.IsConflict(err) {
@@ -874,6 +891,12 @@ func HandleErrForBackendController(eventRecorder events.EventRecorder, ingressCl
 	}
 
 	if errors.Is(err, ErrIngressClassNotReady) {
+		queue.AddAfter(key, 10*time.Second)
+		return
+	}
+
+	if exception.HasTransientError(err) {
+		klog.Infof("Transient "+message+" %v: %v", key, err)
 		queue.AddAfter(key, 10*time.Second)
 		return
 	}
