@@ -139,3 +139,6 @@ emitEvents: false
 # This cleanup is done periodically by NIC
 # If less than or equal to 0, certificate resource cleanup is disabled
 certDeletionGracePeriodInDays: 0
+
+# Number of workers to run for each controller workqueue
+numWorkers: 3
