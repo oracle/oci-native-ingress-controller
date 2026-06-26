@@ -71,6 +71,7 @@ spec:
           - --use-lb-compartment-for-certificates={{ .Values.useLbCompartmentForCertificates }}
           - --emit-events={{ .Values.emitEvents }}
           - --cert-deletion-grace-period-in-days={{ .Values.certDeletionGracePeriodInDays }}
+          - --num-workers={{ .Values.numWorkers }}
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"

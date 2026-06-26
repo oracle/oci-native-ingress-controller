@@ -72,6 +72,7 @@ spec:
           - --use-lb-compartment-for-certificates=false
           - --emit-events=false
           - --cert-deletion-grace-period-in-days=0
+          - --num-workers=3
           env:
             - name: OCI_RESOURCE_PRINCIPAL_VERSION
               value: "2.2"
