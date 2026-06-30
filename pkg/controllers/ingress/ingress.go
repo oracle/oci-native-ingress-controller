@@ -23,7 +23,6 @@ import (
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
@@ -75,7 +74,7 @@ type Controller struct {
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, secretInformer coreinformers.SecretInformer,
-	client *client.ClientProvider, reg *prometheus.Registry, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder) *Controller {
+	client *client.ClientProvider, metricsCollector *metric.IngressCollector, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
 		controllerClass:                 controllerClass,
@@ -88,7 +87,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		secretLister:                    secretInformer.Lister(),
 		client:                          client,
 		queue:                           workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
-		metricsCollector:                metric.NewIngressCollector(controllerClass, reg),
+		metricsCollector:                metricsCollector,
 		ctrCache:                        ctrCache,
 		useLbCompartmentForCertificates: useLbCompartmentForCertificates,
 		eventRecorder:                   eventRecorder,

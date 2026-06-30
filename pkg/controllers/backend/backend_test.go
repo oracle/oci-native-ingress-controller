@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/events"
 
@@ -15,6 +16,7 @@ import (
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	lb "github.com/oracle/oci-native-ingress-controller/pkg/loadbalancer"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	ociclient "github.com/oracle/oci-native-ingress-controller/pkg/oci/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	corev1 "k8s.io/api/core/v1"
@@ -259,7 +261,8 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client, fakeRecorder)
+	metricsCollector := metric.NewIngressCollector("oci.oraclecloud.com/native-ingress-controller", prometheus.NewRegistry())
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, client, metricsCollector, fakeRecorder)
 	return c
 }
 

@@ -80,6 +80,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		if err != nil {
 			klog.Fatalf("failed to get cluster details: %v", err)
 		}
+		metricsCollector := metric.NewIngressCollector(opts.ControllerClass, reg)
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
 			opts.CompartmentId,
@@ -89,7 +90,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			serviceInformer.Lister(),
 			secretInformer,
 			client,
-			reg,
+			metricsCollector,
 			c,
 			opts.UseLbCompartmentForCertificates,
 			eventRecorder,
@@ -133,6 +134,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				podInformer.Lister(),
 				nodeInformer.Lister(),
 				client,
+				metricsCollector,
 				eventRecorder,
 			)
 			go backendController.Run(3, ctx.Done())
@@ -146,6 +148,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				endpointInformer.Lister(),
 				podInformer.Lister(),
 				client,
+				metricsCollector,
 				eventRecorder,
 			)
 			go backendController.Run(3, ctx.Done())
