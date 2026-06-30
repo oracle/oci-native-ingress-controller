@@ -131,11 +131,16 @@ func (c *Controller) ingressAdd(obj interface{}) {
 }
 
 func (c *Controller) ingressUpdate(old, new interface{}) {
+	oldIngress := old.(*networkingv1.Ingress)
+	newIngress := new.(*networkingv1.Ingress)
+
+	// Ignore regular resyncs that didn't come from an actual update.
+	if oldIngress.ResourceVersion == newIngress.ResourceVersion {
+		return
+	}
 	if c.metricsCollector != nil {
 		c.metricsCollector.IncrementIngressUpdateOperation()
 	}
-	oldIngress := old.(*networkingv1.Ingress)
-	newIngress := new.(*networkingv1.Ingress)
 
 	klog.V(4).InfoS("Updating ingress", "ingress", klog.KObj(oldIngress))
 	c.enqueueIngress(newIngress)
