@@ -691,13 +691,13 @@ func (lbc *LoadBalancerClient) setRoutingPolicyOnListener(
 		return exception.NewTransientError(fmt.Errorf("listener %s not found", routingPolicyName))
 	}
 
-	return lbc.UpdateListener(ctx, lb.Id, etag, l, &routingPolicyName, nil, l.Protocol, nil)
+	return lbc.UpdateListener(ctx, lb.Id, etag, l, &routingPolicyName, nil, l.Protocol, nil, true)
 }
 
 func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
-	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string, defaultBackendSet *string) error {
+	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string, defaultBackendSet *string, preserveExistingSslConfig bool) error {
 
-	if sslConfigurationDetails == nil && l.SslConfiguration != nil {
+	if preserveExistingSslConfig && sslConfigurationDetails == nil && l.SslConfiguration != nil {
 		sslConfigurationDetails = &loadbalancer.SslConfigurationDetails{
 			CertificateIds: l.SslConfiguration.CertificateIds,
 		}
@@ -712,6 +712,9 @@ func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string,
 	}
 
 	if *protocol == util.ProtocolHTTP2 {
+		if sslConfigurationDetails == nil {
+			return fmt.Errorf("no TLS configuration provided for a HTTP2 listener at port %d", *l.Port)
+		}
 		sslConfigurationDetails.CipherSuiteName = common.String(util.ProtocolHTTP2DefaultCipherSuite)
 	}
 
