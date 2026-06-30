@@ -39,6 +39,7 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/types"
 	v1 "k8s.io/client-go/informers/core/v1"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
@@ -80,6 +81,10 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		if err != nil {
 			klog.Fatalf("failed to get cluster details: %v", err)
 		}
+		var initialBackendNodeLister corelisters.NodeLister
+		if cni == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay) {
+			initialBackendNodeLister = nodeInformer.Lister()
+		}
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
 			opts.CompartmentId,
@@ -87,6 +92,9 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			ingressInformer,
 			serviceAccountInformer,
 			serviceInformer.Lister(),
+			endpointInformer.Lister(),
+			podInformer.Lister(),
+			initialBackendNodeLister,
 			secretInformer,
 			client,
 			reg,

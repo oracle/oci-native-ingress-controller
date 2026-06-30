@@ -52,6 +52,11 @@ import (
 
 var errIngressClassNotReady = errors.New("ingress class not ready")
 
+const (
+	// ToBeDeletedTaint is set by cluster-autoscaler before a node is removed.
+	ToBeDeletedTaint = "ToBeDeletedByClusterAutoscaler"
+)
+
 // Controller demonstrates how to implement a controller with client-go.
 type Controller struct {
 	controllerClass      string
@@ -60,6 +65,9 @@ type Controller struct {
 	ingressClassLister              networkinglisters.IngressClassLister
 	ingressLister                   networkinglisters.IngressLister
 	serviceLister                   corelisters.ServiceLister
+	endpointLister                  corelisters.EndpointsLister
+	podLister                       corelisters.PodLister
+	nodeLister                      corelisters.NodeLister
 	saLister                        corelisters.ServiceAccountLister
 	secretLister                    corelisters.SecretLister
 	queue                           workqueue.RateLimitingInterface
@@ -68,13 +76,15 @@ type Controller struct {
 	metricsCollector                *metric.IngressCollector
 	ctrCache                        ctrcache.Cache
 	useLbCompartmentForCertificates bool
+	useNodeBackends                 bool
 	eventRecorder                   events.EventRecorder
 }
 
 // NewController creates a new Controller.
 func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
-	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, secretInformer coreinformers.SecretInformer,
+	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister,
+	podLister corelisters.PodLister, nodeLister corelisters.NodeLister, secretInformer coreinformers.SecretInformer,
 	client *client.ClientProvider, reg *prometheus.Registry, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder) *Controller {
 
 	c := &Controller{
@@ -84,6 +94,9 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		ingressLister:                   ingressInformer.Lister(),
 		informer:                        ingressInformer,
 		serviceLister:                   serviceLister,
+		endpointLister:                  endpointLister,
+		podLister:                       podLister,
+		nodeLister:                      nodeLister,
 		saLister:                        saInformer.Lister(),
 		secretLister:                    secretInformer.Lister(),
 		client:                          client,
@@ -91,6 +104,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		metricsCollector:                metric.NewIngressCollector(controllerClass, reg),
 		ctrCache:                        ctrCache,
 		useLbCompartmentForCertificates: useLbCompartmentForCertificates,
+		useNodeBackends:                 nodeLister != nil,
 		eventRecorder:                   eventRecorder,
 	}
 
@@ -416,6 +430,10 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	}
 
 	backendSetsToCreate := desiredBackendSets.Difference(actualBackendSets)
+	initialBackendsByBackendSet, err := c.getInitialBackendsByBackendSet(ingress)
+	if err != nil {
+		return err
+	}
 
 	for _, bsName := range backendSetsToCreate.List() {
 		startBuildTime := util.GetCurrentTimeInUnixMillis()
@@ -429,13 +447,20 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 		healthChecker := stateStore.GetBackendSetHealthChecker(bsName)
 		policy := stateStore.GetBackendSetPolicy(bsName)
 		appCookie, lbCookie := stateStore.GetBackendSetSessionPersistence(bsName)
-		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig, appCookie, lbCookie)
+		err = wrapperClient.GetLbClient().CreateBackendSet(context.TODO(), lbId, bsName, policy, healthChecker, backendSetSslConfig, appCookie, lbCookie, initialBackendsByBackendSet[bsName])
 		if err != nil {
 			return err
 		}
 		endBuildTime := util.GetCurrentTimeInUnixMillis()
 		if c.metricsCollector != nil {
 			c.metricsCollector.AddBackendCreationTime(util.GetTimeDifferenceInSeconds(startBuildTime, endBuildTime))
+		}
+	}
+
+	if backendSetsToCreate.Len() > 0 {
+		lb, _, err = wrapperClient.GetLbClient().RefreshLoadBalancer(context.TODO(), lbId)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -700,6 +725,153 @@ func syncBackendSet(ctx context.Context, ingress *networkingv1.Ingress, lbID str
 		c.metricsCollector.AddIngressBackendSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
 	}
 	return nil
+}
+
+func (c *Controller) getInitialBackendsByBackendSet(ingress *networkingv1.Ingress) (map[string][]ociloadbalancer.BackendDetails, error) {
+	backendsByBackendSet := map[string][]ociloadbalancer.BackendDetails{}
+	if c.endpointLister == nil {
+		return backendsByBackendSet, nil
+	}
+
+	for _, rule := range ingress.Spec.Rules {
+		if !util.HasHTTPPaths(rule) {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			if !util.HasServiceBackend(path) {
+				continue
+			}
+
+			pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
+			if err != nil {
+				return nil, err
+			}
+
+			svcName, svcPort, targetPort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, c.useNodeBackends)
+			if err != nil {
+				klog.InfoS("unable to determine initial backend target port, creating backend set without initial backends",
+					"ingress", klog.KObj(ingress), "service", pSvc.Name, "err", err)
+				continue
+			}
+
+			backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+			if _, ok := backendsByBackendSet[backendSetName]; ok {
+				continue
+			}
+
+			backends, err := c.getInitialBackends(ingress.Namespace, svc, svcName, targetPort)
+			if err != nil {
+				klog.InfoS("unable to determine initial backends, creating backend set without initial backends",
+					"ingress", klog.KObj(ingress), "service", svcName, "backendSet", backendSetName, "err", err)
+				backends = nil
+			}
+			backendsByBackendSet[backendSetName] = backends
+		}
+	}
+
+	return backendsByBackendSet, nil
+}
+
+func (c *Controller) getInitialBackends(namespace string, svc *corev1.Service, svcName string, targetPort int32) ([]ociloadbalancer.BackendDetails, error) {
+	if c.useNodeBackends {
+		return c.getInitialNodeBackends(namespace, svc, svcName, targetPort)
+	}
+
+	epAddrs, err := util.GetEndpoints(c.endpointLister, namespace, svcName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", namespace, svcName, targetPort, err)
+	}
+
+	backends := []ociloadbalancer.BackendDetails{}
+	for _, epAddr := range epAddrs {
+		backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
+	}
+	return backends, nil
+}
+
+func (c *Controller) getInitialNodeBackends(namespace string, svc *corev1.Service, svcName string, nodePort int32) ([]ociloadbalancer.BackendDetails, error) {
+	if c.nodeLister == nil || c.podLister == nil || svc == nil || svc.Spec.Ports == nil || nodePort == 0 {
+		return nil, nil
+	}
+
+	backends := []ociloadbalancer.BackendDetails{}
+	trafficPolicy := svc.Spec.ExternalTrafficPolicy
+	if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
+		nodes, err := c.filterNodes()
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			backends = append(backends, util.NewBackend(nodeInternalIP(node), nodePort))
+		}
+		return backends, nil
+	}
+
+	pods, err := util.RetrievePods(c.endpointLister, c.podLister, namespace, svcName)
+	if err != nil {
+		return nil, err
+	}
+	seenBackends := map[string]struct{}{}
+	for _, pod := range pods {
+		node, err := c.nodeLister.Get(pod.Spec.NodeName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				klog.Infof("node %s has been deleted, skipping pod", pod.Spec.NodeName)
+				continue
+			}
+			return nil, err
+		}
+		nodeIP := nodeInternalIP(node)
+		backendKey := fmt.Sprintf("%s:%d", nodeIP, nodePort)
+		if _, ok := seenBackends[backendKey]; ok {
+			continue
+		}
+		seenBackends[backendKey] = struct{}{}
+		backends = append(backends, util.NewBackend(nodeIP, nodePort))
+	}
+	return backends, nil
+}
+
+func (c *Controller) filterNodes() ([]*corev1.Node, error) {
+	nodes, err := c.nodeLister.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []*corev1.Node
+	for i := range nodes {
+		if isNodeReadyForBackends(nodes[i]) {
+			filtered = append(filtered, nodes[i])
+		}
+	}
+	return filtered, nil
+}
+
+func isNodeReadyForBackends(node *corev1.Node) bool {
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == ToBeDeletedTaint {
+			return false
+		}
+	}
+
+	if len(node.Status.Conditions) == 0 {
+		return false
+	}
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == corev1.NodeReady && cond.Status != corev1.ConditionTrue {
+			return false
+		}
+	}
+	return true
+}
+
+func nodeInternalIP(node *corev1.Node) string {
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			return addr.Address
+		}
+	}
+	return ""
 }
 
 func (c *Controller) deleteIngress(i *networkingv1.Ingress) error {
