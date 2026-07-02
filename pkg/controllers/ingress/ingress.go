@@ -23,6 +23,7 @@ import (
 	ctrcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/exception"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/pkg/errors"
@@ -726,6 +727,12 @@ func (c *Controller) handleErr(err error, key interface{}) {
 	}
 
 	if errors.Is(err, errIngressClassNotReady) {
+		c.queue.AddAfter(key, 10*time.Second)
+		return
+	}
+
+	if exception.HasTransientError(err) {
+		klog.Infof("Transient error syncing ingress %v: %v", key, err)
 		c.queue.AddAfter(key, 10*time.Second)
 		return
 	}

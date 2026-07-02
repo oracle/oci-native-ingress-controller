@@ -251,6 +251,10 @@ func (lbc *LoadBalancerClient) createRoutingPolicy(
 		return nil
 	}
 
+	if err := validateRoutingRuleBackendSets(lb, policyName, rules); err != nil {
+		return err
+	}
+
 	createPolicyRequest := loadbalancer.CreateRoutingPolicyRequest{
 		LoadBalancerId: lb.Id,
 		CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
@@ -432,6 +436,7 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 
 	if util.IsServiceError(err, 409) {
 		klog.Infof("Create backend set operation returned code %d for load balancer %s. Backend set %s may be already present.", 409, lbID, backendSetName)
+		_, _, _ = lbc.getLoadBalancerBustCache(ctx, lbID)
 		return nil
 	}
 
@@ -512,6 +517,10 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 		return nil
 	}
 
+	if err := validateRoutingRuleBackendSets(lb, policyName, rules); err != nil {
+		return err
+	}
+
 	klog.Infof("Routing policy %s for lb %s needs update.", policyName, lbID)
 
 	updateRoutingPolicyRequest := loadbalancer.UpdateRoutingPolicyRequest{
@@ -545,6 +554,27 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 	klog.Infof("Update routing policy response: name: %s, work request id: %s, opc request id: %s.", policyName, *resp.OpcWorkRequestId, *resp.OpcRequestId)
 	_, err = lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
 	return err
+}
+
+func validateRoutingRuleBackendSets(lb *loadbalancer.LoadBalancer, policyName string, rules []loadbalancer.RoutingRule) error {
+	for _, rule := range rules {
+		for _, action := range rule.Actions {
+			forwardAction, ok := action.(loadbalancer.ForwardToBackendSet)
+			if !ok {
+				continue
+			}
+
+			if forwardAction.BackendSetName == nil {
+				continue
+			}
+
+			backendSetName := *forwardAction.BackendSetName
+			if _, ok := lb.BackendSets[backendSetName]; !ok {
+				return exception.NewTransientError(fmt.Errorf("routing policy %s references backendset %s which does not exist in load balancer %s", policyName, backendSetName, *lb.Id))
+			}
+		}
+	}
+	return nil
 }
 
 // UpdateBackends updates Backends for backendSetName, while preserving sslConfig, policy, and healthChecker details
@@ -647,6 +677,7 @@ func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID string
 	isTransient, errMsg := util.AsServiceError(err, 409, 412)
 	if isTransient {
 		klog.Errorf("Unable to update BackendSet %s for load balancer %s due to %s", backendSetName, lbID, errMsg)
+		_, _, _ = lbc.getLoadBalancerBustCache(ctx, lbID)
 		return exception.NewTransientError(err)
 	}
 
