@@ -63,6 +63,8 @@ func main() {
 	flag.BoolVar(&opts.EmitEvents, "emit-events", false, "emit kubernetes events for Ingress/IngressClass errors observed during reconciliation")
 	flag.Int64Var(&opts.CertDeletionGracePeriodInDays, "cert-deletion-grace-period-in-days", 0,
 		"number of days before an unused oci certificate service resource is deleted, if non-positive this cleanup is disabled")
+	flag.IntVar(&opts.NumWorkers, "num-workers", types.DefaultNumWorkers,
+		"number of workers to run for each controller workqueue")
 
 	var logFile string
 	flag.StringVar(&logFile, "log-file", "", "absolute path to the file where application logs will be stored")
@@ -113,6 +115,9 @@ func main() {
 
 	if opts.UseLbCompartmentForCertificates {
 		klog.Info("use-lb-compartment-for-certificates flag set to true, will use LB compartment for certificate management")
+	}
+	if opts.NumWorkers <= 0 {
+		klog.Fatal("num-workers must be greater than zero")
 	}
 
 	// leader election uses the Kubernetes API by writing to a
