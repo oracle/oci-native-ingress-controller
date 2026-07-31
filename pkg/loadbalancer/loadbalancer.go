@@ -36,8 +36,9 @@ type LbCacheObj struct {
 type LoadBalancerClient struct {
 	LbClient client.LoadBalancerInterface
 
-	Mu    sync.Mutex
-	Cache map[string]*LbCacheObj
+	Mu            sync.Mutex
+	Cache         map[string]*LbCacheObj
+	mutationLocks keyedMutex
 }
 
 const multiCertificateCapabilityErrorMessage = "OCI Load Balancer multi-certificate listeners may not be supported in this tenancy or region; verify enablement or use one certificate"
@@ -427,8 +428,12 @@ func (lbc *LoadBalancerClient) CreateBackendSet(
 	appCookie *loadbalancer.SessionPersistenceConfigurationDetails,
 	lbCookie *loadbalancer.LbCookieSessionPersistenceConfigurationDetails,
 	backends ...[]loadbalancer.BackendDetails) error {
+	unlock := lbc.mutationLocks.lock(lbID)
+	defer unlock()
 
-	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
+	// Refresh inside the per-LB lock so concurrent workers cannot all act on
+	// the same cached state and submit duplicate create operations.
+	lb, _, err := lbc.getLoadBalancerBustCache(ctx, lbID)
 	if err != nil {
 		return err
 	}
@@ -915,8 +920,12 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 // explicit connection configuration.
 func (lbc *LoadBalancerClient) CreateListenerWithConnectionConfiguration(ctx context.Context, lbID string, listenerPort int, listenerProtocol string,
 	defaultBackendSet string, sslConfig *loadbalancer.SslConfigurationDetails, connectionConfiguration *loadbalancer.ConnectionConfiguration) error {
+	unlock := lbc.mutationLocks.lock(lbID)
+	defer unlock()
 
-	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
+	// Backend sets and listeners share this lock because both mutate the same
+	// load balancer configuration and OCI applies them asynchronously.
+	lb, _, err := lbc.getLoadBalancerBustCache(ctx, lbID)
 	if err != nil {
 		return err
 	}
