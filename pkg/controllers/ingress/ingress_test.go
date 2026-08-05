@@ -206,6 +206,124 @@ func TestEnsureIngressSuccess(t *testing.T) {
 	Expect(err == nil).Should(Equal(true))
 }
 
+func TestEnsureIngressPublishesBlockedByIngressEvent(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressClassName := ingressClassList.Items[0].Name
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "a-blocked-ingress", Namespace: namespace},
+			Spec: networkingv1.IngressSpec{
+				IngressClassName: &ingressClassName,
+				Rules: []networkingv1.IngressRule{{
+					IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{
+						Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+							Name: "testecho1",
+							Port: networkingv1.ServiceBackendPort{Number: 80},
+						}},
+					}}}},
+				}},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "z-invalid-ingress",
+				Namespace: namespace,
+				Annotations: map[string]string{
+					util.IngressHttpListenerPortAnnotation: "not-a-port",
+				},
+			},
+			Spec: networkingv1.IngressSpec{
+				IngressClassName: &ingressClassName,
+				Rules: []networkingv1.IngressRule{{
+					IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{
+						Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+							Name: "testecho1",
+							Port: networkingv1.ServiceBackendPort{Number: 80},
+						}},
+					}}}},
+				}},
+			},
+		},
+	}}
+
+	c := inits(ctx, ingressClassList, ingressList)
+	err := c.ensureIngress(context.Background(), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).To(MatchError(ContainSubstring("update of ingress test/a-blocked-ingress is blocked because ingress test/z-invalid-ingress in ingress class \"default-ingress-class\" failed validation")))
+
+	c.handleErr(err, "test/a-blocked-ingress")
+	recorder := c.eventRecorder.(*events.FakeRecorder)
+	Eventually(recorder.Events).Should(Receive(And(
+		ContainSubstring("Warning IngressReconcileFailed"),
+		ContainSubstring("test/z-invalid-ingress"),
+	)))
+}
+
+func TestEnsureIngressPublishesHelpfulConflictEvents(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressClassName := ingressClassList.Items[0].Name
+	httpIngress := ingressWithBackend("http-ingress", ingressClassName, nil)
+	tcpIngress := ingressWithBackend("tcp-ingress", ingressClassName, map[string]string{
+		util.IngressProtocolAnnotation: util.ProtocolTCP,
+	})
+	bystanderIngress := networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "bystander-ingress", Namespace: namespace},
+		Spec:       networkingv1.IngressSpec{IngressClassName: &ingressClassName},
+	}
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{httpIngress, tcpIngress, bystanderIngress}}
+	c := inits(ctx, ingressClassList, ingressList)
+	recorder := c.eventRecorder.(*events.FakeRecorder)
+
+	participantErr := c.ensureIngress(context.Background(), &httpIngress, &ingressClassList.Items[0])
+	Expect(participantErr).To(MatchError(And(
+		ContainSubstring("update of ingress test/http-ingress is blocked because its configuration conflicts with ingress test/tcp-ingress"),
+		ContainSubstring("conflict with protocol configured for listener 80"),
+	)))
+	c.handleErr(participantErr, "test/http-ingress")
+	Eventually(recorder.Events).Should(Receive(And(
+		ContainSubstring("Warning IngressReconcileFailed"),
+		ContainSubstring("its configuration conflicts with ingress test/tcp-ingress"),
+	)))
+
+	bystanderErr := c.ensureIngress(context.Background(), &bystanderIngress, &ingressClassList.Items[0])
+	Expect(bystanderErr).To(MatchError(And(
+		ContainSubstring("update of ingress test/bystander-ingress is blocked because ingresses"),
+		ContainSubstring("test/http-ingress"),
+		ContainSubstring("test/tcp-ingress"),
+		ContainSubstring("have conflicting configuration"),
+	)))
+	c.handleErr(bystanderErr, "test/bystander-ingress")
+	Eventually(recorder.Events).Should(Receive(And(
+		ContainSubstring("Warning IngressReconcileFailed"),
+		ContainSubstring("test/http-ingress"),
+		ContainSubstring("test/tcp-ingress"),
+	)))
+}
+
+func ingressWithBackend(name, ingressClassName string, annotations map[string]string) networkingv1.Ingress {
+	return networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: annotations},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClassName,
+			Rules: []networkingv1.IngressRule{{
+				IngressRuleValue: networkingv1.IngressRuleValue{HTTP: &networkingv1.HTTPIngressRuleValue{Paths: []networkingv1.HTTPIngressPath{{
+					Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+						Name: "testecho1",
+						Port: networkingv1.ServiceBackendPort{Number: 80},
+					}},
+				}}}},
+			}},
+		},
+	}
+}
+
 func getContextWithClient(c *Controller, ctx context.Context) context.Context {
 	wc, err := c.client.GetClient(&MockConfigGetter{})
 	Expect(err).To(BeNil())

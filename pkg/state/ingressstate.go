@@ -69,6 +69,57 @@ type IngressState struct {
 	ClassName   string
 }
 
+// IngressStateBuildError identifies the ingress whose configuration prevented
+// the desired state for an ingress class from being built.
+type IngressStateBuildError struct {
+	Namespace string
+	Name      string
+	Err       error
+}
+
+func (e *IngressStateBuildError) Error() string {
+	return fmt.Sprintf("failed to build ingress class state because ingress %s/%s is invalid: %v", e.Namespace, e.Name, e.Err)
+}
+
+func (e *IngressStateBuildError) Unwrap() error {
+	return e.Err
+}
+
+// IngressReference identifies an ingress involved in a shared configuration conflict.
+type IngressReference struct {
+	Namespace string
+	Name      string
+}
+
+// IngressClassConflictError identifies both ingresses that requested
+// incompatible values for a resource shared by their ingress class.
+type IngressClassConflictError struct {
+	First  IngressReference
+	Second IngressReference
+	Err    error
+}
+
+func (e *IngressClassConflictError) Error() string {
+	return fmt.Sprintf("ingresses %s/%s and %s/%s have conflicting ingress class configuration: %v",
+		e.First.Namespace, e.First.Name, e.Second.Namespace, e.Second.Name, e.Err)
+}
+
+func (e *IngressClassConflictError) Unwrap() error {
+	return e.Err
+}
+
+type sharedConfigConflictError struct {
+	Err error
+}
+
+func (e *sharedConfigConflictError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *sharedConfigConflictError) Unwrap() error {
+	return e.Err
+}
+
 // SessionPersistence holds desired session persistence config for a backend set.
 // Exactly one of the pointers should be non-nil. If both are nil and the session
 // persistence annotation is present on the ingress, this is treated as a validation error.
@@ -117,6 +168,11 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	bsHealthCheckerMap := make(map[string]*ociloadbalancer.HealthCheckerDetails)
 	bsPolicyMap := make(map[string]string)
 	bsSessionPersistenceMap := make(map[string]SessionPersistence)
+	listenerProtocolOwner := make(map[int32]IngressReference)
+	listenerDefaultBsOwner := make(map[int32]IngressReference)
+	listenerTLSOwner := make(map[int32]IngressReference)
+	bsHealthCheckerOwner := make(map[string]IngressReference)
+	bsPolicyOwner := make(map[string]IngressReference)
 	allBackendSets := sets.NewString(util.DefaultBackendSetName)
 	allListeners := sets.NewInt32()
 
@@ -156,12 +212,12 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				}
 				serviceName, servicePort, err := util.PathToServiceAndPort(ing.Namespace, path, s.ServiceLister)
 				if err != nil {
-					return errors.Wrap(err, "error finding service and port")
+					return newIngressStateBuildError(ing, errors.Wrap(err, "error finding service and port"))
 				}
 
 				listenerPort, err := util.DetermineListenerPort(ing, &tlsConfiguredHosts, host, servicePort)
 				if err != nil {
-					return errors.Wrap(err, "error determining listener port")
+					return newIngressStateBuildError(ing, errors.Wrap(err, "error determining listener port"))
 				}
 
 				desiredPorts.Insert(listenerPort)
@@ -173,32 +229,40 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 				err = validateListenerProtocol(ing, listenerProtocolMap, listenerPort)
 				if err != nil {
-					return err
+					return newIngressValidationError(ing, listenerProtocolOwner[listenerPort], err)
 				}
+				listenerProtocolOwner[listenerPort] = ingressReference(ing)
 
 				err = validateListenerDefaultBackendSet(ing, listenerDefaultBsMap, listenerPort, bsName)
 				if err != nil {
-					return err
+					return newIngressValidationError(ing, listenerDefaultBsOwner[listenerPort], err)
 				}
+				listenerDefaultBsOwner[listenerPort] = ingressReference(ing)
 
 				err = validateBackendSetHealthChecker(ing, bsHealthCheckerMap, bsName)
 				if err != nil {
-					return err
+					return newIngressValidationError(ing, bsHealthCheckerOwner[bsName], err)
 				}
+				bsHealthCheckerOwner[bsName] = ingressReference(ing)
 
 				err = validateBackendSetPolicy(ing, bsPolicyMap, bsName)
 				if err != nil {
-					return err
+					return newIngressValidationError(ing, bsPolicyOwner[bsName], err)
 				}
+				bsPolicyOwner[bsName] = ingressReference(ing)
 
 				err = validateBackendSetSessionPersistence(ing, bsSessionPersistenceMap, bsName)
 				if err != nil {
-					return err
+					return newIngressStateBuildError(ing, err)
 				}
 
 				err = validateTlsConfig(ing, listenerPort, bsName, host, listenerTLSConfigMap, bsTLSConfigMap, hostSecretMap)
 				if err != nil {
-					return err
+					return newIngressValidationError(ing, listenerTLSOwner[listenerPort], err)
+				}
+				tlsSecret, hasTLSSecret := hostSecretMap[host]
+				if (util.GetListenerTlsCertificateOcid(ing) != nil && !util.IsIngressProtocolTCP(ing)) || (hasTLSSecret && tlsSecret != "") {
+					listenerTLSOwner[listenerPort] = ingressReference(ing)
 				}
 			}
 		}
@@ -231,6 +295,36 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	return nil
 }
 
+func newIngressStateBuildError(ingress *networkingv1.Ingress, err error) error {
+	return &IngressStateBuildError{
+		Namespace: ingress.Namespace,
+		Name:      ingress.Name,
+		Err:       err,
+	}
+}
+
+func ingressReference(ingress *networkingv1.Ingress) IngressReference {
+	return IngressReference{Namespace: ingress.Namespace, Name: ingress.Name}
+}
+
+func newIngressValidationError(ingress *networkingv1.Ingress, previousOwner IngressReference, err error) error {
+	var conflictError *sharedConfigConflictError
+	current := ingressReference(ingress)
+	if errors.As(err, &conflictError) && previousOwner.Name != "" && previousOwner != current {
+		return &IngressClassConflictError{
+			First:  previousOwner,
+			Second: current,
+			Err:    conflictError.Err,
+		}
+	}
+
+	return newIngressStateBuildError(ingress, err)
+}
+
+func newSharedConfigConflictError(err error) error {
+	return &sharedConfigConflictError{Err: err}
+}
+
 func validateTlsConfig(ingress *networkingv1.Ingress, listenerPort int32, bsName string, host string, listenerTLSConfigMap map[int32]TlsConfig,
 	bsTLSConfigMap map[string]TlsConfig, hostSecretMap map[string]string) error {
 	bsTLSEnabled := util.GetBackendTlsEnabled(ingress)
@@ -241,7 +335,7 @@ func validateTlsConfig(ingress *networkingv1.Ingress, listenerPort int32, bsName
 		if ok {
 			err := validatePortInUse(tlsPortDetail, "", certificateId, listenerPort)
 			if err != nil {
-				return errors.Wrap(err, "validating certificates")
+				return newSharedConfigConflictError(errors.Wrap(err, "validating certificates"))
 			}
 		}
 		config := TlsConfig{
@@ -260,7 +354,7 @@ func validateTlsConfig(ingress *networkingv1.Ingress, listenerPort int32, bsName
 			if ok {
 				err := validatePortInUse(tlsPortDetail, secretName, nil, listenerPort)
 				if err != nil {
-					return errors.Wrap(err, "validating secrets")
+					return newSharedConfigConflictError(errors.Wrap(err, "validating secrets"))
 				}
 			}
 			config := TlsConfig{
@@ -296,7 +390,7 @@ func validateBackendSetHealthChecker(ingressResource *networkingv1.Ingress,
 	}
 	healthCheckerCurrent, ok := bsHealthCheckerMap[bsName]
 	if ok && !reflect.DeepEqual(healthChecker, defaultHealthChecker) && !reflect.DeepEqual(healthChecker, healthCheckerCurrent) {
-		return fmt.Errorf(HealthCheckerConflictMessage, bsName)
+		return newSharedConfigConflictError(fmt.Errorf(HealthCheckerConflictMessage, bsName))
 	}
 	bsHealthCheckerMap[bsName] = healthChecker
 	return nil
@@ -307,7 +401,7 @@ func validateBackendSetPolicy(ingressResource *networkingv1.Ingress, bsPolicyMap
 
 	policyCurrent, ok := bsPolicyMap[bsName]
 	if ok && policyCurrent != policy {
-		return fmt.Errorf(PolicyConflictMessage, bsName)
+		return newSharedConfigConflictError(fmt.Errorf(PolicyConflictMessage, bsName))
 	}
 	bsPolicyMap[bsName] = policy
 	return nil
@@ -378,7 +472,7 @@ func validateListenerProtocol(ingressResource *networkingv1.Ingress, listenerPro
 
 	protocolCurrent, ok := listenerProtocolMap[listenerPort]
 	if ok && protocolCurrent != protocol {
-		return fmt.Errorf(ProtocolConflictMessage, listenerPort)
+		return newSharedConfigConflictError(fmt.Errorf(ProtocolConflictMessage, listenerPort))
 	}
 	listenerProtocolMap[listenerPort] = protocol
 	return nil
@@ -393,7 +487,7 @@ func validateListenerDefaultBackendSet(ingressResource *networkingv1.Ingress,
 
 	defaultBackendSetCurrent, ok := listenerDefaultBsMap[listenerPort]
 	if ok && defaultBackendSetCurrent != backendSetName {
-		return fmt.Errorf(DefaultBackendSetConflictMessage, listenerPort)
+		return newSharedConfigConflictError(fmt.Errorf(DefaultBackendSetConflictMessage, listenerPort))
 	}
 	listenerDefaultBsMap[listenerPort] = backendSetName
 	return nil
