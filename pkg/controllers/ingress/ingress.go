@@ -12,6 +12,7 @@ package ingress
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -383,7 +384,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	ingressConfigError := stateStore.BuildState(ingressClass)
 
 	if ingressConfigError != nil {
-		return ingressConfigError
+		return blockedByIngressStateError(ingress, ingressClass, ingressConfigError)
 	}
 
 	desiredPorts := stateStore.GetIngressPorts(ingress.Name)
@@ -488,6 +489,39 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 	}
 
 	return deleteBackendSets(actualBackendSets, desiredBackendSets, wrapperClient.GetLbClient(), lbId)
+}
+
+func blockedByIngressStateError(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass, err error) error {
+	var conflictError *state.IngressClassConflictError
+	if stderrors.As(err, &conflictError) {
+		current := state.IngressReference{Namespace: ingress.Namespace, Name: ingress.Name}
+		if current == conflictError.First {
+			return ingressConflictParticipantError(current, conflictError.Second, ingressClass.Name, conflictError.Err)
+		}
+		if current == conflictError.Second {
+			return ingressConflictParticipantError(current, conflictError.First, ingressClass.Name, conflictError.Err)
+		}
+
+		return fmt.Errorf("update of ingress %s/%s is blocked because ingresses %s/%s and %s/%s have conflicting configuration in ingress class %q: %w",
+			current.Namespace, current.Name,
+			conflictError.First.Namespace, conflictError.First.Name,
+			conflictError.Second.Namespace, conflictError.Second.Name,
+			ingressClass.Name, conflictError.Err)
+	}
+
+	var stateBuildError *state.IngressStateBuildError
+	if !stderrors.As(err, &stateBuildError) ||
+		(stateBuildError.Namespace == ingress.Namespace && stateBuildError.Name == ingress.Name) {
+		return err
+	}
+
+	return fmt.Errorf("update of ingress %s/%s is blocked because ingress %s/%s in ingress class %q failed validation: %w",
+		ingress.Namespace, ingress.Name, stateBuildError.Namespace, stateBuildError.Name, ingressClass.Name, err)
+}
+
+func ingressConflictParticipantError(current, other state.IngressReference, ingressClassName string, err error) error {
+	return fmt.Errorf("update of ingress %s/%s is blocked because its configuration conflicts with ingress %s/%s in ingress class %q: %w",
+		current.Namespace, current.Name, other.Namespace, other.Name, ingressClassName, err)
 }
 
 func handleIngressDelete(ctx context.Context, c *Controller, ingressClass *networkingv1.IngressClass) error {
