@@ -1914,6 +1914,56 @@ func TestProcessNextItem(t *testing.T) {
 	Expect(res).Should(BeTrue())
 }
 
+func countIngressPatchActions(c *Controller) int {
+	fake := c.client.K8sClient.(*fakeclientset.Clientset)
+	n := 0
+	for _, a := range fake.Actions() {
+		if a.GetVerb() == "patch" && a.GetResource().Resource == "ingresses" {
+			n++
+		}
+	}
+	return n
+}
+
+// An ingress owned by another controller's class must NOT have its finalizer
+// removed; otherwise two controllers fight over the shared finalizer.
+func TestSyncDoesNotRemoveFinalizerForOtherController(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	otherClass := &networkingv1.IngressClassList{
+		Items: []networkingv1.IngressClass{*util.GetIngressClassResource("other-ingress-class", false, "oci.oraclecloud.com/other-controller")},
+	}
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithFinalizer)
+	otherClassName := "other-ingress-class"
+	ingressList.Items[1].Spec.IngressClassName = &otherClassName
+
+	c := inits(ctx, otherClass, ingressList)
+
+	err := c.sync("default/ingress-readiness-2")
+	Expect(err).To(BeNil())
+	Expect(countIngressPatchActions(c)).Should(Equal(0))
+}
+
+// An orphaned ingress (no class resolves) must still have its finalizer cleaned up.
+func TestSyncRemovesFinalizerForOrphanedIngress(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	nonDefaultClass := &networkingv1.IngressClassList{
+		Items: []networkingv1.IngressClass{*util.GetIngressClassResource("some-other-class", false, "oci.oraclecloud.com/other-controller")},
+	}
+	ingressList := util.ReadResourceAsIngressList(ingressPathWithFinalizer)
+
+	c := inits(ctx, nonDefaultClass, ingressList)
+
+	err := c.sync("default/ingress-readiness-2")
+	Expect(err).To(BeNil())
+	Expect(countIngressPatchActions(c)).Should(Equal(1))
+}
+
 func GetLoadBalancerClient() ociclient.LoadBalancerInterface {
 	return &MockLoadBalancerClient{}
 }
