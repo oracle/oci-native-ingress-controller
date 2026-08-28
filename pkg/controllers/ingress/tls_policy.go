@@ -19,6 +19,7 @@ import (
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/tlspolicy"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type tlsPolicyResourceType string
@@ -245,6 +246,15 @@ func listenerSslConfigNeedsUpdate(calculatedConfig *ociloadbalancer.SslConfigura
 		return true
 	}
 	if !reflect.DeepEqual(currentConfig.CertificateIds, calculatedConfig.CertificateIds) {
+		return true
+	}
+	currentMtlsEnabled := currentConfig.VerifyPeerCertificate != nil && *currentConfig.VerifyPeerCertificate
+	desiredMtlsEnabled := calculatedConfig.VerifyPeerCertificate != nil && *calculatedConfig.VerifyPeerCertificate
+	if currentMtlsEnabled != desiredMtlsEnabled {
+		return true
+	}
+	if desiredMtlsEnabled && (!sets.NewString(currentConfig.TrustedCertificateAuthorityIds...).Equal(sets.NewString(calculatedConfig.TrustedCertificateAuthorityIds...)) ||
+		!reflect.DeepEqual(currentConfig.VerifyDepth, calculatedConfig.VerifyDepth)) {
 		return true
 	}
 	if comparePolicy && (!reflect.DeepEqual(currentConfig.CipherSuiteName, calculatedConfig.CipherSuiteName) ||

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"github.com/oracle/oci-go-sdk/v65/certificates"
 	"github.com/oracle/oci-go-sdk/v65/certificatesmanagement"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
@@ -234,12 +235,12 @@ func getSSLConfigForBackendSet(namespace string, artifactType string, artifact s
 	return backendSetSslConfig, nil
 }
 
-func GetSSLConfigForListener(listener *ociloadbalancer.Listener, tlsConfigs []state.TlsConfig,
+func GetSSLConfigForListener(listener *ociloadbalancer.Listener, tlsConfigs []state.TlsConfig, mtlsConfig state.MtlsConfig,
 	compartmentId string, secretLister v1.SecretLister, client *client.WrapperClient) (*ociloadbalancer.SslConfigurationDetails, error) {
-	return getSSLConfigForListener(listener, tlsConfigs, compartmentId, secretLister, client, true)
+	return getSSLConfigForListener(listener, tlsConfigs, mtlsConfig, compartmentId, secretLister, client, true)
 }
 
-func getSSLConfigForListener(listener *ociloadbalancer.Listener, tlsConfigs []state.TlsConfig,
+func getSSLConfigForListener(listener *ociloadbalancer.Listener, tlsConfigs []state.TlsConfig, mtlsConfig state.MtlsConfig,
 	compartmentId string, secretLister v1.SecretLister, client *client.WrapperClient, preservePolicy bool) (*ociloadbalancer.SslConfigurationDetails, error) {
 	if len(tlsConfigs) == 0 {
 		return nil, nil
@@ -287,6 +288,11 @@ func getSSLConfigForListener(listener *ociloadbalancer.Listener, tlsConfigs []st
 	}
 
 	sslConfig := &ociloadbalancer.SslConfigurationDetails{CertificateIds: certificateIds}
+	if len(mtlsConfig.TrustedCertificateAuthorityIds) > 0 {
+		sslConfig.TrustedCertificateAuthorityIds = append([]string(nil), mtlsConfig.TrustedCertificateAuthorityIds...)
+		sslConfig.VerifyDepth = common.Int(mtlsConfig.VerifyDepth)
+		sslConfig.VerifyPeerCertificate = common.Bool(true)
+	}
 	if preservePolicy && listener != nil {
 		if err := preserveListenerTLSPolicy(sslConfig, listener.SslConfiguration); err != nil {
 			return nil, err
