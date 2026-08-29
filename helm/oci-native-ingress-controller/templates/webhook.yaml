@@ -17,7 +17,7 @@ spec:
   issuerRef:
     kind: Issuer
     name: oci-native-ingress-controller-ca
-  secretName: oci-native-ingress-controller-tls
+  secretName: {{ template "oci-native-ingress-controller.webhookCertSecret" . }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
