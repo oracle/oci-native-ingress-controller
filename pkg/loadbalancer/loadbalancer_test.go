@@ -3,6 +3,7 @@ package loadbalancer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -275,6 +276,10 @@ func TestLoadBalancerClient_UpdateBackendsDrainTransitions(t *testing.T) {
 				backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
 				backendSet := res.BackendSets[backendSetName]
 				backendSet.Backends[0].Drain = testCase.actualDrain
+				backendSet.Backends[0].Weight = common.Int(7)
+				backendSet.Backends[0].Backup = common.Bool(true)
+				backendSet.Backends[0].Offline = common.Bool(true)
+				backendSet.Backends[0].MaxConnections = common.Int(512)
 				res.BackendSets[backendSetName] = backendSet
 			}
 			defer func() { mockLoadBalancerResponseMutator = nil }()
@@ -291,12 +296,68 @@ func TestLoadBalancerClient_UpdateBackendsDrainTransitions(t *testing.T) {
 			Expect(capturedUpdateBackendSetRequest).To(BeNil())
 			if testCase.expectUpdate {
 				Expect(capturedUpdateBackendRequests).To(HaveLen(1))
-				Expect(*capturedUpdateBackendRequests[0].Drain).To(Equal(testCase.expectedDrain))
+				request := capturedUpdateBackendRequests[0]
+				Expect(*request.IfMatch).To(Equal("testTag"))
+				Expect(*request.Drain).To(Equal(testCase.expectedDrain))
+				Expect(*request.Weight).To(Equal(7))
+				Expect(*request.Backup).To(BeTrue())
+				Expect(*request.Offline).To(BeTrue())
+				Expect(*request.MaxConnections).To(Equal(512))
 			} else {
 				Expect(capturedUpdateBackendRequests).To(BeEmpty())
 			}
 		})
 	}
+}
+
+func TestLoadBalancerClient_UpdateBackendsRefreshesETagBetweenDrainUpdates(t *testing.T) {
+	RegisterTestingT(t)
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
+	mock := newDrainUpdateTestClient(backendSetName, []ociloadbalancer.Backend{
+		newDrainUpdateTestBackend("127.89.90.90", 80, 2, false, false, 300),
+		newDrainUpdateTestBackend("127.89.90.91", 80, 3, false, false, 400),
+	})
+	mock.mutateSecondAfterFirstUpdate = true
+	lbc := &LoadBalancerClient{LbClient: mock, Cache: map[string]*LbCacheObj{}}
+
+	err := lbc.UpdateBackends(context.TODO(), "id", backendSetName, []ociloadbalancer.BackendDetails{
+		util.NewBackend("127.89.90.90", 80, true),
+		util.NewBackend("127.89.90.91", 80, true),
+	})
+
+	Expect(err).NotTo(HaveOccurred())
+	Expect(mock.updateRequests).To(HaveLen(2))
+	Expect(*mock.updateRequests[0].IfMatch).To(Equal("etag-1"))
+	Expect(*mock.updateRequests[1].IfMatch).To(Equal("etag-2"))
+	Expect(*mock.updateRequests[1].Weight).To(Equal(9))
+	Expect(*mock.updateRequests[1].Backup).To(BeTrue())
+	Expect(*mock.updateRequests[1].Offline).To(BeTrue())
+	Expect(*mock.updateRequests[1].MaxConnections).To(Equal(900))
+}
+
+func TestLoadBalancerClient_UpdateBackendsRefreshesAfterPreconditionFailure(t *testing.T) {
+	RegisterTestingT(t)
+	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
+	mock := newDrainUpdateTestClient(backendSetName, []ociloadbalancer.Backend{
+		newDrainUpdateTestBackend("127.89.90.90", 80, 2, false, false, 300),
+	})
+	mock.failFirstUpdate = true
+	lbc := &LoadBalancerClient{LbClient: mock, Cache: map[string]*LbCacheObj{}}
+	desired := []ociloadbalancer.BackendDetails{util.NewBackend("127.89.90.90", 80, true)}
+
+	err := lbc.UpdateBackends(context.TODO(), "id", backendSetName, desired)
+	Expect(err).To(HaveOccurred())
+	Expect(exception.HasTransientError(err)).To(BeTrue())
+
+	err = lbc.UpdateBackends(context.TODO(), "id", backendSetName, desired)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(mock.updateRequests).To(HaveLen(2))
+	Expect(*mock.updateRequests[0].IfMatch).To(Equal("etag-1"))
+	Expect(*mock.updateRequests[1].IfMatch).To(Equal("etag-2"))
+	Expect(*mock.updateRequests[1].Weight).To(Equal(11))
+	Expect(*mock.updateRequests[1].Backup).To(BeTrue())
+	Expect(*mock.updateRequests[1].Offline).To(BeTrue())
+	Expect(*mock.updateRequests[1].MaxConnections).To(Equal(1100))
 }
 
 func TestLoadBalancerClient_UpdateBackends_PreservesBackendSetTLSPolicy(t *testing.T) {
@@ -1019,6 +1080,90 @@ var capturedUpdateLoadBalancerRequest *ociloadbalancer.UpdateLoadBalancerDetails
 var mockCreateListenerErr error
 var mockLoadBalancerResponseMutator func(*ociloadbalancer.GetLoadBalancerResponse)
 var mockUpdateListenerErr error
+
+type preconditionFailedServiceError struct{}
+
+func (e preconditionFailedServiceError) Error() string           { return "PreconditionFailed" }
+func (e preconditionFailedServiceError) GetHTTPStatusCode() int  { return 412 }
+func (e preconditionFailedServiceError) GetMessage() string      { return "ETag mismatch" }
+func (e preconditionFailedServiceError) GetCode() string         { return "NoEtagMatch" }
+func (e preconditionFailedServiceError) GetOpcRequestID() string { return "fake-opc-request-id" }
+
+type drainUpdateTestClient struct {
+	MockLoadBalancerClient
+	backendSetName               string
+	backends                     []ociloadbalancer.Backend
+	version                      int
+	updateRequests               []ociloadbalancer.UpdateBackendRequest
+	failFirstUpdate              bool
+	failedFirstUpdate            bool
+	successfulUpdates            int
+	mutateSecondAfterFirstUpdate bool
+}
+
+func newDrainUpdateTestClient(backendSetName string, backends []ociloadbalancer.Backend) *drainUpdateTestClient {
+	return &drainUpdateTestClient{backendSetName: backendSetName, backends: backends, version: 1}
+}
+
+func newDrainUpdateTestBackend(ip string, port, weight int, backup, offline bool, maxConnections int) ociloadbalancer.Backend {
+	return ociloadbalancer.Backend{
+		Name:           common.String(fmt.Sprintf("%s:%d", ip, port)),
+		IpAddress:      common.String(ip),
+		Port:           common.Int(port),
+		Weight:         common.Int(weight),
+		Drain:          common.Bool(false),
+		Backup:         common.Bool(backup),
+		Offline:        common.Bool(offline),
+		MaxConnections: common.Int(maxConnections),
+	}
+}
+
+func (m *drainUpdateTestClient) GetLoadBalancer(_ context.Context, _ ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	response := util.SampleLoadBalancerResponse()
+	backendSet := response.BackendSets[m.backendSetName]
+	backendSet.Backends = append([]ociloadbalancer.Backend(nil), m.backends...)
+	response.BackendSets[m.backendSetName] = backendSet
+	response.ETag = common.String(fmt.Sprintf("etag-%d", m.version))
+	return response, nil
+}
+
+func (m *drainUpdateTestClient) UpdateBackend(_ context.Context, request ociloadbalancer.UpdateBackendRequest) (ociloadbalancer.UpdateBackendResponse, error) {
+	m.updateRequests = append(m.updateRequests, request)
+	if m.failFirstUpdate && !m.failedFirstUpdate {
+		m.failedFirstUpdate = true
+		m.version++
+		m.backends[0].Weight = common.Int(11)
+		m.backends[0].Backup = common.Bool(true)
+		m.backends[0].Offline = common.Bool(true)
+		m.backends[0].MaxConnections = common.Int(1100)
+		return ociloadbalancer.UpdateBackendResponse{}, preconditionFailedServiceError{}
+	}
+
+	for i := range m.backends {
+		if *m.backends[i].Name != *request.BackendName {
+			continue
+		}
+		m.backends[i].Weight = request.Weight
+		m.backends[i].Backup = request.Backup
+		m.backends[i].Drain = request.Drain
+		m.backends[i].Offline = request.Offline
+		m.backends[i].MaxConnections = request.MaxConnections
+		break
+	}
+	m.successfulUpdates++
+	m.version++
+	if m.mutateSecondAfterFirstUpdate && m.successfulUpdates == 1 && len(m.backends) > 1 {
+		m.backends[1].Weight = common.Int(9)
+		m.backends[1].Backup = common.Bool(true)
+		m.backends[1].Offline = common.Bool(true)
+		m.backends[1].MaxConnections = common.Int(900)
+	}
+
+	return ociloadbalancer.UpdateBackendResponse{
+		OpcWorkRequestId: common.String("id"),
+		OpcRequestId:     common.String("id"),
+	}, nil
+}
 
 type MockLoadBalancerClient struct {
 }

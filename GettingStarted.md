@@ -540,12 +540,21 @@ metadata:
   name: my-app
 spec:
   replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: my-app
   template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: my-app
     spec:
       terminationGracePeriodSeconds: 105
       containers:
@@ -554,6 +563,9 @@ spec:
         ports:
         - name: http
           containerPort: 8080
+        env:
+        - name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+          value: "60"
         lifecycle:
           preStop:
             exec:
@@ -565,7 +577,29 @@ spec:
             path: /readyz
             port: http
           periodSeconds: 2
+          timeoutSeconds: 1
           failureThreshold: 1
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /startupz
+            port: http
+          periodSeconds: 2
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
 ```
 
 After `preStop`, the application must react to `SIGTERM`, make `/readyz` return non-200, stop accepting new work, and finish within its 60-second shutdown allocation. Replace the shell sleep with an application-native drain command when possible, especially for distroless images. For voluntary disruptions such as node drain, add a `PodDisruptionBudget`; it complements but does not replace `maxUnavailable: 0` for Deployment rollouts.
