@@ -117,9 +117,9 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			eventRecorder,
 		)
 
-		go ingressClassController.Run(3, ctx.Done())
-		go ingressController.Run(3, ctx.Done())
-		go routingPolicyController.Run(3, ctx.Done())
+		go ingressClassController.Run(opts.NumWorkers, ctx.Done())
+		go ingressController.Run(opts.NumWorkers, ctx.Done())
+		go routingPolicyController.Run(opts.NumWorkers, ctx.Done())
 
 		klog.Infof("CNI Type of given cluster : %s", cni)
 		if cni == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay) {
@@ -137,7 +137,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				metricsCollector,
 				eventRecorder,
 			)
-			go backendController.Run(3, ctx.Done())
+			go backendController.Run(opts.NumWorkers, ctx.Done())
 		} else {
 			backendController := backend.NewController(
 				opts.ControllerClass,
@@ -151,7 +151,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				metricsCollector,
 				eventRecorder,
 			)
-			go backendController.Run(3, ctx.Done())
+			go backendController.Run(opts.NumWorkers, ctx.Done())
 		}
 
 		if opts.CertDeletionGracePeriodInDays > 0 {

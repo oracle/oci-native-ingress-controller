@@ -21,6 +21,7 @@ const (
 	Instance         OCIPrincipalType = "instance"
 	User             OCIPrincipalType = "user"
 	WorkloadIdentity OCIPrincipalType = "workloadIdentity"
+	DefaultNumWorkers = 3
 )
 
 type IngressOpts struct {
@@ -39,6 +40,7 @@ type IngressOpts struct {
 	UseLbCompartmentForCertificates bool
 	EmitEvents                      bool
 	CertDeletionGracePeriodInDays   int64
+	NumWorkers                      int
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {

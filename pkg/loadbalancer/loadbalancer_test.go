@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -479,6 +480,44 @@ func TestLoadBalancerClient_UpdateBackendSet_PassesDesiredTLSPolicy(t *testing.T
 	Expect(capturedSslConfig.TrustedCertificateAuthorityIds).To(Equal([]string{"ca-desired"}))
 	Expect(*capturedSslConfig.CipherSuiteName).To(Equal("desired-backend-cipher"))
 	Expect(capturedSslConfig.Protocols).To(Equal([]string{"TLSv1.2"}))
+}
+
+func TestLoadBalancerClientSerializesCreateOperationsForSameLoadBalancer(t *testing.T) {
+	RegisterTestingT(t)
+	mockClient := &blockingCreateLoadBalancerClient{
+		backendStarted:  make(chan struct{}),
+		releaseBackend:  make(chan struct{}),
+		listenerStarted: make(chan struct{}),
+	}
+	loadBalancerClient := &LoadBalancerClient{
+		LbClient: mockClient,
+		Cache:    map[string]*LbCacheObj{},
+	}
+
+	backendResult := make(chan error, 1)
+	go func() {
+		backendResult <- loadBalancerClient.CreateBackendSet(context.Background(), "id", "new-backend", "", nil, nil, nil, nil)
+	}()
+	<-mockClient.backendStarted
+
+	listenerResult := make(chan error, 1)
+	go func() {
+		listenerResult <- loadBalancerClient.CreateListener(context.Background(), "id", 9443, util.ProtocolHTTP, "new-backend", nil)
+	}()
+
+	listenerStartedEarly := false
+	select {
+	case <-mockClient.listenerStarted:
+		listenerStartedEarly = true
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(mockClient.releaseBackend)
+	Expect(<-backendResult).To(Succeed())
+	Expect(<-listenerResult).To(Succeed())
+	if listenerStartedEarly {
+		t.Fatal("listener creation started while backend-set creation was still running")
+	}
 }
 
 func TestLoadBalancerClient_UpdateListener(t *testing.T) {
@@ -970,6 +1009,24 @@ var capturedUpdateLoadBalancerRequest *ociloadbalancer.UpdateLoadBalancerDetails
 var mockCreateListenerErr error
 var mockLoadBalancerResponseMutator func(*ociloadbalancer.GetLoadBalancerResponse)
 var mockUpdateListenerErr error
+
+type blockingCreateLoadBalancerClient struct {
+	MockLoadBalancerClient
+	backendStarted  chan struct{}
+	releaseBackend  chan struct{}
+	listenerStarted chan struct{}
+}
+
+func (m *blockingCreateLoadBalancerClient) CreateBackendSet(ctx context.Context, request ociloadbalancer.CreateBackendSetRequest) (ociloadbalancer.CreateBackendSetResponse, error) {
+	close(m.backendStarted)
+	<-m.releaseBackend
+	return m.MockLoadBalancerClient.CreateBackendSet(ctx, request)
+}
+
+func (m *blockingCreateLoadBalancerClient) CreateListener(ctx context.Context, request ociloadbalancer.CreateListenerRequest) (ociloadbalancer.CreateListenerResponse, error) {
+	close(m.listenerStarted)
+	return m.MockLoadBalancerClient.CreateListener(ctx, request)
+}
 
 type MockLoadBalancerClient struct {
 }
