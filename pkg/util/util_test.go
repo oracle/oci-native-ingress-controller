@@ -52,6 +52,42 @@ func TestGenerateBackendSetName(t *testing.T) {
 	Expect(len(bsNameLong) < 32).Should(Equal(true))
 }
 
+func TestNewBackendSetsDrainState(t *testing.T) {
+	RegisterTestingT(t)
+
+	backend := NewBackend("10.0.0.3", 8080, true)
+
+	Expect(*backend.IpAddress).To(Equal("10.0.0.3"))
+	Expect(*backend.Port).To(Equal(8080))
+	Expect(*backend.Drain).To(BeTrue())
+}
+
+func TestGetServiceBackendDrainingEnabled(t *testing.T) {
+	RegisterTestingT(t)
+
+	testCases := []struct {
+		name        string
+		annotations map[string]string
+		expected    bool
+	}{
+		{name: "missing annotations", expected: false},
+		{name: "missing annotation", annotations: map[string]string{}, expected: false},
+		{name: "empty annotation", annotations: map[string]string{ServiceBackendDrainingAnnotation: ""}, expected: false},
+		{name: "disabled", annotations: map[string]string{ServiceBackendDrainingAnnotation: "false"}, expected: false},
+		{name: "invalid annotation", annotations: map[string]string{ServiceBackendDrainingAnnotation: "enabled"}, expected: false},
+		{name: "enabled", annotations: map[string]string{ServiceBackendDrainingAnnotation: "true"}, expected: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service := &v1.Service{ObjectMeta: metav1.ObjectMeta{Annotations: testCase.annotations}}
+			Expect(GetServiceBackendDrainingEnabled(service)).To(Equal(testCase.expected))
+		})
+	}
+
+	Expect(GetServiceBackendDrainingEnabled(nil)).To(BeFalse())
+}
+
 func TestGetIngressClassCompartmentId(t *testing.T) {
 	RegisterTestingT(t)
 

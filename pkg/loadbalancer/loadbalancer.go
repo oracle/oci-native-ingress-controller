@@ -583,18 +583,59 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 	}
 
 	actual := sets.NewString()
+	actualMembers := sets.NewString()
+	actualByName := make(map[string]loadbalancer.Backend, len(backendSet.Backends))
 	for _, backend := range backendSet.Backends {
-		actual.Insert(fmt.Sprintf("%s:%d", *backend.IpAddress, *backend.Port))
+		name := backendName(*backend.IpAddress, *backend.Port)
+		actual.Insert(backendState(*backend.IpAddress, *backend.Port, backend.Drain))
+		actualMembers.Insert(name)
+		actualByName[name] = backend
 	}
 
 	desired := sets.NewString()
+	desiredMembers := sets.NewString()
 	for _, backend := range backends {
-		desired.Insert(fmt.Sprintf("%s:%d", *backend.IpAddress, *backend.Port))
+		name := backendName(*backend.IpAddress, *backend.Port)
+		desired.Insert(backendState(*backend.IpAddress, *backend.Port, backend.Drain))
+		desiredMembers.Insert(name)
 	}
 
 	if desired.Equal(actual) {
 		klog.V(4).InfoS("no backend update required", "lbName", *lb.DisplayName, "lbID", *lb.Id)
 		return nil
+	}
+
+	if desiredMembers.Equal(actualMembers) {
+		if updater, ok := lbc.LbClient.(interface {
+			UpdateBackend(context.Context, loadbalancer.UpdateBackendRequest) (loadbalancer.UpdateBackendResponse, error)
+		}); ok {
+			currentETag := etag
+			for _, desiredBackend := range backends {
+				name := backendName(*desiredBackend.IpAddress, *desiredBackend.Port)
+				actualBackend, exists := actualByName[name]
+				if !exists {
+					return exception.NewTransientError(fmt.Errorf("backend %s changed while updating drain state", name))
+				}
+				if backendDrain(actualBackend.Drain) == backendDrain(desiredBackend.Drain) {
+					continue
+				}
+				refreshedLB, refreshedETag, err := lbc.updateBackendDrain(ctx, updater, lbID, currentETag, backendSetName, name, actualBackend, backendDrain(desiredBackend.Drain))
+				if err != nil {
+					return err
+				}
+				currentETag = refreshedETag
+				refreshedBackendSet, exists := refreshedLB.BackendSets[backendSetName]
+				if !exists {
+					return exception.NewTransientError(fmt.Errorf("backendset %s changed while updating drain state", backendSetName))
+				}
+				actualByName = make(map[string]loadbalancer.Backend, len(refreshedBackendSet.Backends))
+				for _, refreshedBackend := range refreshedBackendSet.Backends {
+					refreshedName := backendName(*refreshedBackend.IpAddress, *refreshedBackend.Port)
+					actualByName[refreshedName] = refreshedBackend
+				}
+			}
+			return nil
+		}
 	}
 
 	sslConfig, err := backendSetSslConfigurationDetailsFromCurrent(backendSet.SslConfiguration)
@@ -618,6 +659,79 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 
 	return lbc.UpdateBackendSet(ctx, lbID, etag, *backendSet.Name, policy, healthCheckerDetails, sslConfig, backends,
 		backendSet.SessionPersistenceConfiguration, backendSet.LbCookieSessionPersistenceConfiguration)
+}
+
+func backendState(ipAddress string, port int, drain *bool) string {
+	return fmt.Sprintf("%s:%t", backendName(ipAddress, port), backendDrain(drain))
+}
+
+func backendName(ipAddress string, port int) string {
+	return fmt.Sprintf("%s:%d", ipAddress, port)
+}
+
+func backendDrain(drain *bool) bool {
+	return drain != nil && *drain
+}
+
+func (lbc *LoadBalancerClient) updateBackendDrain(
+	ctx context.Context,
+	updater interface {
+		UpdateBackend(context.Context, loadbalancer.UpdateBackendRequest) (loadbalancer.UpdateBackendResponse, error)
+	},
+	lbID, etag, backendSetName, name string,
+	actual loadbalancer.Backend,
+	drain bool,
+) (*loadbalancer.LoadBalancer, string, error) {
+	weight := actual.Weight
+	if weight == nil {
+		weight = common.Int(1)
+	}
+	backup := actual.Backup
+	if backup == nil {
+		backup = common.Bool(false)
+	}
+	offline := actual.Offline
+	if offline == nil {
+		offline = common.Bool(false)
+	}
+
+	request := loadbalancer.UpdateBackendRequest{
+		LoadBalancerId: common.String(lbID),
+		BackendSetName: common.String(backendSetName),
+		BackendName:    common.String(name),
+		IfMatch:        common.String(etag),
+		UpdateBackendDetails: loadbalancer.UpdateBackendDetails{
+			Weight:         weight,
+			Backup:         backup,
+			Drain:          common.Bool(drain),
+			Offline:        offline,
+			MaxConnections: actual.MaxConnections,
+		},
+	}
+
+	klog.Infof("Updating backend drain state with request: %s", util.PrettyPrint(request))
+	resp, err := updater.UpdateBackend(ctx, request)
+	isTransient, errMsg := util.AsServiceError(err, 409, 412)
+	if isTransient {
+		klog.Errorf("Unable to update backend %s in backend set %s for load balancer %s due to %s", name, backendSetName, lbID, errMsg)
+		if util.IsServiceError(err, 412) {
+			if _, _, refreshErr := lbc.RefreshLoadBalancer(ctx, lbID); refreshErr != nil {
+				klog.Warningf("Unable to refresh load balancer %s after backend ETag mismatch: %v", lbID, refreshErr)
+			}
+		}
+		return nil, "", exception.NewTransientError(err)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+
+	klog.Infof("Update backend response: name: %s, work request id: %s, opc request id: %s.", name, *resp.OpcWorkRequestId, *resp.OpcRequestId)
+	workRequestLBID, err := lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return lbc.RefreshLoadBalancer(ctx, workRequestLBID)
 }
 
 // UpdateBackendSetDetails updates sslConfig, policy, healthChecker, and session persistence configs while preserving existing backends

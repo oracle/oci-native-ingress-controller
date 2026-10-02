@@ -29,6 +29,7 @@ The native ingress controller itself is lightweight process and pushes all the r
     + [Pod Readiness Gate](#pod-readiness-gate)
       - [Configuration](#configuration)
       - [Checking the pod readiness condition](#checking-the-pod-readiness-condition)
+    + [Graceful Backend Draining](#graceful-backend-draining)
     + [HTTPS/TLS Support](#httpstls-support)
       - [Sample configuration : Using Secret](#sample-configuration--using-secret)
       - [Sample configuration : Using Certificate](#sample-configuration--using-certificate)
@@ -460,6 +461,157 @@ NAME                                             READY   STATUS    RESTARTS   AG
 testecho-7cdcfff87f-b6xt4                        1/1     Running   0          35s   10.0.10.242   10.0.10.135   <none>           0/1
 testecho-7cdcfff87f-b6xt4                        1/1     Running   0          72s   10.0.10.242   10.0.10.135   <none>           1/1
 ```
+
+#### Graceful Backend Draining
+For VCN-native clusters, the controller registers Pod IPs as OCI Load Balancer backends. Backend draining is opt-in at the Service level. When a Service has `oci-native-ingress.oraclecloud.com/backend-draining: "true"` and a published Endpoint references the exact Pod with a `deletionTimestamp`, backend reconciliation keeps the existing backend registered and sets `drain=true`. Pod and Endpoint changes enqueue reconciliation immediately; a periodic reconciliation that runs every 10 seconds remains as a fallback. Services without the annotation, or with any value other than a valid boolean `true`, retain the existing `drain=false` behavior. Removing or disabling the annotation returns any still-published backends to `drain=false` on the next reconciliation.
+
+OCI drain mode stops new TCP connections and new non-sticky HTTP requests from selecting the backend. Persistence-enabled sessions can still be routed to it. The load balancer does not keep the Pod alive, so existing work can finish only while the application remains running. The application must handle `SIGTERM`, stop accepting new work, and finish or cancel in-flight work within `terminationGracePeriodSeconds`. Bound the lifetime of WebSocket, streaming, and other long-lived connections to this shutdown budget, or expect Kubernetes to terminate them when the grace period expires.
+
+##### Safe Service and health-check configuration
+
+The terminating Endpoint must remain published long enough for the controller and OCI Load Balancer to apply drain mode. Use a dedicated Ingress-facing Service with `publishNotReadyAddresses: true`; do not reuse this Service for non-Ingress consumers. This setting also publishes startup-failing and unhealthy Pods, so configure an HTTP or HTTPS OCI health check against the application's readiness endpoint. Do not rely on the default TCP health check for this Service because it can consider an application-level unhealthy process reachable.
+
+Replace the names, class, host, ports, and readiness path in this example:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-ingress
+  annotations:
+    oci-native-ingress.oraclecloud.com/backend-draining: "true"
+spec:
+  # Keep terminating Pod endpoints visible long enough for NIC to enable drain.
+  # Do not reuse this Service for non-Ingress consumers.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: my-app
+  ports:
+  - name: http
+    protocol: TCP
+    port: 80
+    targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app
+  annotations:
+    oci-native-ingress.oraclecloud.com/healthcheck-protocol: "HTTP"
+    oci-native-ingress.oraclecloud.com/healthcheck-port: "8080"
+    oci-native-ingress.oraclecloud.com/healthcheck-path: "/readyz"
+    oci-native-ingress.oraclecloud.com/healthcheck-interval-milliseconds: "5000"
+    oci-native-ingress.oraclecloud.com/healthcheck-timeout-milliseconds: "3000"
+    oci-native-ingress.oraclecloud.com/healthcheck-retries: "3"
+    oci-native-ingress.oraclecloud.com/healthcheck-return-code: "200"
+spec:
+  ingressClassName: native-ic
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-app-ingress
+            port:
+              number: 80
+```
+
+The `/readyz` endpoint must return 200 only while the instance can accept new work, and the OCI health-check port and path must match the Pod. Tune the interval and retry values for the workload's false-positive tolerance and drain objective.
+
+##### Shutdown timing
+
+Kubernetes starts the termination grace-period countdown before running `preStop`, and sends `SIGTERM` after the hook finishes. Size the grace period using:
+
+```text
+terminationGracePeriodSeconds >= preStop drain wait + application shutdown timeout + safety margin
+```
+
+The drain wait must cover the controller's event processing, its maximum 10-second periodic fallback delay, and the measured P99 OCI backend-update duration. Reconciliation waits for OCI operations and processes affected backends/backend sets sequentially, so include the worst-case sum of those update durations for broad rollouts. The controller does not add a Pod condition acknowledging that OCI has applied `drain=true`; a fixed `preStop` wait is therefore best-effort and should be backed by alerts on controller or backend-update failures.
+
+The following numbers are illustrative: a 30-second drain-propagation wait, a 60-second application shutdown timeout, and a 15-second safety margin require 105 seconds total. Measure and replace them for the workload.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: my-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: my-app
+    spec:
+      terminationGracePeriodSeconds: 105
+      containers:
+      - name: my-app
+        image: example.com/my-app:1.2.3
+        ports:
+        - name: http
+          containerPort: 8080
+        env:
+        - name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+          value: "60"
+        lifecycle:
+          preStop:
+            exec:
+              # The grace-period countdown has already started. This wait gives
+              # NIC and OCI LB time to observe deletionTimestamp and enable drain.
+              command: ["/bin/sh", "-c", "sleep 30"]
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 2
+          timeoutSeconds: 1
+          failureThreshold: 1
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /startupz
+            port: http
+          periodSeconds: 2
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+```
+
+After `preStop`, the application must react to `SIGTERM`, make `/readyz` return non-200, stop accepting new work, and finish within its 60-second shutdown allocation. Replace the shell sleep with an application-native drain command when possible, especially for distroless images. For voluntary disruptions such as node drain, add a `PodDisruptionBudget`; it complements but does not replace `maxUnavailable: 0` for Deployment rollouts.
+
+##### Verification runbook
+
+1. Start a request or connection that lasts longer than one health-check interval, then delete one Pod.
+2. Confirm the Pod has a `deletionTimestamp` and remains published by the dedicated Service during `preStop`.
+3. Confirm the corresponding OCI backend reaches `drain=true` before `preStop` ends.
+4. Verify existing non-sticky traffic completes and new non-sticky connections select another Pod. Test persistence-enabled sessions separately.
+5. Confirm the Pod exits within its grace period and that its Endpoint and OCI backend are removed afterward.
+6. Test an OCI update failure and a connection exceeding the shutdown budget so operators understand retry and forced-termination behavior.
 
 #### HTTPS/TLS Support
 We can configure HTTPS-enabled ingress routes using Kubernetes TLS secrets, OCI certificate OCIDs, or both.

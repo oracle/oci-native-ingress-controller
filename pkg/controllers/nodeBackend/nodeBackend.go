@@ -235,9 +235,7 @@ func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ing
 			var backends []ociloadbalancer.BackendDetails
 			trafficPolicy := svc.Spec.ExternalTrafficPolicy
 			if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
-				for _, node := range nodes {
-					backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
-				}
+				backends = getBackendsFromNodes(nodes, nodePort)
 			} else {
 				backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, ingress.Namespace, svcName, backends, nodePort)
 				if err != nil {
@@ -255,6 +253,14 @@ func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ing
 	return nil
 }
 
+func getBackendsFromNodes(nodes []*corev1.Node, nodePort int32) []ociloadbalancer.BackendDetails {
+	backends := make([]ociloadbalancer.BackendDetails, 0, len(nodes))
+	for _, node := range nodes {
+		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort, false))
+	}
+	return backends
+}
+
 func getBackendsFromPods(endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister, namespace string, svcName string, backends []ociloadbalancer.BackendDetails, nodePort int32) ([]ociloadbalancer.BackendDetails, error) {
 	pods, err := util.RetrievePods(endpointLister, podLister, namespace, svcName)
 	if err != nil {
@@ -269,7 +275,7 @@ func getBackendsFromPods(endpointLister corelisters.EndpointsLister, podLister c
 			}
 			return nil, err
 		}
-		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+		backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort, false))
 	}
 	return backends, nil
 }
