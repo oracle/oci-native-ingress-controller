@@ -934,7 +934,9 @@ func (c *Controller) getInitialBackendsByBackendSet(ingress *networkingv1.Ingres
 
 			pSvc, svc, err := util.ExtractServices(path, c.serviceLister, ingress)
 			if err != nil {
-				return nil, err
+				klog.InfoS("unable to determine initial backend service, creating backend set without initial backends",
+					"ingress", klog.KObj(ingress), "err", err)
+				continue
 			}
 
 			svcName, svcPort, targetPort, err := util.PathToServiceAndTargetPort(c.endpointLister, svc, pSvc, ingress.Namespace, c.useNodeBackends)

@@ -177,6 +177,23 @@ func TestGetInitialBackendsByBackendSetUsesEndpointBackends(t *testing.T) {
 	Expect(*backendsByBackendSet[backendSetName][0].IpAddress).To(Equal("6.7.8.9"))
 }
 
+func TestGetInitialBackendsByBackendSetSkipsMissingService(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(ingressPath)
+	c := inits(ctx, ingressClassList, ingressList)
+	c.serviceLister = getServiceLister(&v1.ServiceList{})
+	c.endpointLister = util.GetEndpointsListerResource(&v1.EndpointsList{})
+
+	backendsByBackendSet, err := c.getInitialBackendsByBackendSet(&ingressList.Items[0])
+
+	Expect(err).To(BeNil())
+	Expect(backendsByBackendSet).To(BeEmpty())
+}
+
 func getServiceLister(services *v1.ServiceList) corelisters.ServiceLister {
 	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	for i := range services.Items {
