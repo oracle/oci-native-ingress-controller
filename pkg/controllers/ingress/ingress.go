@@ -524,7 +524,7 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 
 		var listenerSslConfig *ociloadbalancer.SslConfigurationDetails
 		listenerTLSConfigs := stateStore.GetTLSConfigForListener(port)
-		listenerSslConfig, err = GetSSLConfigForListener(nil, listenerTLSConfigs, certificateCompartmentId, c.secretLister, wrapperClient)
+		listenerSslConfig, err = GetSSLConfigForListener(nil, listenerTLSConfigs, stateStore.GetMtlsConfigForListener(port), certificateCompartmentId, c.secretLister, wrapperClient)
 		if err != nil {
 			return err
 		}
@@ -700,7 +700,7 @@ func buildManagedMultiCertBackendSets(stateStore *state.StateStore, lb *ociloadb
 			listenerPtr = &listener
 		}
 
-		sslConfig, err := getSSLConfigForListener(listenerPtr, listenerTLSConfigs, certificateCompartmentId, c.secretLister, wrapperClient, false)
+		sslConfig, err := getSSLConfigForListener(listenerPtr, listenerTLSConfigs, stateStore.GetMtlsConfigForListener(port), certificateCompartmentId, c.secretLister, wrapperClient, false)
 		if err != nil {
 			return nil, err
 		}
@@ -740,7 +740,7 @@ func syncListener(ctx context.Context, stateStore *state.StateStore, lbId *strin
 	needsUpdate := false
 	listenerTLSConfigs := stateStore.GetTLSConfigForListener(int32(*listener.Port))
 	var sslConfig *ociloadbalancer.SslConfigurationDetails
-	sslConfig, err = getSSLConfigForListener(&listener, listenerTLSConfigs, certificateCompartmentId, c.secretLister, wrapperClient, false)
+	sslConfig, err = getSSLConfigForListener(&listener, listenerTLSConfigs, stateStore.GetMtlsConfigForListener(int32(*listener.Port)), certificateCompartmentId, c.secretLister, wrapperClient, false)
 	if err != nil {
 		return err
 	}

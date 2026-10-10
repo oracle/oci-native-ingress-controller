@@ -32,6 +32,8 @@ const (
 	ArtifactTypeCertificate = "certificate"
 
 	PortConflictMessage               = "validation failure: service port %d has multiple certificate or secret configs across ingresses in the ingress class"
+	MtlsConflictMessage               = "validation failure: listener port %d configured with multiple mTLS configurations"
+	MtlsRequiresTlsMessage            = "validation failure: listener port %d enables mTLS without TLS"
 	HealthCheckerConflictMessage      = "validation failure: incompatible health checker config across ingresses sharing backend set %s in the ingress class"
 	PolicyConflictMessage             = "validation failure: incompatible policy config across ingresses sharing backend set %s in the ingress class"
 	ProtocolConflictMessage           = "validation failure: incompatible protocol config across ingresses sharing listener %d in the ingress class"
@@ -51,6 +53,12 @@ type TlsConfig struct {
 
 type ListenerTLSConfig struct {
 	TlsConfigs []TlsConfig
+}
+
+// MtlsConfig controls client-certificate verification on a TLS listener.
+type MtlsConfig struct {
+	TrustedCertificateAuthorityIds []string
+	VerifyDepth                    int
 }
 
 // listenerTLSCandidate is a pre-normalized listener TLS config discovered before deterministic sort and de-dupe.
@@ -91,6 +99,7 @@ type IngressClassState struct {
 	Listeners                       sets.Int32
 	ListenerProtocolMap             map[int32]string
 	ListenerTLSConfigMap            map[int32]ListenerTLSConfig
+	ListenerMtlsConfigMap           map[int32]MtlsConfig
 	ListenerTLSPolicyMap            map[int32]*tlspolicy.ExplicitTLSPolicy
 	ListenerDefaultBsMap            map[int32]string
 	// ListenerBackendSetMap includes backend sets reachable through listener defaults,
@@ -150,6 +159,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	bsTLSPolicyCandidateMap := make(map[string][]tlsPolicyCandidate)
 	listenerProtocolMap := make(map[int32]string)
 	listenerTLSCandidateMap := make(map[int32][]listenerTLSCandidate)
+	listenerMtlsConfigMap := make(map[int32]MtlsConfig)
 	listenerTLSPolicyCandidateMap := make(map[int32][]tlsPolicyCandidate)
 	listenerDefaultBsMap := make(map[int32]string)
 	listenerBackendSetMap := make(map[int32]sets.String)
@@ -218,9 +228,11 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				if err != nil {
 					return err
 				}
-
 				err = validateListenerDefaultBackendSet(ing, listenerDefaultBsMap, listenerPort, bsName)
 				if err != nil {
+					return err
+				}
+				if err = validateMtlsConfig(ing, listenerPort, listenerTLSCandidateMap, listenerMtlsConfigMap); err != nil {
 					return err
 				}
 				appendListenerBackendSet(listenerBackendSetMap, listenerPort, listenerDefaultBsMap[listenerPort])
@@ -282,6 +294,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		Listeners:                       allListeners,
 		ListenerProtocolMap:             listenerProtocolMap,
 		ListenerTLSConfigMap:            listenerTLSConfigMap,
+		ListenerMtlsConfigMap:           listenerMtlsConfigMap,
 		ListenerTLSPolicyMap:            listenerTLSPolicyMap,
 		ListenerDefaultBsMap:            listenerDefaultBsMap,
 		ListenerBackendSetMap:           listenerBackendSetMap,
@@ -371,6 +384,30 @@ func updateBackendTlsStatus(bsTLSEnabled bool, hasTLSArtifactInput bool, bsTLSSt
 			bsTLSConfigMap[bsName] = TlsConfig{}
 		}
 	}
+	return nil
+}
+
+func validateMtlsConfig(ingress *networkingv1.Ingress, listenerPort int32,
+	listenerTLSCandidateMap map[int32][]listenerTLSCandidate, listenerMtlsConfigMap map[int32]MtlsConfig) error {
+	parsed, err := util.GetListenerMtlsConfig(ingress)
+	if err != nil {
+		return fmt.Errorf("validation failure: listener port %d has invalid mTLS configuration: %w", listenerPort, err)
+	}
+
+	incoming := MtlsConfig{}
+	if parsed != nil {
+		incoming.TrustedCertificateAuthorityIds = append([]string(nil), parsed.TrustedCertificateAuthorityIds...)
+		incoming.VerifyDepth = parsed.VerifyDepth
+		if len(listenerTLSCandidateMap[listenerPort]) == 0 {
+			return fmt.Errorf(MtlsRequiresTlsMessage, listenerPort)
+		}
+	}
+
+	current, configured := listenerMtlsConfigMap[listenerPort]
+	if configured && !reflect.DeepEqual(current, incoming) {
+		return fmt.Errorf(MtlsConflictMessage, listenerPort)
+	}
+	listenerMtlsConfigMap[listenerPort] = incoming
 	return nil
 }
 
@@ -535,6 +572,12 @@ func (s *StateStore) GetTLSConfigForListener(port int32) []TlsConfig {
 		return tlsConfigs
 	}
 	return nil
+}
+
+func (s *StateStore) GetMtlsConfigForListener(port int32) MtlsConfig {
+	config := s.IngressGroupState.ListenerMtlsConfigMap[port]
+	config.TrustedCertificateAuthorityIds = append([]string(nil), config.TrustedCertificateAuthorityIds...)
+	return config
 }
 
 func (s *StateStore) GetTLSPolicyForListener(port int32) *tlspolicy.ExplicitTLSPolicy {

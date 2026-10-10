@@ -40,6 +40,25 @@ const (
 	DefaultBackendSetValidationsFilePath      = "validate-default-backend-set.yaml"
 )
 
+func TestValidateMtlsConfig(t *testing.T) {
+	RegisterTestingT(t)
+	listenerTLSCandidates := map[int32][]listenerTLSCandidate{443: {{Config: TlsConfig{Type: ArtifactTypeCertificate, Artifact: "server-certificate"}}}}
+	listenerMtlsConfigs := map[int32]MtlsConfig{}
+	ingress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		util.IngressListenerMtlsConfigAnnotation: `{"trustedCertificateAuthorityIds":["client-ca-two","client-ca-one"]}`,
+	}}}
+
+	Expect(validateMtlsConfig(ingress, 443, listenerTLSCandidates, listenerMtlsConfigs)).To(Succeed())
+	Expect(listenerMtlsConfigs[443]).To(Equal(MtlsConfig{
+		TrustedCertificateAuthorityIds: []string{"client-ca-one", "client-ca-two"},
+		VerifyDepth:                    util.DefaultListenerMtlsVerifyDepth,
+	}))
+
+	ingress.Annotations[util.IngressListenerMtlsConfigAnnotation] = `{"trustedCertificateAuthorityIds":["client-ca-one"],"verifyDepth":2}`
+	Expect(validateMtlsConfig(ingress, 443, listenerTLSCandidates, listenerMtlsConfigs)).To(MatchError(fmt.Sprintf(MtlsConflictMessage, 443)))
+	Expect(validateMtlsConfig(ingress, 8443, listenerTLSCandidates, map[int32]MtlsConfig{})).To(MatchError(fmt.Sprintf(MtlsRequiresTlsMessage, 8443)))
+}
+
 func setUp(ctx context.Context, ingressClassList *networkingv1.IngressClassList, ingressList *networkingv1.IngressList, testService *v1.ServiceList) (networkinglisters.IngressClassLister, networkinglisters.IngressLister, corelisters.ServiceLister) {
 	client := fakeclientset.NewSimpleClientset()
 

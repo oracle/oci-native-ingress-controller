@@ -52,6 +52,28 @@ func TestGenerateBackendSetName(t *testing.T) {
 	Expect(len(bsNameLong) < 32).Should(Equal(true))
 }
 
+func TestGetListenerMtlsConfig(t *testing.T) {
+	RegisterTestingT(t)
+	ingress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		IngressListenerMtlsConfigAnnotation: `{"trustedCertificateAuthorityIds":[" ca-b ","ca-a","ca-b"],"verifyDepth":2}`,
+	}}}
+
+	config, err := GetListenerMtlsConfig(ingress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(config).To(Equal(&ListenerMtlsConfig{TrustedCertificateAuthorityIds: []string{"ca-a", "ca-b"}, VerifyDepth: 2}))
+
+	ingress.Annotations[IngressListenerMtlsConfigAnnotation] = `{"trustedCertificateAuthorityIds":["ca"]}`
+	config, err = GetListenerMtlsConfig(ingress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(config.VerifyDepth).To(Equal(DefaultListenerMtlsVerifyDepth))
+
+	for _, value := range []string{"", `{}`, `{"trustedCertificateAuthorityIds":[]}`, `{"trustedCertificateAuthorityIds":["ca"],"unknown":true}`, `{"trustedCertificateAuthorityIds":["ca"]} {}`} {
+		ingress.Annotations[IngressListenerMtlsConfigAnnotation] = value
+		_, err = GetListenerMtlsConfig(ingress)
+		Expect(err).To(HaveOccurred(), value)
+	}
+}
+
 func TestGetIngressClassCompartmentId(t *testing.T) {
 	RegisterTestingT(t)
 

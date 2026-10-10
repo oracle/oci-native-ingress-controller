@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,8 @@ const (
 	IngressBackendTlsEnabledAnnotation      = "oci-native-ingress.oraclecloud.com/backend-tls-enabled"
 	IngressListenerSslConfigAnnotation      = "oci-native-ingress.oraclecloud.com/listener-ssl-config"
 	IngressBackendSetSslConfigAnnotation    = "oci-native-ingress.oraclecloud.com/backendset-ssl-config"
+	IngressListenerMtlsConfigAnnotation     = "oci-native-ingress.oraclecloud.com/mtls-config"
+	DefaultListenerMtlsVerifyDepth          = 3
 
 	// IngressProtocolAnnotation - HTTP, HTTP2, GRPC, TCP are accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
@@ -374,6 +377,64 @@ func GetListenerTlsCertificateOcids(i *networkingv1.Ingress) []string {
 		ocids = append(ocids, trimmed)
 	}
 	return ocids
+}
+
+// ListenerMtlsConfig is the normalized listener mTLS annotation value.
+type ListenerMtlsConfig struct {
+	TrustedCertificateAuthorityIds []string `json:"trustedCertificateAuthorityIds"`
+	VerifyDepth                    int      `json:"verifyDepth"`
+}
+
+type listenerMtlsConfigJSON struct {
+	TrustedCertificateAuthorityIds []string `json:"trustedCertificateAuthorityIds"`
+	VerifyDepth                    *int     `json:"verifyDepth,omitempty"`
+}
+
+// GetListenerMtlsConfig parses a strict JSON mTLS annotation. A missing
+// annotation disables mTLS; an explicit value must name at least one CA.
+func GetListenerMtlsConfig(i *networkingv1.Ingress) (*ListenerMtlsConfig, error) {
+	if i == nil || i.Annotations == nil {
+		return nil, nil
+	}
+	raw, ok := i.Annotations[IngressListenerMtlsConfigAnnotation]
+	if !ok {
+		return nil, nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("%s must not be empty", IngressListenerMtlsConfigAnnotation)
+	}
+
+	var parsed listenerMtlsConfigJSON
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("invalid JSON in %s: %w", IngressListenerMtlsConfigAnnotation, err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			err = fmt.Errorf("multiple JSON values")
+		}
+		return nil, fmt.Errorf("invalid JSON in %s: %w", IngressListenerMtlsConfigAnnotation, err)
+	}
+
+	ocids := sets.NewString()
+	for _, ocid := range parsed.TrustedCertificateAuthorityIds {
+		if trimmed := strings.TrimSpace(ocid); trimmed != "" {
+			ocids.Insert(trimmed)
+		}
+	}
+	if ocids.Len() == 0 {
+		return nil, fmt.Errorf("%s must include at least one value in trustedCertificateAuthorityIds", IngressListenerMtlsConfigAnnotation)
+	}
+
+	verifyDepth := DefaultListenerMtlsVerifyDepth
+	if parsed.VerifyDepth != nil {
+		if *parsed.VerifyDepth < 1 {
+			return nil, fmt.Errorf("verifyDepth in %s must be a positive integer, got %d", IngressListenerMtlsConfigAnnotation, *parsed.VerifyDepth)
+		}
+		verifyDepth = *parsed.VerifyDepth
+	}
+	return &ListenerMtlsConfig{TrustedCertificateAuthorityIds: ocids.List(), VerifyDepth: verifyDepth}, nil
 }
 
 func GetBackendTlsEnabled(i *networkingv1.Ingress) bool {

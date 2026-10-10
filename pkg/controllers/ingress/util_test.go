@@ -322,15 +322,18 @@ func TestGetSSLConfigForListener(t *testing.T) {
 		{Type: state.ArtifactTypeCertificate, Artifact: "certificateB"},
 		{Type: state.ArtifactTypeCertificate, Artifact: "certificateA"},
 	}
-	sslConfig, err := GetSSLConfigForListener(nil, tlsConfigs, "", secretLister, mockClient)
+	sslConfig, err := GetSSLConfigForListener(nil, tlsConfigs, state.MtlsConfig{TrustedCertificateAuthorityIds: []string{"client-ca"}, VerifyDepth: 2}, "", secretLister, mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(sslConfig.CertificateIds).Should(Equal([]string{"certificateA", "certificateB"}))
+	Expect(sslConfig.TrustedCertificateAuthorityIds).Should(Equal([]string{"client-ca"}))
+	Expect(*sslConfig.VerifyDepth).Should(Equal(2))
+	Expect(*sslConfig.VerifyPeerCertificate).Should(BeTrue())
 
 	tlsConfigs = []state.TlsConfig{
 		{Type: state.ArtifactTypeSecret, Artifact: "secret", Namespace: namespace},
 	}
-	sslConfig, err = GetSSLConfigForListener(nil, tlsConfigs, "", secretLister, mockClient)
+	sslConfig, err = GetSSLConfigForListener(nil, tlsConfigs, state.MtlsConfig{}, "", secretLister, mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(sslConfig.CertificateIds).Should(Equal([]string{"id"}))
@@ -348,7 +351,7 @@ func TestGetSSLConfigForListener(t *testing.T) {
 		{Type: state.ArtifactTypeCertificate, Artifact: "id"},
 		{Type: state.ArtifactTypeSecret, Artifact: "secret-cert", Namespace: namespace},
 	}
-	sslConfig, err = GetSSLConfigForListener(&listener, tlsConfigs, "", secretLister, mockClient)
+	sslConfig, err = GetSSLConfigForListener(&listener, tlsConfigs, state.MtlsConfig{}, "", secretLister, mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(sslConfig.CertificateIds).Should(Equal([]string{"direct-a", "id"}))
@@ -363,7 +366,7 @@ func TestGetSSLConfigForListener(t *testing.T) {
 	tlsConfigs = []state.TlsConfig{
 		{Type: state.ArtifactTypeSecret, Artifact: "secret", Namespace: namespace},
 	}
-	sslConfig, err = GetSSLConfigForListener(&listener, tlsConfigs, "", secretLister, mockClient)
+	sslConfig, err = GetSSLConfigForListener(&listener, tlsConfigs, state.MtlsConfig{}, "", secretLister, mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig != nil).Should(BeTrue())
 	Expect(sslConfig.CertificateIds).Should(Equal([]string{"id"}))
@@ -371,11 +374,11 @@ func TestGetSSLConfigForListener(t *testing.T) {
 	tlsConfigs = []state.TlsConfig{
 		{Type: state.ArtifactTypeSecret, Artifact: "secret-with-lookup-error", Namespace: namespace},
 	}
-	sslConfig, err = GetSSLConfigForListener(nil, tlsConfigs, "", secretLister, mockClient)
+	sslConfig, err = GetSSLConfigForListener(nil, tlsConfigs, state.MtlsConfig{}, "", secretLister, mockClient)
 	Expect(err).ShouldNot(BeNil())
 	Expect(sslConfig).Should(BeNil())
 
-	sslConfig, err = GetSSLConfigForListener(nil, []state.TlsConfig{}, "", secretLister, mockClient)
+	sslConfig, err = GetSSLConfigForListener(nil, []state.TlsConfig{}, state.MtlsConfig{}, "", secretLister, mockClient)
 	Expect(err).Should(BeNil())
 	Expect(sslConfig).Should(BeNil())
 }

@@ -572,6 +572,35 @@ spec:
             port:
               number: 443
 ```
+
+##### Mutual TLS (mTLS)
+
+To require client certificates at an HTTPS listener, add the `mtls-config`
+annotation to the Ingress. Its JSON value contains a
+`trustedCertificateAuthorityIds` array of OCI Certificate Authority or CA
+Bundle OCIDs trusted to sign client certificates. Duplicate OCIDs are ignored,
+and unknown JSON fields are rejected. The Ingress must also configure TLS
+through `spec.tls` or `certificate-ocid`.
+
+The optional `verifyDepth` field sets the maximum certificate-chain verification
+depth and must be a positive integer; it defaults to three. All Ingresses that
+share a listener port must specify the same client CA list and verification
+depth, because client certificate validation is listener-level. Remove the
+annotation to disable mTLS.
+
+```yaml
+metadata:
+  annotations:
+    oci-native-ingress.oraclecloud.com/mtls-config: |
+      {
+        "trustedCertificateAuthorityIds": [
+          "ocid1.certificateauthority.oc1..example",
+          "ocid1.cabundle.oc1..example"
+        ],
+        "verifyDepth": 2
+      }
+```
+
 #### Custom Health Checker
 Support for adding custom values for backend set health checker and policy through annotations. Any changes to these values will be reconciled accordingly by the controller. Below are supported annotations in ingress spec:
 ```
