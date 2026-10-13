@@ -474,6 +474,7 @@ func GetPodResourceList(name string, image string) *v1.PodList {
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
 			Name:      name,
+			UID:       "999",
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{

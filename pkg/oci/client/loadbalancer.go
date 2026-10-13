@@ -83,6 +83,11 @@ func (client LBClient) UpdateBackendSet(ctx context.Context,
 	return client.lbClient.UpdateBackendSet(ctx, request)
 }
 
+func (client LBClient) UpdateBackend(ctx context.Context,
+	request loadbalancer.UpdateBackendRequest) (loadbalancer.UpdateBackendResponse, error) {
+	return client.lbClient.UpdateBackend(ctx, request)
+}
+
 func (client LBClient) DeleteBackendSet(ctx context.Context,
 	request loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error) {
 	return client.lbClient.DeleteBackendSet(ctx, request)

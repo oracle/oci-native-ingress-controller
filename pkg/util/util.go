@@ -79,6 +79,7 @@ const (
 	IngressClassImplicitDefaultTagsAnnotation     = "oci-native-ingress.oraclecloud.com/implicit-default-tags"
 	IngressClassSecurityAttributesAnnotation      = "oci-native-ingress.oraclecloud.com/security-attributes"
 	IngressClassReservedPrivateIpAnnotation       = "oci-native-ingress.oraclecloud.com/reserved-private-ip-address-id"
+	ServiceBackendDrainingAnnotation              = "oci-native-ingress.oraclecloud.com/backend-draining"
 	OcidResourceTypePrivateIP                     = "privateip"
 	OcidResourceTypeIPv6                          = "ipv6"
 
@@ -251,6 +252,25 @@ func GetIngressClassDeleteProtectionEnabled(ic *networkingv1.IngressClass) bool 
 	annotation := IngressClassDeleteProtectionEnabledAnnotation
 	value, ok := ic.Annotations[annotation]
 
+	if !ok || strings.TrimSpace(value) == "" {
+		return false
+	}
+
+	result, err := strconv.ParseBool(value)
+	if err != nil {
+		klog.Errorf("Error parsing value %s for flag %s as boolean. Setting the default value as 'false'", value, annotation)
+		return false
+	}
+
+	return result
+}
+
+func GetServiceBackendDrainingEnabled(service *corev1.Service) bool {
+	annotation := ServiceBackendDrainingAnnotation
+	if service == nil {
+		return false
+	}
+	value, ok := service.Annotations[annotation]
 	if !ok || strings.TrimSpace(value) == "" {
 		return false
 	}
@@ -980,12 +1000,12 @@ func GetIngressesForClass(lister networkinglisters.IngressLister, ingressClass *
 	return result, nil
 }
 
-func NewBackend(ip string, port int32) ociloadbalancer.BackendDetails {
+func NewBackend(ip string, port int32, drain bool) ociloadbalancer.BackendDetails {
 	return ociloadbalancer.BackendDetails{
 		IpAddress: common.String(ip),
 		Port:      common.Int(int(port)),
 		Weight:    common.Int(1),
-		Drain:     common.Bool(false),
+		Drain:     common.Bool(drain),
 		Backup:    common.Bool(false),
 		Offline:   common.Bool(false),
 	}
