@@ -536,7 +536,10 @@ func (c *Controller) ensureIngress(ctx context.Context, ingress *networkingv1.In
 			return fmt.Errorf("listener %d: %w", port, err)
 		}
 		defaultBackendSet := stateStore.GetListenerDefaultBackendSet(port)
-		err = wrapperClient.GetLbClient().CreateListener(context.TODO(), lbId, int(port), protocol, defaultBackendSet, listenerSslConfig)
+		connectionConfiguration := listenerConnectionConfiguration(stateStore.GetListenerConnectionIdleTimeout(port), nil)
+		// Pass the optional Ingress-configured idle timeout when creating a listener.
+		// A nil configuration preserves OCI's default listener timeout behavior.
+		err = wrapperClient.GetLbClient().CreateListenerWithConnectionConfiguration(context.TODO(), lbId, int(port), protocol, defaultBackendSet, listenerSslConfig, connectionConfiguration)
 		if err != nil {
 			return err
 		}
@@ -777,11 +780,18 @@ func syncListener(ctx context.Context, stateStore *state.StateStore, lbId *strin
 		needsUpdate = true
 	}
 
+	connectionConfiguration := listenerConnectionConfiguration(stateStore.GetListenerConnectionIdleTimeout(int32(*listener.Port)), listener.ConnectionConfiguration)
+	if connectionConfiguration != nil && (listener.ConnectionConfiguration == nil || listener.ConnectionConfiguration.IdleTimeout == nil ||
+		*listener.ConnectionConfiguration.IdleTimeout != *connectionConfiguration.IdleTimeout) {
+		klog.Infof("Connection idle timeout for listener %s needs update, new value %d", *listener.Name, *connectionConfiguration.IdleTimeout)
+		needsUpdate = true
+	}
+
 	if needsUpdate {
 		if clearListenerSSL {
-			err = wrapperClient.GetLbClient().ClearListenerSSL(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, &protocol, &defaultBackendSet)
+			err = wrapperClient.GetLbClient().ClearListenerSSLWithConnectionConfiguration(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, connectionConfiguration, &protocol, &defaultBackendSet)
 		} else {
-			err = wrapperClient.GetLbClient().UpdateListener(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, &protocol, &defaultBackendSet)
+			err = wrapperClient.GetLbClient().UpdateListenerWithConnectionConfiguration(context.TODO(), lbId, etag, listener, listener.RoutingPolicyName, sslConfig, connectionConfiguration, &protocol, &defaultBackendSet)
 		}
 		if err != nil {
 			return err
@@ -792,6 +802,18 @@ func syncListener(ctx context.Context, stateStore *state.StateStore, lbId *strin
 		c.metricsCollector.AddIngressListenerSyncTime(util.GetTimeDifferenceInSeconds(startTime, endTime))
 	}
 	return nil
+}
+
+func listenerConnectionConfiguration(idleTimeout *int64, current *ociloadbalancer.ConnectionConfiguration) *ociloadbalancer.ConnectionConfiguration {
+	if idleTimeout == nil {
+		return nil
+	}
+	configuration := &ociloadbalancer.ConnectionConfiguration{IdleTimeout: idleTimeout}
+	if current != nil {
+		configuration.BackendTcpProxyProtocolVersion = current.BackendTcpProxyProtocolVersion
+		configuration.BackendTcpProxyProtocolOptions = append([]ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum(nil), current.BackendTcpProxyProtocolOptions...)
+	}
+	return configuration
 }
 
 func listenerProtocolTransitionShouldUseDefault(currentProtocol *string, desiredProtocol string, currentSSLConfig *ociloadbalancer.SslConfiguration) bool {

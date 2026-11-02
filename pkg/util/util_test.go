@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/api/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -116,6 +117,26 @@ func TestGetIngressClassSubnetId(t *testing.T) {
 
 	result = GetIngressClassSubnetId(&icp, defaultSubnet)
 	Expect(result).Should(Equal(someSubnet))
+}
+
+func TestGetIngressListenerConnectionIdleTimeout(t *testing.T) {
+	RegisterTestingT(t)
+	ingress := &networkingv1.Ingress{}
+
+	timeout, err := GetIngressListenerConnectionIdleTimeout(ingress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(timeout).To(BeNil())
+
+	ingress.Annotations = map[string]string{IngressListenerConnectionIdleTimeoutAnnotation: " 1200 "}
+	timeout, err = GetIngressListenerConnectionIdleTimeout(ingress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(*timeout).To(Equal(int64(1200)))
+
+	for _, value := range []string{"", "not-a-number", "0", "7201"} {
+		ingress.Annotations[IngressListenerConnectionIdleTimeoutAnnotation] = value
+		_, err = GetIngressListenerConnectionIdleTimeout(ingress)
+		Expect(err).To(HaveOccurred(), "value %q", value)
+	}
 }
 
 func TestGetIngressPolicy(t *testing.T) {
@@ -793,6 +814,100 @@ func TestGetHealthChecker(t *testing.T) {
 	Expect(*hcDetails.ResponseBodyRegex).Should(Equal("/"))
 	Expect(*hcDetails.UrlPath).Should(Equal("/path"))
 	Expect(*hcDetails.IsForcePlainText).Should(Equal(true))
+}
+
+func TestHasDefaultBackendHealthCheckAnnotations(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(HasDefaultBackendHealthCheckAnnotations(nil)).To(BeFalse())
+	Expect(HasDefaultBackendHealthCheckAnnotations(&networkingv1.Ingress{})).To(BeFalse())
+
+	annotations := []string{
+		DefaultBackendHealthCheckProtocolAnnotation,
+		DefaultBackendHealthCheckPortAnnotation,
+		DefaultBackendHealthCheckPathAnnotation,
+		DefaultBackendHealthCheckIntervalMillisecondsAnnotation,
+		DefaultBackendHealthCheckTimeoutMillisecondsAnnotation,
+		DefaultBackendHealthCheckRetriesAnnotation,
+		DefaultBackendHealthCheckReturnCodeAnnotation,
+		DefaultBackendHealthCheckResponseBodyRegexAnnotation,
+		DefaultBackendHealthCheckForcePlainTextAnnotation,
+	}
+	for _, annotation := range annotations {
+		ingress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annotation: "value"}}}
+		Expect(HasDefaultBackendHealthCheckAnnotations(ingress)).To(BeTrue(), annotation)
+	}
+}
+
+func TestGetDefaultBackendHealthChecker(t *testing.T) {
+	RegisterTestingT(t)
+
+	defaultIngress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}}}
+	healthChecker, err := GetDefaultBackendHealthChecker(defaultIngress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(healthChecker).To(Equal(GetDefaultHeathChecker()))
+
+	tcpIngress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		DefaultBackendHealthCheckProtocolAnnotation:             "tcp",
+		DefaultBackendHealthCheckPortAnnotation:                 "8080",
+		DefaultBackendHealthCheckIntervalMillisecondsAnnotation: "5000",
+		DefaultBackendHealthCheckTimeoutMillisecondsAnnotation:  "2000",
+		DefaultBackendHealthCheckRetriesAnnotation:              "5",
+	}}}
+	healthChecker, err = GetDefaultBackendHealthChecker(tcpIngress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(healthChecker).To(Equal(&loadbalancer.HealthCheckerDetails{
+		Protocol:         common.String(ProtocolTCP),
+		Port:             common.Int(8080),
+		IntervalInMillis: common.Int(5000),
+		TimeoutInMillis:  common.Int(2000),
+		Retries:          common.Int(5),
+	}))
+
+	httpIngress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		DefaultBackendHealthCheckProtocolAnnotation:             "http",
+		DefaultBackendHealthCheckPortAnnotation:                 "8080",
+		DefaultBackendHealthCheckPathAnnotation:                 "/readyz",
+		DefaultBackendHealthCheckIntervalMillisecondsAnnotation: "5000",
+		DefaultBackendHealthCheckTimeoutMillisecondsAnnotation:  "2000",
+		DefaultBackendHealthCheckRetriesAnnotation:              "5",
+		DefaultBackendHealthCheckReturnCodeAnnotation:           "204",
+		DefaultBackendHealthCheckResponseBodyRegexAnnotation:    "ready",
+		DefaultBackendHealthCheckForcePlainTextAnnotation:       "true",
+	}}}
+	healthChecker, err = GetDefaultBackendHealthChecker(httpIngress)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(healthChecker).To(Equal(&loadbalancer.HealthCheckerDetails{
+		Protocol:          common.String(ProtocolHTTP),
+		Port:              common.Int(8080),
+		UrlPath:           common.String("/readyz"),
+		IntervalInMillis:  common.Int(5000),
+		TimeoutInMillis:   common.Int(2000),
+		Retries:           common.Int(5),
+		ReturnCode:        common.Int(204),
+		ResponseBodyRegex: common.String("ready"),
+		IsForcePlainText:  common.Bool(true),
+	}))
+
+	for annotation, value := range map[string]string{
+		DefaultBackendHealthCheckProtocolAnnotation:             "UDP",
+		DefaultBackendHealthCheckPortAnnotation:                 "invalid",
+		DefaultBackendHealthCheckIntervalMillisecondsAnnotation: "invalid",
+		DefaultBackendHealthCheckTimeoutMillisecondsAnnotation:  "invalid",
+		DefaultBackendHealthCheckRetriesAnnotation:              "invalid",
+		DefaultBackendHealthCheckReturnCodeAnnotation:           "invalid",
+		DefaultBackendHealthCheckForcePlainTextAnnotation:       "invalid",
+	} {
+		annotations := map[string]string{DefaultBackendHealthCheckProtocolAnnotation: ProtocolHTTP, annotation: value}
+		if annotation == DefaultBackendHealthCheckProtocolAnnotation {
+			annotations[annotation] = value
+		}
+		_, err = GetDefaultBackendHealthChecker(&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Annotations: annotations}})
+		Expect(err).To(HaveOccurred(), annotation)
+		if annotation == DefaultBackendHealthCheckPortAnnotation {
+			Expect(err).To(MatchError(ContainSubstring("error parsing health check port")))
+		}
+	}
 }
 
 func TestIsIngressDeleting(t *testing.T) {

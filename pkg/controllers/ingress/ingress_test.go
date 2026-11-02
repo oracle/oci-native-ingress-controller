@@ -312,6 +312,100 @@ func TestEnsureIngress_CreateListenerWithMultipleCertificateIds(t *testing.T) {
 	expectBackendSetRequestsWithoutSSLConfig(capturingLB)
 }
 
+func TestEnsureIngress_CreatesListenerWithConfiguredConnectionIdleTimeout(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressList := getIngressListWithDirectCertificates("certA")
+	ingressList.Items[0].Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "1200"
+	capturingLB := &CapturingLoadBalancerClient{ListenerPort: 443}
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, capturingLB)
+
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(capturingLB.CreateListenerRequests).To(HaveLen(1))
+	Expect(capturingLB.CreateListenerRequests[0].CreateListenerDetails.ConnectionConfiguration).NotTo(BeNil())
+	Expect(*capturingLB.CreateListenerRequests[0].CreateListenerDetails.ConnectionConfiguration.IdleTimeout).To(Equal(int64(1200)))
+}
+
+func TestEnsureIngress_ReconcilesConfiguredConnectionIdleTimeout(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressList := getIngressListWithDirectCertificates("certA")
+	ingressList.Items[0].Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "1200"
+	capturingLB := &CapturingLoadBalancerClient{ListenerPort: 80}
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, capturingLB)
+
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(capturingLB.UpdateListenerRequests).To(HaveLen(1))
+	Expect(capturingLB.UpdateListenerRequests[0].UpdateListenerDetails.ConnectionConfiguration).NotTo(BeNil())
+	Expect(*capturingLB.UpdateListenerRequests[0].UpdateListenerDetails.ConnectionConfiguration.IdleTimeout).To(Equal(int64(1200)))
+}
+
+func TestEnsureIngress_RemovedConnectionIdleTimeoutPreservesOCIConfigurationDuringUnrelatedUpdate(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	existingTimeout := int64(1200)
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressList := getIngressListWithDirectCertificates("certA")
+	ingressList.Items[0].Annotations[util.IngressProtocolAnnotation] = util.ProtocolHTTP
+	capturingLB := &CapturingLoadBalancerClient{
+		ListenerPort:                    80,
+		ExistingProtocol:                util.ProtocolHTTP2,
+		ExistingCertificateIDs:          []string{"certA"},
+		ExistingCipherSuiteName:         LockedDefaultTLSPolicy.Listener.CipherSuiteName,
+		ExistingTLSProtocols:            LockedDefaultTLSPolicy.Listener.Protocols,
+		ExistingConnectionConfiguration: &ociloadbalancer.ConnectionConfiguration{IdleTimeout: &existingTimeout},
+	}
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, capturingLB)
+
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(capturingLB.UpdateListenerRequests).To(HaveLen(1))
+	configuration := capturingLB.UpdateListenerRequests[0].UpdateListenerDetails.ConnectionConfiguration
+	Expect(*configuration.IdleTimeout).To(Equal(int64(1200)))
+}
+
+func TestEnsureIngress_ConnectionIdleTimeoutUpdatePreservesTCPProxyProtocol(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	existingTimeout := int64(900)
+	proxyProtocolVersion := 2
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressList := getIngressListWithDirectCertificates("certA")
+	ingressList.Items[0].Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "1200"
+	capturingLB := &CapturingLoadBalancerClient{
+		ListenerPort:            80,
+		ExistingCertificateIDs:  []string{"certA"},
+		ExistingCipherSuiteName: LockedDefaultTLSPolicy.Listener.CipherSuiteName,
+		ExistingTLSProtocols:    LockedDefaultTLSPolicy.Listener.Protocols,
+		ExistingConnectionConfiguration: &ociloadbalancer.ConnectionConfiguration{
+			IdleTimeout:                    &existingTimeout,
+			BackendTcpProxyProtocolVersion: &proxyProtocolVersion,
+			BackendTcpProxyProtocolOptions: []ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum{ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsPp2TypeAuthority},
+		},
+	}
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, capturingLB)
+
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressList.Items[0], &ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(capturingLB.UpdateListenerRequests).To(HaveLen(1))
+	configuration := capturingLB.UpdateListenerRequests[0].UpdateListenerDetails.ConnectionConfiguration
+	Expect(*configuration.IdleTimeout).To(Equal(int64(1200)))
+	Expect(*configuration.BackendTcpProxyProtocolVersion).To(Equal(2))
+	Expect(configuration.BackendTcpProxyProtocolOptions).To(Equal([]ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum{ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsPp2TypeAuthority}))
+}
+
 func TestEnsureIngress_CreateListenerWithSingleCertificateSetsLockedDefaultPolicy(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -385,6 +479,41 @@ func TestEnsureIngress_InvalidActiveListenerPolicyFailsBeforeOCIMutationsAndPubl
 		Expect(event).To(ContainSubstring(util.IngressListenerSslConfigAnnotation))
 	case <-time.After(2 * time.Second):
 		t.Fatalf("expected warning event for invalid listener TLS policy annotation")
+	}
+}
+
+func TestEnsureIngress_ListenerIdleTimeoutConflictPublishesWarning(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassListWithLBSet("id")
+	ingressOne := getIngressForService("idle-timeout-one", "testecho1", "")
+	ingressOne.Namespace = "team-a"
+	ingressOne.Annotations[util.IngressHttpListenerPortAnnotation] = "8080"
+	ingressOne.Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "1200"
+	ingressTwo := getIngressForService("idle-timeout-two", "testecho1", "")
+	ingressTwo.Namespace = "team-b"
+	ingressTwo.Annotations[util.IngressHttpListenerPortAnnotation] = "8080"
+	ingressTwo.Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "600"
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{ingressOne, ingressTwo}}
+	c := initsWithCustomLB(ctx, ingressClassList, ingressList, &CapturingLoadBalancerClient{})
+
+	err := c.ensureIngress(getContextWithClient(c, ctx), &ingressTwo, &ingressClassList.Items[0])
+	Expect(err).To(MatchError(fmt.Sprintf(state.ListenerIdleTimeoutConflictMessage, 8080,
+		"team-a", "idle-timeout-one", 1200,
+		"team-b", "idle-timeout-two", 600)))
+
+	fakeRecorder, ok := c.eventRecorder.(*events.FakeRecorder)
+	Expect(ok).To(BeTrue())
+	c.handleErr(err, fmt.Sprintf("%s/%s", ingressTwo.Namespace, ingressTwo.Name))
+	select {
+	case event := <-fakeRecorder.Events:
+		Expect(event).To(ContainSubstring("IngressReconcileFailed"))
+		Expect(event).To(ContainSubstring("existing ingress team-a/idle-timeout-one has 1200 seconds"))
+		Expect(event).To(ContainSubstring("conflicting ingress team-b/idle-timeout-two has 600 seconds"))
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected warning event for listener idle timeout conflict")
 	}
 }
 
@@ -2142,27 +2271,28 @@ func (m MockLoadBalancerClient) DeleteListener(ctx context.Context, request ocil
 
 type CapturingLoadBalancerClient struct {
 	MockLoadBalancerClient
-	ListenerPort             int
-	ListenerAppearsOnGetCall int
-	ExistingProtocol         string
-	ExistingCertificateIDs   []string
-	ExistingCipherSuiteName  string
-	ExistingTLSProtocols     []string
-	AdditionalBackendSets    []string
-	CreatedBackendSets       []string
-	BackendSetSSLConfigs     map[string]*ociloadbalancer.SslConfiguration
-	OperationLog             []string
-	CreateListenerErr        error
-	UpdateListenerErr        error
-	CreateBackendSetErr      error
-	UpdateBackendSetErr      error
-	GetLoadBalancerErrOnCall int
-	GetLoadBalancerErr       error
-	CreateListenerRequests   []ociloadbalancer.CreateListenerRequest
-	UpdateListenerRequests   []ociloadbalancer.UpdateListenerRequest
-	CreateBackendSetRequests []ociloadbalancer.CreateBackendSetRequest
-	UpdateBackendSetRequests []ociloadbalancer.UpdateBackendSetRequest
-	getLoadBalancerCalls     int
+	ListenerPort                    int
+	ListenerAppearsOnGetCall        int
+	ExistingProtocol                string
+	ExistingCertificateIDs          []string
+	ExistingCipherSuiteName         string
+	ExistingTLSProtocols            []string
+	ExistingConnectionConfiguration *ociloadbalancer.ConnectionConfiguration
+	AdditionalBackendSets           []string
+	CreatedBackendSets              []string
+	BackendSetSSLConfigs            map[string]*ociloadbalancer.SslConfiguration
+	OperationLog                    []string
+	CreateListenerErr               error
+	UpdateListenerErr               error
+	CreateBackendSetErr             error
+	UpdateBackendSetErr             error
+	GetLoadBalancerErrOnCall        int
+	GetLoadBalancerErr              error
+	CreateListenerRequests          []ociloadbalancer.CreateListenerRequest
+	UpdateListenerRequests          []ociloadbalancer.UpdateListenerRequest
+	CreateBackendSetRequests        []ociloadbalancer.CreateBackendSetRequest
+	UpdateBackendSetRequests        []ociloadbalancer.UpdateBackendSetRequest
+	getLoadBalancerCalls            int
 }
 
 func (m *CapturingLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
@@ -2203,7 +2333,7 @@ func (m *CapturingLoadBalancerClient) GetLoadBalancer(ctx context.Context, reque
 	if m.ExistingCipherSuiteName != "" {
 		sslConfig.CipherSuiteName = common.String(m.ExistingCipherSuiteName)
 	}
-	res.LoadBalancer.Listeners[listenerName] = ociloadbalancer.Listener{
+	listener := ociloadbalancer.Listener{
 		Name:                  common.String(listenerName),
 		DefaultBackendSetName: common.String(defaultBackendSet),
 		Port:                  common.Int(listenerPort),
@@ -2211,6 +2341,20 @@ func (m *CapturingLoadBalancerClient) GetLoadBalancer(ctx context.Context, reque
 		SslConfiguration:      sslConfig,
 		RoutingPolicyName:     common.String(listenerName),
 	}
+	if m.ExistingConnectionConfiguration != nil {
+		connectionConfiguration := *m.ExistingConnectionConfiguration
+		if m.ExistingConnectionConfiguration.IdleTimeout != nil {
+			idleTimeout := *m.ExistingConnectionConfiguration.IdleTimeout
+			connectionConfiguration.IdleTimeout = &idleTimeout
+		}
+		if m.ExistingConnectionConfiguration.BackendTcpProxyProtocolVersion != nil {
+			proxyProtocolVersion := *m.ExistingConnectionConfiguration.BackendTcpProxyProtocolVersion
+			connectionConfiguration.BackendTcpProxyProtocolVersion = &proxyProtocolVersion
+		}
+		connectionConfiguration.BackendTcpProxyProtocolOptions = append([]ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum(nil), m.ExistingConnectionConfiguration.BackendTcpProxyProtocolOptions...)
+		listener.ConnectionConfiguration = &connectionConfiguration
+	}
+	res.LoadBalancer.Listeners[listenerName] = listener
 	for _, backendSetName := range m.AdditionalBackendSets {
 		res.LoadBalancer.BackendSets[backendSetName] = sampleBackendSet(backendSetName)
 	}

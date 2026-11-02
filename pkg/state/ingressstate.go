@@ -31,16 +31,22 @@ const (
 	ArtifactTypeSecret      = "secret"
 	ArtifactTypeCertificate = "certificate"
 
-	PortConflictMessage               = "validation failure: service port %d has multiple certificate or secret configs across ingresses in the ingress class"
-	HealthCheckerConflictMessage      = "validation failure: incompatible health checker config across ingresses sharing backend set %s in the ingress class"
-	PolicyConflictMessage             = "validation failure: incompatible policy config across ingresses sharing backend set %s in the ingress class"
-	ProtocolConflictMessage           = "validation failure: incompatible protocol config across ingresses sharing listener %d in the ingress class"
-	DefaultBackendSetConflictMessage  = "validation failure: incompatible default backend set across TCP ingresses sharing listener %d in the ingress class"
-	SessionPersistenceEmptyMessage    = "validation failure: empty session persistence configuration for backend set %s"
-	BackendTlsEnabledConflictMessage  = "validation failure: incompatible backend-tls-enabled config across ingresses sharing backend set %s in the ingress class"
-	BackendTlsArtifactConflictMessage = "validation failure: incompatible backend TLS certificate or secret across ingresses sharing backend set %s in the ingress class"
-	TLSPolicyInvalidAnnotationMessage = "TLSPolicyInvalidAnnotation: %s %s ingress %s: %w"
-	TLSPolicyConflictMessage          = "TLSPolicyConflict: %s %s annotation %s field %s conflicts between ingress %s value %q and ingress %s value %q"
+	PortConflictMessage                = "validation failure: service port %d has multiple certificate or secret configs across ingresses in the ingress class"
+	HealthCheckerConflictMessage       = "validation failure: incompatible health checker config across ingresses sharing backend set %s in the ingress class"
+	PolicyConflictMessage              = "validation failure: incompatible policy config across ingresses sharing backend set %s in the ingress class"
+	ProtocolConflictMessage            = "validation failure: incompatible protocol config across ingresses sharing listener %d in the ingress class"
+	ListenerIdleTimeoutConflictMessage = "validation failure: incompatible listener-connection-idle-timeout config across ingresses sharing listener %d in the ingress class: existing ingress %s/%s has %d seconds, conflicting ingress %s/%s has %d seconds"
+	DefaultBackendSetConflictMessage   = "validation failure: incompatible default backend set across TCP ingresses sharing listener %d in the ingress class"
+	SessionPersistenceEmptyMessage     = "validation failure: empty session persistence configuration for backend set %s"
+	BackendTlsEnabledConflictMessage   = "validation failure: incompatible backend-tls-enabled config across ingresses sharing backend set %s in the ingress class"
+	BackendTlsArtifactConflictMessage  = "validation failure: incompatible backend TLS certificate or secret across ingresses sharing backend set %s in the ingress class"
+	TLSPolicyInvalidAnnotationMessage  = "TLSPolicyInvalidAnnotation: %s %s ingress %s: %w"
+	TLSPolicyConflictMessage           = "TLSPolicyConflict: %s %s annotation %s field %s conflicts between ingress %s value %q and ingress %s value %q"
+)
+
+const (
+	DefaultBackendHealthCheckOwnerMessage    = "validation failure: default backend health check annotations must be defined on an ingress with spec.defaultBackend"
+	DefaultBackendHealthCheckConflictMessage = "validation failure: default backend health check annotations are already defined by ingress %s/%s in the ingress class"
 )
 
 type TlsConfig struct {
@@ -82,17 +88,18 @@ type StateStore struct {
 }
 
 type IngressClassState struct {
-	BackendSets                     sets.String
-	BackendSetHealthCheckerMap      map[string]*ociloadbalancer.HealthCheckerDetails
-	BackendSetPolicyMap             map[string]string
-	BackendSetTLSConfigMap          map[string]TlsConfig
-	BackendSetTLSPolicyMap          map[string]*tlspolicy.ExplicitTLSPolicy
-	BackendSetSessionPersistenceMap map[string]SessionPersistence
-	Listeners                       sets.Int32
-	ListenerProtocolMap             map[int32]string
-	ListenerTLSConfigMap            map[int32]ListenerTLSConfig
-	ListenerTLSPolicyMap            map[int32]*tlspolicy.ExplicitTLSPolicy
-	ListenerDefaultBsMap            map[int32]string
+	BackendSets                      sets.String
+	BackendSetHealthCheckerMap       map[string]*ociloadbalancer.HealthCheckerDetails
+	BackendSetPolicyMap              map[string]string
+	BackendSetTLSConfigMap           map[string]TlsConfig
+	BackendSetTLSPolicyMap           map[string]*tlspolicy.ExplicitTLSPolicy
+	BackendSetSessionPersistenceMap  map[string]SessionPersistence
+	Listeners                        sets.Int32
+	ListenerProtocolMap              map[int32]string
+	ListenerTLSConfigMap             map[int32]ListenerTLSConfig
+	ListenerTLSPolicyMap             map[int32]*tlspolicy.ExplicitTLSPolicy
+	ListenerDefaultBsMap             map[int32]string
+	ListenerConnectionIdleTimeoutMap map[int32]*int64
 	// ListenerBackendSetMap includes backend sets reachable through listener defaults,
 	// path rules, and the routing-policy rules derived from those paths.
 	ListenerBackendSetMap map[int32]sets.String
@@ -102,6 +109,12 @@ type IngressState struct {
 	BackendSets sets.String
 	Ports       sets.Int32
 	ClassName   string
+}
+
+type listenerConnectionIdleTimeoutConfig struct {
+	timeout   int64
+	namespace string
+	name      string
 }
 
 // SessionPersistence holds desired session persistence config for a backend set.
@@ -143,6 +156,12 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 			ingressGroup = append(ingressGroup, ing)
 		}
 	}
+	sort.Slice(ingressGroup, func(i, j int) bool {
+		if ingressGroup[i].Namespace != ingressGroup[j].Namespace {
+			return ingressGroup[i].Namespace < ingressGroup[j].Namespace
+		}
+		return ingressGroup[i].Name < ingressGroup[j].Name
+	})
 
 	klog.Infof("Found %d ingress resources related to ingress class %s", len(ingressGroup), ingressClass.Name)
 	bsTLSConfigMap := make(map[string]TlsConfig)
@@ -152,6 +171,8 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	listenerTLSCandidateMap := make(map[int32][]listenerTLSCandidate)
 	listenerTLSPolicyCandidateMap := make(map[int32][]tlsPolicyCandidate)
 	listenerDefaultBsMap := make(map[int32]string)
+	listenerConnectionIdleTimeoutMap := make(map[int32]*int64)
+	listenerConnectionIdleTimeoutConfigMap := make(map[int32]listenerConnectionIdleTimeoutConfig)
 	listenerBackendSetMap := make(map[int32]sets.String)
 	bsHealthCheckerMap := make(map[string]*ociloadbalancer.HealthCheckerDetails)
 	bsPolicyMap := make(map[string]string)
@@ -161,8 +182,24 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 
 	bsHealthCheckerMap[util.DefaultBackendSetName] = util.GetDefaultHeathChecker()
 	bsPolicyMap[util.DefaultBackendSetName] = util.DefaultBackendSetRoutingPolicy
+	var defaultBackendHealthCheckOwner *networkingv1.Ingress
 
 	for _, ing := range ingressGroup {
+		if util.HasDefaultBackendHealthCheckAnnotations(ing) {
+			if ing.Spec.DefaultBackend == nil {
+				return fmt.Errorf(DefaultBackendHealthCheckOwnerMessage)
+			}
+			if defaultBackendHealthCheckOwner != nil {
+				return fmt.Errorf(DefaultBackendHealthCheckConflictMessage,
+					defaultBackendHealthCheckOwner.Namespace, defaultBackendHealthCheckOwner.Name)
+			}
+			healthChecker, err := util.GetDefaultBackendHealthChecker(ing)
+			if err != nil {
+				return fmt.Errorf("error parsing default backend health check on ingress %s/%s: %w", ing.Namespace, ing.Name, err)
+			}
+			bsHealthCheckerMap[util.DefaultBackendSetName] = healthChecker
+			defaultBackendHealthCheckOwner = ing
+		}
 		nextListenerTLSDiscoveryOrder := 0
 		hostSecretMap := make(map[string]string)
 		tlsConfiguredHosts := sets.NewString()
@@ -223,6 +260,10 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				if err != nil {
 					return err
 				}
+				err = validateListenerConnectionIdleTimeout(ing, listenerConnectionIdleTimeoutMap, listenerConnectionIdleTimeoutConfigMap, listenerPort)
+				if err != nil {
+					return err
+				}
 				appendListenerBackendSet(listenerBackendSetMap, listenerPort, listenerDefaultBsMap[listenerPort])
 
 				err = validateBackendSetHealthChecker(ing, bsHealthCheckerMap, bsName)
@@ -273,18 +314,19 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 		return err
 	}
 	s.IngressGroupState = IngressClassState{
-		BackendSets:                     allBackendSets,
-		BackendSetHealthCheckerMap:      bsHealthCheckerMap,
-		BackendSetPolicyMap:             bsPolicyMap,
-		BackendSetTLSConfigMap:          bsTLSConfigMap,
-		BackendSetTLSPolicyMap:          bsTLSPolicyMap,
-		BackendSetSessionPersistenceMap: bsSessionPersistenceMap,
-		Listeners:                       allListeners,
-		ListenerProtocolMap:             listenerProtocolMap,
-		ListenerTLSConfigMap:            listenerTLSConfigMap,
-		ListenerTLSPolicyMap:            listenerTLSPolicyMap,
-		ListenerDefaultBsMap:            listenerDefaultBsMap,
-		ListenerBackendSetMap:           listenerBackendSetMap,
+		BackendSets:                      allBackendSets,
+		BackendSetHealthCheckerMap:       bsHealthCheckerMap,
+		BackendSetPolicyMap:              bsPolicyMap,
+		BackendSetTLSConfigMap:           bsTLSConfigMap,
+		BackendSetTLSPolicyMap:           bsTLSPolicyMap,
+		BackendSetSessionPersistenceMap:  bsSessionPersistenceMap,
+		Listeners:                        allListeners,
+		ListenerProtocolMap:              listenerProtocolMap,
+		ListenerTLSConfigMap:             listenerTLSConfigMap,
+		ListenerTLSPolicyMap:             listenerTLSPolicyMap,
+		ListenerDefaultBsMap:             listenerDefaultBsMap,
+		ListenerConnectionIdleTimeoutMap: listenerConnectionIdleTimeoutMap,
+		ListenerBackendSetMap:            listenerBackendSetMap,
 	}
 
 	klog.Infof("Ingress Group state %s, Ingress state %s", util.PrettyPrint(s.IngressGroupState), util.PrettyPrint(s.IngressState))
@@ -486,6 +528,35 @@ func validateListenerDefaultBackendSet(ingressResource *networkingv1.Ingress,
 	return nil
 }
 
+func validateListenerConnectionIdleTimeout(ingressResource *networkingv1.Ingress,
+	listenerConnectionIdleTimeoutMap map[int32]*int64,
+	listenerConnectionIdleTimeoutConfigMap map[int32]listenerConnectionIdleTimeoutConfig,
+	listenerPort int32) error {
+	timeout, err := util.GetIngressListenerConnectionIdleTimeout(ingressResource)
+	if err != nil {
+		return err
+	}
+	if timeout == nil {
+		return nil
+	}
+
+	current, ok := listenerConnectionIdleTimeoutConfigMap[listenerPort]
+	if ok && current.timeout != *timeout {
+		return fmt.Errorf(ListenerIdleTimeoutConflictMessage, listenerPort,
+			current.namespace, current.name, current.timeout,
+			ingressResource.Namespace, ingressResource.Name, *timeout)
+	}
+
+	value := *timeout
+	listenerConnectionIdleTimeoutMap[listenerPort] = &value
+	listenerConnectionIdleTimeoutConfigMap[listenerPort] = listenerConnectionIdleTimeoutConfig{
+		timeout:   value,
+		namespace: ingressResource.Namespace,
+		name:      ingressResource.Name,
+	}
+	return nil
+}
+
 func (s *StateStore) GetBackendSetHealthChecker(bsName string) *ociloadbalancer.HealthCheckerDetails {
 	return s.IngressGroupState.BackendSetHealthCheckerMap[bsName]
 }
@@ -516,6 +587,15 @@ func (s *StateStore) GetListenerProtocol(listenerPort int32) string {
 
 func (s *StateStore) GetListenerDefaultBackendSet(listenerPort int32) string {
 	return s.IngressGroupState.ListenerDefaultBsMap[listenerPort]
+}
+
+func (s *StateStore) GetListenerConnectionIdleTimeout(listenerPort int32) *int64 {
+	timeout := s.IngressGroupState.ListenerConnectionIdleTimeoutMap[listenerPort]
+	if timeout == nil {
+		return nil
+	}
+	value := *timeout
+	return &value
 }
 
 func (s *StateStore) GetBackendSetsForListener(listenerPort int32) sets.String {

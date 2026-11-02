@@ -733,6 +733,126 @@ func TestValidateHealthCheckerConfigWithConflict(t *testing.T) {
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(HealthCheckerConflictMessage, bsName)))
 }
 
+func TestDefaultBackendHealthCheckerConfig(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	ingress := &ingressList.Items[0]
+	ingress.Spec.DefaultBackend = &networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+		Name: "test-health-checker-annotation",
+		Port: networkingv1.ServiceBackendPort{Number: 800},
+	}}
+	ingress.Annotations[util.DefaultBackendHealthCheckProtocolAnnotation] = util.ProtocolHTTP
+	ingress.Annotations[util.DefaultBackendHealthCheckPortAnnotation] = "8080"
+	ingress.Annotations[util.DefaultBackendHealthCheckPathAnnotation] = "/default-health"
+	ingress.Annotations[util.DefaultBackendHealthCheckReturnCodeAnnotation] = "200"
+
+	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+
+	defaultIngressHC := stateStore.GetBackendSetHealthChecker(util.DefaultBackendSetName)
+	Expect(defaultIngressHC).Should(Equal(&loadbalancer.HealthCheckerDetails{
+		Protocol:          common.String(util.ProtocolHTTP),
+		Port:              common.Int(8080),
+		UrlPath:           common.String("/default-health"),
+		ReturnCode:        common.Int(200),
+		Retries:           common.Int(util.DefaultHealthCheckRetries),
+		TimeoutInMillis:   common.Int(util.DefaultHealthCheckTimeOutMilliSeconds),
+		IntervalInMillis:  common.Int(util.DefaultHealthCheckIntervalMilliSeconds),
+		ResponseBodyRegex: common.String(""),
+		IsForcePlainText:  common.Bool(false),
+	}))
+}
+
+func TestDefaultBackendHealthCheckerPreservesLegacyConfiguration(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(stateStore.GetBackendSetHealthChecker(util.DefaultBackendSetName)).To(Equal(util.GetDefaultHeathChecker()))
+}
+
+func TestDefaultBackendHealthCheckerRejectsInvalidConfiguration(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	ingress := &ingressList.Items[0]
+	ingress.Spec.DefaultBackend = &networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+		Name: "test-health-checker-annotation",
+		Port: networkingv1.ServiceBackendPort{Number: 800},
+	}}
+	ingress.Annotations[util.DefaultBackendHealthCheckProtocolAnnotation] = util.ProtocolHTTP
+	ingress.Annotations[util.DefaultBackendHealthCheckPortAnnotation] = "invalid"
+
+	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).To(MatchError(ContainSubstring("error parsing default backend health check")))
+}
+
+func TestDefaultBackendHealthCheckerRequiresDefaultBackend(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	ingressList.Items[0].Annotations[util.DefaultBackendHealthCheckProtocolAnnotation] = util.ProtocolHTTP
+
+	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).To(MatchError(DefaultBackendHealthCheckOwnerMessage))
+}
+
+func TestDefaultBackendHealthCheckerRejectsMultipleOwners(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressList := util.ReadResourceAsIngressList(HealthCheckerConfigValidationsFilePath)
+	for i := range ingressList.Items {
+		ingress := &ingressList.Items[i]
+		ingress.Spec.DefaultBackend = &networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
+			Name: "test-health-checker-annotation",
+			Port: networkingv1.ServiceBackendPort{Number: 800},
+		}}
+		ingress.Annotations[util.DefaultBackendHealthCheckProtocolAnnotation] = util.ProtocolHTTP
+		ingress.Annotations[util.DefaultBackendHealthCheckPortAnnotation] = "8080"
+	}
+
+	testService := util.GetServiceListResource("default", "test-health-checker-annotation", 800)
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, testService)
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).To(MatchError(fmt.Sprintf(DefaultBackendHealthCheckConflictMessage,
+		ingressList.Items[0].Namespace, ingressList.Items[0].Name)))
+}
+
 func TestValidatePolicyConfig(t *testing.T) {
 	RegisterTestingT(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -876,6 +996,38 @@ func TestValidateListenerDefaultBackendSetWithConflict(t *testing.T) {
 	Expect(err).Should(HaveOccurred())
 
 	Expect(err.Error()).Should(ContainSubstring(fmt.Sprintf(DefaultBackendSetConflictMessage, 8080)))
+}
+
+func TestValidateListenerConnectionIdleTimeout(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ingressClassList := util.GetIngressClassList()
+	ingressOne := makeIngressWithPaths("idle-timeout-one", map[string]string{
+		util.IngressHttpListenerPortAnnotation:              "8080",
+		util.IngressListenerConnectionIdleTimeoutAnnotation: "1200",
+	}, ingressPathSpec{Path: "/", ServiceName: "test", ServicePort: 80})
+	ingressTwo := makeIngressWithPaths("idle-timeout-two", map[string]string{
+		util.IngressHttpListenerPortAnnotation: "8080",
+	}, ingressPathSpec{Path: "/two", ServiceName: "test", ServicePort: 80})
+	ingressOne.Namespace = "team-a"
+	ingressTwo.Namespace = "team-b"
+	ingressList := &networkingv1.IngressList{Items: []networkingv1.Ingress{ingressOne, ingressTwo}}
+	ingressClassLister, ingressLister, serviceLister := setUp(ctx, ingressClassList, ingressList, &v1.ServiceList{})
+	stateStore := NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+
+	err := stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).NotTo(HaveOccurred())
+	Expect(*stateStore.GetListenerConnectionIdleTimeout(8080)).To(Equal(int64(1200)))
+
+	ingressList.Items[1].Annotations[util.IngressListenerConnectionIdleTimeoutAnnotation] = "600"
+	ingressClassLister, ingressLister, serviceLister = setUp(ctx, ingressClassList, ingressList, &v1.ServiceList{})
+	stateStore = NewStateStore(ingressClassLister, ingressLister, serviceLister, nil)
+	err = stateStore.BuildState(&ingressClassList.Items[0])
+	Expect(err).To(MatchError(fmt.Sprintf(ListenerIdleTimeoutConflictMessage, 8080,
+		"team-a", "idle-timeout-one", 1200,
+		"team-b", "idle-timeout-two", 600)))
 }
 
 func TestListenerBackendSetParticipationIncludesDefaultAndPathBackendSets(t *testing.T) {

@@ -438,6 +438,38 @@ spec:
         number: 8080
 ```
 
+##### Default Backend Health Check
+Available starting with OCI Native Ingress Controller version `1.4.6`.
+
+NIC creates a shared `default_ingress` backend set for the default backend. By default, this backend set uses a TCP health check on port `0` (the backend port), with an interval of 10000 milliseconds, a timeout of 3000 milliseconds, and three retries.
+
+To customize this health check, add the following annotations to the Ingress that declares `.spec.defaultBackend`:
+```
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-protocol
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-port
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-path
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-interval-milliseconds
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-timeout-milliseconds
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-retries
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-return-code
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-response-regex
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-force-plaintext
+```
+
+The protocol can be `TCP` or `HTTP`. If it is not specified, NIC uses `TCP`. The path, return code, response regex, and force plaintext annotations apply only to HTTP health checks. If no default-backend health check annotations are specified, NIC retains the default TCP health check configuration.
+
+The `default_ingress` backend set is shared by all Ingress resources in the same IngressClass. Therefore, only one Ingress resource with `.spec.defaultBackend` can specify default-backend health check annotations. NIC reports a validation error if annotations are specified on an Ingress without `.spec.defaultBackend`, or if multiple Ingress resources in the same IngressClass specify them.
+
+For example, the following annotations configure an HTTP health check on port 8080 that calls `/health` and expects HTTP status code 200:
+```
+metadata:
+  annotations:
+    oci-native-ingress.oraclecloud.com/default-backend-healthcheck-protocol: "HTTP"
+    oci-native-ingress.oraclecloud.com/default-backend-healthcheck-port: "8080"
+    oci-native-ingress.oraclecloud.com/default-backend-healthcheck-path: "/health"
+    oci-native-ingress.oraclecloud.com/default-backend-healthcheck-return-code: "200"
+```
+
 #### Ingress Class Support
 An ingress class helps in mapping an ingress resource to a controller in the case where there are multiple ingress controller implementations running inside a Kubernetes cluster. It can also be used to have ingresses with different LB shapes.
 
@@ -580,6 +612,7 @@ oci-native-ingress.oraclecloud.com/id
  
 // Listener Annotation
 oci-native-ingress.oraclecloud.com/protocol
+oci-native-ingress.oraclecloud.com/listener-connection-idle-timeout
  
 // Backendset Annotations
 oci-native-ingress.oraclecloud.com/policy
@@ -592,7 +625,20 @@ oci-native-ingress.oraclecloud.com/healthcheck-retries
 oci-native-ingress.oraclecloud.com/healthcheck-return-code
 oci-native-ingress.oraclecloud.com/healthcheck-response-regex
 oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext
+
+// Default Backendset Annotations (only on an Ingress with .spec.defaultBackend)
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-protocol
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-port
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-path
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-interval-milliseconds
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-timeout-milliseconds
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-retries
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-return-code
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-response-regex
+oci-native-ingress.oraclecloud.com/default-backend-healthcheck-force-plaintext
 ```
+Starting with OCI Native Ingress Controller version `1.4.6`, `oci-native-ingress.oraclecloud.com/listener-connection-idle-timeout` configures the listener connection idle timeout in whole seconds. Valid values are from `1` through `7200`. Ingresses that share a listener may specify the same timeout, but different configured values are rejected as a conflict. Removing this annotation intentionally does not reset the OCI listener timeout; the controller preserves the existing OCI configuration until another timeout value is configured.
+
 References:
 - [Policy](https://docs.oracle.com/en-us/iaas/Content/Balance/Reference/lbpolicies.htm)
 - [Health-checker](https://docs.oracle.com/en-us/iaas/api/#/en/loadbalancer/20170115/HealthChecker/)

@@ -771,9 +771,34 @@ func backendSetSslConfigurationDetailsWithPreservedPolicy(desired *loadbalancer.
 	return desired, nil
 }
 
+func connectionConfigurationFromCurrent(current *loadbalancer.ConnectionConfiguration) *loadbalancer.ConnectionConfiguration {
+	if current == nil {
+		return nil
+	}
+
+	configuration := *current
+	if current.IdleTimeout != nil {
+		idleTimeout := *current.IdleTimeout
+		configuration.IdleTimeout = &idleTimeout
+	}
+	if current.BackendTcpProxyProtocolVersion != nil {
+		proxyProtocolVersion := *current.BackendTcpProxyProtocolVersion
+		configuration.BackendTcpProxyProtocolVersion = &proxyProtocolVersion
+	}
+	configuration.BackendTcpProxyProtocolOptions = append([]loadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum(nil), current.BackendTcpProxyProtocolOptions...)
+	return &configuration
+}
+
 func (lbc *LoadBalancerClient) UpdateListener(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
 	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string, defaultBackendSet *string) error {
-	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, sslConfigurationDetails, protocol, defaultBackendSet, true)
+	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, sslConfigurationDetails, nil, protocol, defaultBackendSet, true)
+}
+
+// UpdateListenerWithConnectionConfiguration updates a listener while explicitly
+// managing its connection configuration.
+func (lbc *LoadBalancerClient) UpdateListenerWithConnectionConfiguration(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
+	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, connectionConfiguration *loadbalancer.ConnectionConfiguration, protocol *string, defaultBackendSet *string) error {
+	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, sslConfigurationDetails, connectionConfiguration, protocol, defaultBackendSet, true)
 }
 
 func (lbc *LoadBalancerClient) ClearListenerSSL(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
@@ -789,11 +814,29 @@ func (lbc *LoadBalancerClient) ClearListenerSSL(ctx context.Context, lbId *strin
 		}
 		return fmt.Errorf("TLSPolicyUnsupported: cannot clear TLS from %s listener %s", *effectiveProtocol, listenerName)
 	}
-	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, nil, protocol, defaultBackendSet, false)
+	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, nil, nil, protocol, defaultBackendSet, false)
+}
+
+// ClearListenerSSLWithConnectionConfiguration clears listener TLS while retaining
+// an explicitly managed connection configuration.
+func (lbc *LoadBalancerClient) ClearListenerSSLWithConnectionConfiguration(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
+	connectionConfiguration *loadbalancer.ConnectionConfiguration, protocol *string, defaultBackendSet *string) error {
+	effectiveProtocol := protocol
+	if effectiveProtocol == nil || *effectiveProtocol == "" {
+		effectiveProtocol = l.Protocol
+	}
+	if effectiveProtocol != nil && util.IsListenerProtocolTLSRequired(*effectiveProtocol) {
+		listenerName := "unknown"
+		if l.Name != nil {
+			listenerName = *l.Name
+		}
+		return fmt.Errorf("TLSPolicyUnsupported: cannot clear TLS from %s listener %s", *effectiveProtocol, listenerName)
+	}
+	return lbc.updateListener(ctx, lbId, etag, l, routingPolicyName, nil, connectionConfiguration, protocol, defaultBackendSet, false)
 }
 
 func (lbc *LoadBalancerClient) updateListener(ctx context.Context, lbId *string, etag string, l loadbalancer.Listener, routingPolicyName *string,
-	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, protocol *string, defaultBackendSet *string, preserveExistingSSL bool) error {
+	sslConfigurationDetails *loadbalancer.SslConfigurationDetails, connectionConfiguration *loadbalancer.ConnectionConfiguration, protocol *string, defaultBackendSet *string, preserveExistingSSL bool) error {
 
 	if preserveExistingSSL && sslConfigurationDetails == nil && l.SslConfiguration != nil {
 		var err error
@@ -801,6 +844,9 @@ func (lbc *LoadBalancerClient) updateListener(ctx context.Context, lbId *string,
 		if err != nil {
 			return err
 		}
+	}
+	if connectionConfiguration == nil {
+		connectionConfiguration = connectionConfigurationFromCurrent(l.ConnectionConfiguration)
 	}
 
 	if protocol == nil || *protocol == "" {
@@ -816,11 +862,12 @@ func (lbc *LoadBalancerClient) updateListener(ctx context.Context, lbId *string,
 		LoadBalancerId: lbId,
 		ListenerName:   l.Name,
 		UpdateListenerDetails: loadbalancer.UpdateListenerDetails{
-			Port:                  l.Port,
-			Protocol:              protocol,
-			DefaultBackendSetName: defaultBackendSet,
-			SslConfiguration:      sslConfigurationDetails,
-			RoutingPolicyName:     routingPolicyName,
+			Port:                    l.Port,
+			Protocol:                protocol,
+			DefaultBackendSetName:   defaultBackendSet,
+			SslConfiguration:        sslConfigurationDetails,
+			ConnectionConfiguration: connectionConfiguration,
+			RoutingPolicyName:       routingPolicyName,
 		},
 	}
 
@@ -861,6 +908,13 @@ func (lbc *LoadBalancerClient) updateListener(ctx context.Context, lbId *string,
 
 func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, listenerPort int, listenerProtocol string,
 	defaultBackendSet string, sslConfig *loadbalancer.SslConfigurationDetails) error {
+	return lbc.CreateListenerWithConnectionConfiguration(ctx, lbID, listenerPort, listenerProtocol, defaultBackendSet, sslConfig, nil)
+}
+
+// CreateListenerWithConnectionConfiguration creates a listener with an optional
+// explicit connection configuration.
+func (lbc *LoadBalancerClient) CreateListenerWithConnectionConfiguration(ctx context.Context, lbID string, listenerPort int, listenerProtocol string,
+	defaultBackendSet string, sslConfig *loadbalancer.SslConfigurationDetails, connectionConfiguration *loadbalancer.ConnectionConfiguration) error {
 
 	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
@@ -884,11 +938,12 @@ func (lbc *LoadBalancerClient) CreateListener(ctx context.Context, lbID string, 
 	createListenerRequest := loadbalancer.CreateListenerRequest{
 		LoadBalancerId: lb.Id,
 		CreateListenerDetails: loadbalancer.CreateListenerDetails{
-			DefaultBackendSetName: common.String(defaultBackendSet),
-			Port:                  common.Int(listenerPort),
-			Protocol:              common.String(listenerProtocol),
-			Name:                  common.String(listenerName),
-			SslConfiguration:      sslConfig,
+			DefaultBackendSetName:   common.String(defaultBackendSet),
+			Port:                    common.Int(listenerPort),
+			Protocol:                common.String(listenerProtocol),
+			Name:                    common.String(listenerName),
+			SslConfiguration:        sslConfig,
+			ConnectionConfiguration: connectionConfiguration,
 		},
 	}
 

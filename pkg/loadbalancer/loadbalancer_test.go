@@ -127,6 +127,20 @@ func TestLoadBalancerClient_CreateListener(t *testing.T) {
 
 }
 
+func TestLoadBalancerClient_CreateListenerWithConnectionConfiguration(t *testing.T) {
+	RegisterTestingT(t)
+	loadBalancerClient := setupLBClient()
+	capturedCreateListenerRequest = nil
+	timeout := int64(1200)
+
+	err := loadBalancerClient.CreateListenerWithConnectionConfiguration(context.TODO(), "id", 8080, util.ProtocolHTTP, util.DefaultBackendSetName, nil,
+		&ociloadbalancer.ConnectionConfiguration{IdleTimeout: &timeout})
+	Expect(err).To(BeNil())
+	Expect(capturedCreateListenerRequest).ToNot(BeNil())
+	Expect(capturedCreateListenerRequest.ConnectionConfiguration).ToNot(BeNil())
+	Expect(*capturedCreateListenerRequest.ConnectionConfiguration.IdleTimeout).To(Equal(timeout))
+}
+
 func TestLoadBalancerClient_CreateListener_PreservesMultiCertificateIds(t *testing.T) {
 	RegisterTestingT(t)
 	loadBalancerClient := setupLBClient()
@@ -611,6 +625,52 @@ func TestLoadBalancerClient_UpdateListener_PreservesExistingMultiCertificateIdsW
 	Expect(sslConfig.CertificateName).To(BeNil())
 	Expect(*sslConfig.CipherSuiteName).To(Equal("existing-cipher"))
 	Expect(sslConfig.Protocols).To(Equal([]string{"TLSv1.3", "TLSv1.2"}))
+}
+
+func TestLoadBalancerClient_UpdateListener_PreservesExistingConnectionConfigurationWhenUnspecified(t *testing.T) {
+	RegisterTestingT(t)
+	loadBalancerClient := setupLBClient()
+	capturedUpdateListenerRequest = nil
+
+	id := "id"
+	pname := "route_80"
+	proto := util.ProtocolHTTP
+	port := 8080
+	idleTimeout := int64(1200)
+	proxyProtocolVersion := 2
+	listener := ociloadbalancer.Listener{
+		Name:     &pname,
+		Port:     &port,
+		Protocol: &proto,
+		ConnectionConfiguration: &ociloadbalancer.ConnectionConfiguration{
+			IdleTimeout:                    &idleTimeout,
+			BackendTcpProxyProtocolVersion: &proxyProtocolVersion,
+			BackendTcpProxyProtocolOptions: []ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum{
+				ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsPp2TypeAuthority,
+			},
+		},
+	}
+
+	// Routing-policy attachment and detachment both use UpdateListener without a
+	// connection configuration, so each request must retain OCI's current values.
+	err := loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, &pname, nil, &proto, nil)
+	Expect(err).To(BeNil())
+	configuration := capturedUpdateListenerRequest.ConnectionConfiguration
+	Expect(*configuration.IdleTimeout).To(Equal(int64(1200)))
+	Expect(*configuration.BackendTcpProxyProtocolVersion).To(Equal(2))
+	Expect(configuration.BackendTcpProxyProtocolOptions).To(Equal([]ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum{
+		ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsPp2TypeAuthority,
+	}))
+
+	capturedUpdateListenerRequest = nil
+	err = loadBalancerClient.UpdateListener(context.TODO(), &id, "", listener, nil, nil, &proto, nil)
+	Expect(err).To(BeNil())
+	configuration = capturedUpdateListenerRequest.ConnectionConfiguration
+	Expect(*configuration.IdleTimeout).To(Equal(int64(1200)))
+	Expect(*configuration.BackendTcpProxyProtocolVersion).To(Equal(2))
+	Expect(configuration.BackendTcpProxyProtocolOptions).To(Equal([]ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsEnum{
+		ociloadbalancer.ConnectionConfigurationBackendTcpProxyProtocolOptionsPp2TypeAuthority,
+	}))
 }
 
 func TestLoadBalancerClient_ClearListenerSSLDoesNotPreserveExistingSSL(t *testing.T) {

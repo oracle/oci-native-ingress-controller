@@ -82,17 +82,27 @@ const (
 	OcidResourceTypePrivateIP                     = "privateip"
 	OcidResourceTypeIPv6                          = "ipv6"
 
-	IngressHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
-	IngressHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-port"
-	IngressHealthCheckPathAnnotation                 = "oci-native-ingress.oraclecloud.com/healthcheck-path"
-	IngressHealthCheckIntervalMillisecondsAnnotation = "oci-native-ingress.oraclecloud.com/healthcheck-interval-milliseconds"
-	IngressHealthCheckTimeoutMillisecondsAnnotation  = "oci-native-ingress.oraclecloud.com/healthcheck-timeout-milliseconds"
-	IngressHealthCheckRetriesAnnotation              = "oci-native-ingress.oraclecloud.com/healthcheck-retries"
-	IngressHealthCheckReturnCodeAnnotation           = "oci-native-ingress.oraclecloud.com/healthcheck-return-code"
-	IngressHealthCheckResponseBodyRegexAnnotation    = "oci-native-ingress.oraclecloud.com/healthcheck-response-regex"
-	IngressHealthCheckForcePlainTextAnnotation       = "oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext"
-	IngressHttpListenerPortAnnotation                = "oci-native-ingress.oraclecloud.com/http-listener-port"
-	IngressHttpsListenerPortAnnotation               = "oci-native-ingress.oraclecloud.com/https-listener-port"
+	IngressHealthCheckProtocolAnnotation                    = "oci-native-ingress.oraclecloud.com/healthcheck-protocol"
+	IngressHealthCheckPortAnnotation                        = "oci-native-ingress.oraclecloud.com/healthcheck-port"
+	IngressHealthCheckPathAnnotation                        = "oci-native-ingress.oraclecloud.com/healthcheck-path"
+	IngressHealthCheckIntervalMillisecondsAnnotation        = "oci-native-ingress.oraclecloud.com/healthcheck-interval-milliseconds"
+	IngressHealthCheckTimeoutMillisecondsAnnotation         = "oci-native-ingress.oraclecloud.com/healthcheck-timeout-milliseconds"
+	IngressHealthCheckRetriesAnnotation                     = "oci-native-ingress.oraclecloud.com/healthcheck-retries"
+	IngressHealthCheckReturnCodeAnnotation                  = "oci-native-ingress.oraclecloud.com/healthcheck-return-code"
+	IngressHealthCheckResponseBodyRegexAnnotation           = "oci-native-ingress.oraclecloud.com/healthcheck-response-regex"
+	IngressHealthCheckForcePlainTextAnnotation              = "oci-native-ingress.oraclecloud.com/healthcheck-force-plaintext"
+	DefaultBackendHealthCheckProtocolAnnotation             = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-protocol"
+	DefaultBackendHealthCheckPortAnnotation                 = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-port"
+	DefaultBackendHealthCheckPathAnnotation                 = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-path"
+	DefaultBackendHealthCheckIntervalMillisecondsAnnotation = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-interval-milliseconds"
+	DefaultBackendHealthCheckTimeoutMillisecondsAnnotation  = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-timeout-milliseconds"
+	DefaultBackendHealthCheckRetriesAnnotation              = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-retries"
+	DefaultBackendHealthCheckReturnCodeAnnotation           = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-return-code"
+	DefaultBackendHealthCheckResponseBodyRegexAnnotation    = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-response-regex"
+	DefaultBackendHealthCheckForcePlainTextAnnotation       = "oci-native-ingress.oraclecloud.com/default-backend-healthcheck-force-plaintext"
+	IngressHttpListenerPortAnnotation                       = "oci-native-ingress.oraclecloud.com/http-listener-port"
+	IngressHttpsListenerPortAnnotation                      = "oci-native-ingress.oraclecloud.com/https-listener-port"
+	IngressListenerConnectionIdleTimeoutAnnotation          = "oci-native-ingress.oraclecloud.com/listener-connection-idle-timeout"
 
 	// Explicit JSON annotations (preferred) for cookie persistence.
 	// Exactly one should be set for a given ingress/backend-set.
@@ -113,6 +123,8 @@ const (
 	DefaultHealthCheckRetries              = 3
 	DefaultHealthCheckReturnCode           = 200
 	DefaultBackendSetRoutingPolicy         = "LEAST_CONNECTIONS"
+	MinListenerConnectionIdleTimeout       = 1
+	MaxListenerConnectionIdleTimeout       = 7200
 
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
@@ -499,6 +511,35 @@ func GetIngressHttpsListenerPort(i *networkingv1.Ingress) (int, error) {
 	return strconv.Atoi(value)
 }
 
+// GetIngressListenerConnectionIdleTimeout returns the explicitly configured listener
+// idle timeout in seconds. A nil value means that NIC leaves OCI's listener default
+// (or existing setting) unchanged.
+func GetIngressListenerConnectionIdleTimeout(i *networkingv1.Ingress) (*int64, error) {
+	if i == nil || i.Annotations == nil {
+		return nil, nil
+	}
+
+	value, ok := i.Annotations[IngressListenerConnectionIdleTimeoutAnnotation]
+	if !ok {
+		return nil, nil
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, fmt.Errorf("ingress annotation %s must not be empty", IngressListenerConnectionIdleTimeoutAnnotation)
+	}
+
+	timeout, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("ingress annotation %s must be an integer number of seconds: %w", IngressListenerConnectionIdleTimeoutAnnotation, err)
+	}
+	if timeout < MinListenerConnectionIdleTimeout || timeout > MaxListenerConnectionIdleTimeout {
+		return nil, fmt.Errorf("ingress annotation %s must be between %d and %d seconds", IngressListenerConnectionIdleTimeoutAnnotation, MinListenerConnectionIdleTimeout, MaxListenerConnectionIdleTimeout)
+	}
+
+	return &timeout, nil
+}
+
 // HasSessionPersistenceAnnotation returns true if any cookie/session persistence annotation is present and non-empty.
 func HasSessionPersistenceAnnotation(i *networkingv1.Ingress) bool {
 	if i == nil || i.Annotations == nil {
@@ -728,6 +769,87 @@ func GetHealthChecker(i *networkingv1.Ingress) (*ociloadbalancer.HealthCheckerDe
 
 	switch protocol {
 	case ProtocolTCP:
+		return &ociloadbalancer.HealthCheckerDetails{
+			Protocol:         common.String(ProtocolTCP),
+			Port:             common.Int(port),
+			TimeoutInMillis:  common.Int(timeout),
+			IntervalInMillis: common.Int(interval),
+			Retries:          common.Int(retries),
+		}, nil
+	case ProtocolHTTP:
+		returnCode, err := GetIngressHealthCheckReturnCode(i)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing health check return code: %w", err)
+		}
+		return &ociloadbalancer.HealthCheckerDetails{
+			Protocol:          common.String(ProtocolHTTP),
+			Port:              common.Int(port),
+			UrlPath:           common.String(GetIngressHealthCheckPath(i)),
+			TimeoutInMillis:   common.Int(timeout),
+			IntervalInMillis:  common.Int(interval),
+			Retries:           common.Int(retries),
+			ReturnCode:        common.Int(returnCode),
+			ResponseBodyRegex: common.String(GetIngressHealthCheckResponseBodyRegex(i)),
+			IsForcePlainText:  common.Bool(GetIngressHealthCheckForcePlainText(i)),
+		}, nil
+	default:
+		return nil, fmt.Errorf("%s unknown protocol found for healthcheck", protocol)
+	}
+}
+
+// HasDefaultBackendHealthCheckAnnotations reports whether an ingress declares configuration for
+// the shared default_ingress backend set.
+func HasDefaultBackendHealthCheckAnnotations(i *networkingv1.Ingress) bool {
+	if i == nil || i.Annotations == nil {
+		return false
+	}
+	for _, annotation := range []string{
+		DefaultBackendHealthCheckProtocolAnnotation,
+		DefaultBackendHealthCheckPortAnnotation,
+		DefaultBackendHealthCheckPathAnnotation,
+		DefaultBackendHealthCheckIntervalMillisecondsAnnotation,
+		DefaultBackendHealthCheckTimeoutMillisecondsAnnotation,
+		DefaultBackendHealthCheckRetriesAnnotation,
+		DefaultBackendHealthCheckReturnCodeAnnotation,
+		DefaultBackendHealthCheckResponseBodyRegexAnnotation,
+		DefaultBackendHealthCheckForcePlainTextAnnotation,
+	} {
+		if _, ok := i.Annotations[annotation]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// GetDefaultBackendHealthChecker reads the dedicated default-backend health-check annotations.
+func GetDefaultBackendHealthChecker(i *networkingv1.Ingress) (*ociloadbalancer.HealthCheckerDetails, error) {
+	interval, err := getIngressHealthCheckInt(i, DefaultBackendHealthCheckIntervalMillisecondsAnnotation, DefaultHealthCheckIntervalMilliSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing health check interval: %w", err)
+	}
+
+	timeout, err := getIngressHealthCheckInt(i, DefaultBackendHealthCheckTimeoutMillisecondsAnnotation, DefaultHealthCheckTimeOutMilliSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing health check timeout: %w", err)
+	}
+
+	retries, err := getIngressHealthCheckInt(i, DefaultBackendHealthCheckRetriesAnnotation, DefaultHealthCheckRetries)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing health check retries: %w", err)
+	}
+
+	port, err := getIngressHealthCheckInt(i, DefaultBackendHealthCheckPortAnnotation, DefaultHealthCheckPort)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing health check port: %w", err)
+	}
+
+	protocol := strings.ToUpper(i.Annotations[DefaultBackendHealthCheckProtocolAnnotation])
+	if protocol == "" {
+		protocol = DefaultHealthCheckProtocol
+	}
+
+	switch protocol {
+	case ProtocolTCP:
 
 		return &ociloadbalancer.HealthCheckerDetails{
 			Protocol:         common.String(ProtocolTCP),
@@ -739,14 +861,20 @@ func GetHealthChecker(i *networkingv1.Ingress) (*ociloadbalancer.HealthCheckerDe
 
 	case ProtocolHTTP:
 
-		returnCode, err := GetIngressHealthCheckReturnCode(i)
+		returnCode, err := getIngressHealthCheckInt(i, DefaultBackendHealthCheckReturnCodeAnnotation, DefaultHealthCheckReturnCode)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing health check return code: %w", err)
 		}
 
-		responseBodyRegex := GetIngressHealthCheckResponseBodyRegex(i)
-		urlPath := GetIngressHealthCheckPath(i)
-		isForcePlainText := GetIngressHealthCheckForcePlainText(i)
+		responseBodyRegex := i.Annotations[DefaultBackendHealthCheckResponseBodyRegexAnnotation]
+		urlPath := i.Annotations[DefaultBackendHealthCheckPathAnnotation]
+		isForcePlainText := false
+		if value := i.Annotations[DefaultBackendHealthCheckForcePlainTextAnnotation]; strings.TrimSpace(value) != "" {
+			isForcePlainText, err = strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing health check force plaintext: %w", err)
+			}
+		}
 
 		return &ociloadbalancer.HealthCheckerDetails{
 			Protocol:          common.String(ProtocolHTTP),
@@ -763,6 +891,14 @@ func GetHealthChecker(i *networkingv1.Ingress) (*ociloadbalancer.HealthCheckerDe
 	default:
 		return nil, fmt.Errorf("%s unknown protocol found for healthcheck", protocol)
 	}
+}
+
+func getIngressHealthCheckInt(i *networkingv1.Ingress, annotation string, defaultValue int) (int, error) {
+	value, ok := i.Annotations[annotation]
+	if !ok {
+		return defaultValue, nil
+	}
+	return strconv.Atoi(value)
 }
 
 func GetDefaultHeathChecker() *ociloadbalancer.HealthCheckerDetails {
