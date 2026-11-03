@@ -2,6 +2,8 @@ package nodeBackend
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -202,13 +204,16 @@ func TestGetEndpoints(t *testing.T) {
 }
 
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string, allCase bool) *Controller {
+	return initsWithLB(ctx, ingressClassList, yamlPath, allCase, getLoadBalancerClient())
+}
+
+func initsWithLB(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string, allCase bool, lbClient ociclient.LoadBalancerInterface) *Controller {
 
 	ingressList := util.ReadResourceAsIngressList(yamlPath)
 	testService := util.GetServiceListResource(namespace, "testecho1", 80)
 	endpoints := util.GetEndpointsResourceList("testecho1", namespace, allCase)
 	pod := util.GetPodResourceList("testpod", "echoserver")
 	nodes := util.GetNodesList()
-	lbClient := getLoadBalancerClient()
 
 	loadBalancerClient := &lb.LoadBalancerClient{
 		LbClient: lbClient,
@@ -227,6 +232,51 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	metricsCollector := metric.NewIngressCollector("oci.oraclecloud.com/native-ingress-controller", prometheus.NewRegistry())
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, mockClient, metricsCollector, fakeRecorder)
 	return c
+}
+
+type recordingBackendOrderClient struct {
+	MockLoadBalancerClient
+	updated     []string
+	failDefault bool
+}
+
+func (m *recordingBackendOrderClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	response := util.SampleLoadBalancerResponse()
+	for _, backendSet := range response.BackendSets {
+		backendSet.Name = common.String(util.DefaultBackendSetName)
+		backendSet.Backends = nil
+		response.BackendSets[util.DefaultBackendSetName] = backendSet
+		break
+	}
+	return response, nil
+}
+
+func (m *recordingBackendOrderClient) UpdateBackendSet(ctx context.Context, request ociloadbalancer.UpdateBackendSetRequest) (ociloadbalancer.UpdateBackendSetResponse, error) {
+	m.updated = append(m.updated, *request.BackendSetName)
+	if m.failDefault && *request.BackendSetName == util.DefaultBackendSetName {
+		return ociloadbalancer.UpdateBackendSetResponse{}, fmt.Errorf("default update failed")
+	}
+	return m.MockLoadBalancerClient.UpdateBackendSet(ctx, request)
+}
+
+func TestEnsureBackendsUpdatesDefaultBeforeRegular(t *testing.T) {
+	for _, failDefault := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		client := &recordingBackendOrderClient{failDefault: failDefault}
+		classes := util.GetIngressClassList()
+		c := initsWithLB(ctx, classes, backendPathWithDefaultBackend, false, client)
+		err := c.ensureBackends(getContextWithClient(c, ctx), &classes.Items[0], "id")
+		cancel()
+		if failDefault && (err == nil || !strings.Contains(err.Error(), "default update failed")) {
+			t.Fatalf("default update failure was discarded: %v", err)
+		}
+		if !failDefault && err != nil {
+			t.Fatal(err)
+		}
+		if len(client.updated) < 2 || client.updated[0] != util.DefaultBackendSetName {
+			t.Fatalf("regular backends were updated before default: %v", client.updated)
+		}
+	}
 }
 
 func TestListWithPredicate(t *testing.T) {
@@ -293,6 +343,12 @@ func (m MockLoadBalancerClient) UpdateNetworkSecurityGroups(ctx context.Context,
 
 func (m MockLoadBalancerClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
 	res := util.SampleLoadBalancerResponse()
+	for _, backendSet := range res.BackendSets {
+		backendSet.Name = common.String(util.DefaultBackendSetName)
+		backendSet.Backends = nil
+		res.BackendSets[util.DefaultBackendSetName] = backendSet
+		break
+	}
 	return res, nil
 }
 
