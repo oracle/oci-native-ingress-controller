@@ -257,6 +257,10 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 	return ociloadbalancer.UpdateBackendSetResponse{}, nil
 }
 
+func (m MockLoadBalancerClient) DeleteBackend(ctx context.Context, request ociloadbalancer.DeleteBackendRequest) (ociloadbalancer.DeleteBackendResponse, error) {
+	return ociloadbalancer.DeleteBackendResponse{OpcWorkRequestId: common.String("id")}, nil
+}
+
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {
 	return ociloadbalancer.DeleteBackendSetResponse{}, nil
 }

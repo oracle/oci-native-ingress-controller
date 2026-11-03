@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	networkinginformers "k8s.io/client-go/informers/networking/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
@@ -83,7 +84,9 @@ func TestEnsureBackend(t *testing.T) {
 	c := inits(ctx, ingressClassList, backendPath)
 
 	err := c.ensureBackends(getContextWithClient(c, ctx), &ingressClassList.Items[0], "id")
-	Expect(err == nil).Should(Equal(true))
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestEnsureBackendPublishesEventsForNonServiceBackends(t *testing.T) {
@@ -243,6 +246,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 
 	ingressList := util.ReadResourceAsIngressList(yamlPath)
 	testService := util.GetServiceListResource(namespace, "testecho1", 80)
+	testService.Items[0].Spec.Ports[0].TargetPort = intstr.FromInt(80)
 	endpoints := util.GetEndpointsResourceList("testecho1", namespace, false)
 	pod := util.GetPodResourceList("testpod", "echoserver")
 	lbClient := getLoadBalancerClient()
@@ -381,6 +385,10 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 		OpcRequestId:     &reqId,
 	}
 	return res, nil
+}
+
+func (m MockLoadBalancerClient) DeleteBackend(ctx context.Context, request ociloadbalancer.DeleteBackendRequest) (ociloadbalancer.DeleteBackendResponse, error) {
+	return ociloadbalancer.DeleteBackendResponse{OpcWorkRequestId: common.String("id")}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {

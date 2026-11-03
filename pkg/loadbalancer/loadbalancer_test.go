@@ -3,6 +3,7 @@ package loadbalancer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -300,6 +301,80 @@ func TestLoadBalancerClient_UpdateBackends_PreservesBackendSetTLSPolicy(t *testi
 	Expect(sslConfig.CertificateName).To(BeNil())
 	Expect(*sslConfig.CipherSuiteName).To(Equal("existing-backend-cipher"))
 	Expect(sslConfig.Protocols).To(Equal([]string{"TLSv1.2"}))
+}
+
+type recordingBackendClient struct {
+	MockLoadBalancerClient
+	backends []ociloadbalancer.Backend
+	calls    []string
+}
+
+func (m *recordingBackendClient) GetLoadBalancer(ctx context.Context, request ociloadbalancer.GetLoadBalancerRequest) (ociloadbalancer.GetLoadBalancerResponse, error) {
+	response := util.SampleLoadBalancerResponse()
+	setName := util.GenerateBackendSetName("default", "testecho1", 80)
+	backendSet := response.BackendSets[setName]
+	backendSet.Backends = append([]ociloadbalancer.Backend(nil), m.backends...)
+	response.BackendSets[setName] = backendSet
+	return response, nil
+}
+
+func (m *recordingBackendClient) DeleteBackend(ctx context.Context, request ociloadbalancer.DeleteBackendRequest) (ociloadbalancer.DeleteBackendResponse, error) {
+	m.calls = append(m.calls, "delete:"+*request.BackendName)
+	remaining := m.backends[:0]
+	for _, backend := range m.backends {
+		if fmt.Sprintf("%s:%d", *backend.IpAddress, *backend.Port) != *request.BackendName {
+			remaining = append(remaining, backend)
+		}
+	}
+	m.backends = remaining
+	return ociloadbalancer.DeleteBackendResponse{OpcWorkRequestId: common.String("id")}, nil
+}
+
+func (m *recordingBackendClient) UpdateBackendSet(ctx context.Context, request ociloadbalancer.UpdateBackendSetRequest) (ociloadbalancer.UpdateBackendSetResponse, error) {
+	m.calls = append(m.calls, "update")
+	m.backends = nil
+	for _, backend := range request.UpdateBackendSetDetails.Backends {
+		m.backends = append(m.backends, ociloadbalancer.Backend{IpAddress: backend.IpAddress, Port: backend.Port})
+	}
+	return ociloadbalancer.UpdateBackendSetResponse{OpcWorkRequestId: common.String("id"), OpcRequestId: common.String("id")}, nil
+}
+
+func TestUpdateBackendsDeletesObsoleteBeforeAdding(t *testing.T) {
+	setName := util.GenerateBackendSetName("default", "testecho1", 80)
+	backend := func(ip string) ociloadbalancer.Backend {
+		return ociloadbalancer.Backend{IpAddress: common.String(ip), Port: common.Int(80)}
+	}
+	client := &recordingBackendClient{backends: []ociloadbalancer.Backend{backend("10.0.0.1"), backend("10.0.0.2")}}
+	lbc := &LoadBalancerClient{LbClient: client, Cache: map[string]*LbCacheObj{}}
+	err := lbc.UpdateBackends(context.Background(), "id", setName, []ociloadbalancer.BackendDetails{
+		util.NewBackend("10.0.0.1", 80), util.NewBackend("10.0.0.3", 80),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 2 || client.calls[0] != "delete:10.0.0.2:80" || client.calls[1] != "update" {
+		t.Fatalf("unexpected OCI call order: %v", client.calls)
+	}
+
+	client = &recordingBackendClient{backends: []ociloadbalancer.Backend{backend("10.0.0.2")}}
+	lbc = &LoadBalancerClient{LbClient: client, Cache: map[string]*LbCacheObj{}}
+	err = lbc.UpdateBackends(context.Background(), "id", setName, []ociloadbalancer.BackendDetails{util.NewBackend("10.0.0.3", 80)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 || client.calls[0] != "update" {
+		t.Fatalf("last old backend was removed before its replacement: %v", client.calls)
+	}
+}
+
+func TestUpdateBackendsRejectsInvalidDesiredBeforeDeleting(t *testing.T) {
+	client := &recordingBackendClient{backends: []ociloadbalancer.Backend{{IpAddress: common.String("10.0.0.1"), Port: common.Int(80)}}}
+	lbc := &LoadBalancerClient{LbClient: client, Cache: map[string]*LbCacheObj{}}
+	err := lbc.UpdateBackends(context.Background(), "id", util.GenerateBackendSetName("default", "testecho1", 80),
+		[]ociloadbalancer.BackendDetails{util.NewBackend("", 80)})
+	if err == nil || len(client.calls) != 0 {
+		t.Fatalf("invalid desired backends caused OCI mutations: err=%v calls=%v", err, client.calls)
+	}
 }
 
 func TestLoadBalancerClient_UpdateBackendSetDetails(t *testing.T) {
@@ -1140,6 +1215,10 @@ func (m MockLoadBalancerClient) UpdateBackendSet(ctx context.Context, request oc
 		OpcWorkRequestId: &id,
 		OpcRequestId:     &id,
 	}, nil
+}
+
+func (m MockLoadBalancerClient) DeleteBackend(ctx context.Context, request ociloadbalancer.DeleteBackendRequest) (ociloadbalancer.DeleteBackendResponse, error) {
+	return ociloadbalancer.DeleteBackendResponse{OpcWorkRequestId: common.String("id")}, nil
 }
 
 func (m MockLoadBalancerClient) DeleteBackendSet(ctx context.Context, request ociloadbalancer.DeleteBackendSetRequest) (ociloadbalancer.DeleteBackendSetResponse, error) {

@@ -36,8 +36,9 @@ type LbCacheObj struct {
 type LoadBalancerClient struct {
 	LbClient client.LoadBalancerInterface
 
-	Mu    sync.Mutex
-	Cache map[string]*LbCacheObj
+	Mu            sync.Mutex
+	Cache         map[string]*LbCacheObj
+	mutationLocks keyedMutex
 }
 
 const multiCertificateCapabilityErrorMessage = "OCI Load Balancer multi-certificate listeners may not be supported in this tenancy or region; verify enablement or use one certificate"
@@ -576,7 +577,15 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 
 // UpdateBackends updates Backends for backendSetName, while preserving sslConfig, policy, and healthChecker details
 func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, backendSetName string, backends []loadbalancer.BackendDetails) error {
-	lb, etag, err := lbc.GetLoadBalancer(ctx, lbID)
+	unlock := lbc.mutationLocks.lock(lbID)
+	defer unlock()
+	for _, backend := range backends {
+		if backend.IpAddress == nil || *backend.IpAddress == "" || backend.Port == nil || *backend.Port <= 0 {
+			return fmt.Errorf("invalid desired backend for set %s", backendSetName)
+		}
+	}
+
+	lb, _, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
 		return err
 	}
@@ -598,6 +607,71 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 
 	if desired.Equal(actual) {
 		klog.V(4).InfoS("no backend update required", "lbName", *lb.DisplayName, "lbID", *lb.Id)
+		return nil
+	}
+	// OCI enforces a limit across the whole load balancer. Remove obsolete
+	// registrations before adding replacements, keeping the last backend until
+	// a replacement succeeds when the sets have no overlap.
+	for _, backend := range backendSet.Backends {
+		backendName := fmt.Sprintf("%s:%d", *backend.IpAddress, *backend.Port)
+		if desired.Has(backendName) {
+			continue
+		}
+		lb, etag, err := lbc.RefreshLoadBalancer(ctx, lbID)
+		if err != nil {
+			return err
+		}
+		currentSet, ok := lb.BackendSets[backendSetName]
+		if !ok {
+			return exception.NewTransientError(fmt.Errorf("backendset %s was not found", backendSetName))
+		}
+		found := false
+		for _, current := range currentSet.Backends {
+			if *current.IpAddress == *backend.IpAddress && *current.Port == *backend.Port {
+				found = true
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		if len(currentSet.Backends) == 1 && len(backends) > 0 {
+			break
+		}
+		klog.InfoS("Removing obsolete load balancer backend", "lbID", lbID, "backendSet", backendSetName, "backend", backendName)
+		resp, err := lbc.LbClient.DeleteBackend(ctx, loadbalancer.DeleteBackendRequest{
+			LoadBalancerId: common.String(lbID),
+			BackendSetName: common.String(backendSetName),
+			BackendName:    common.String(backendName),
+			IfMatch:        common.String(etag),
+		})
+		if util.IsServiceError(err, 409) || util.IsServiceError(err, 412) {
+			return exception.NewTransientError(fmt.Errorf("delete backend %s/%s: %w", backendSetName, backendName, err))
+		}
+		if err != nil {
+			return fmt.Errorf("delete backend %s/%s: %w", backendSetName, backendName, err)
+		}
+		if resp.OpcWorkRequestId == nil {
+			return fmt.Errorf("delete backend %s/%s returned no work request ID", backendSetName, backendName)
+		}
+		if _, err := lbc.waitForWorkRequest(ctx, *resp.OpcWorkRequestId); err != nil {
+			return fmt.Errorf("delete backend %s/%s: %w", backendSetName, backendName, err)
+		}
+	}
+
+	lb, etag, err := lbc.RefreshLoadBalancer(ctx, lbID)
+	if err != nil {
+		return err
+	}
+	backendSet, ok = lb.BackendSets[backendSetName]
+	if !ok {
+		return exception.NewTransientError(fmt.Errorf("backendset %s was not found", backendSetName))
+	}
+	actual = sets.NewString()
+	for _, backend := range backendSet.Backends {
+		actual.Insert(fmt.Sprintf("%s:%d", *backend.IpAddress, *backend.Port))
+	}
+	if desired.Equal(actual) {
 		return nil
 	}
 
