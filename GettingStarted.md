@@ -52,6 +52,13 @@ The native ingress controller itself is lightweight process and pushes all the r
 ## Usage Steps
 This section describes steps to deploy and test OCI-Native-Ingress-Controller.
 
+For Flannel clusters, `--max-node-backends-per-backend-set=N` limits each
+`externalTrafficPolicy: Cluster` Service backend set to N node backends. The
+controller chooses a stable, backend-set-specific subset of ready nodes and
+uses the same selection when creating and reconciling backend sets. The default
+value, `0`, registers all eligible nodes. This does not limit the total number
+of backends across an OCI load balancer or change Local traffic policy backends.
+
 ### Prerequisites
 Currently supported kubernetes versions are:
 - 1.27

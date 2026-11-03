@@ -225,7 +225,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	metricsCollector := metric.NewIngressCollector("oci.oraclecloud.com/native-ingress-controller", prometheus.NewRegistry())
-	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, mockClient, metricsCollector, fakeRecorder)
+	c := NewController("oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, ingressInformer, saInformer, serviceLister, endpointLister, podLister, nodeLister, mockClient, metricsCollector, fakeRecorder, 0)
 	return c
 }
 

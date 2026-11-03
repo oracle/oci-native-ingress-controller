@@ -77,6 +77,7 @@ type Controller struct {
 	ctrCache                        ctrcache.Cache
 	useLbCompartmentForCertificates bool
 	useNodeBackends                 bool
+	maxNodeBackendsPerBackendSet    int
 	eventRecorder                   events.EventRecorder
 }
 
@@ -85,7 +86,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister,
 	podLister corelisters.PodLister, nodeLister corelisters.NodeLister, secretInformer coreinformers.SecretInformer,
-	client *client.ClientProvider, metricsCollector *metric.IngressCollector, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder) *Controller {
+	client *client.ClientProvider, metricsCollector *metric.IngressCollector, ctrCache ctrcache.Cache, useLbCompartmentForCertificates bool, eventRecorder events.EventRecorder, maxNodeBackendsPerBackendSet int) *Controller {
 
 	c := &Controller{
 		controllerClass:                 controllerClass,
@@ -105,6 +106,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 		ctrCache:                        ctrCache,
 		useLbCompartmentForCertificates: useLbCompartmentForCertificates,
 		useNodeBackends:                 nodeLister != nil,
+		maxNodeBackendsPerBackendSet:    maxNodeBackendsPerBackendSet,
 		eventRecorder:                   eventRecorder,
 	}
 
@@ -973,7 +975,7 @@ func (c *Controller) getInitialBackendsByBackendSet(ingress *networkingv1.Ingres
 				continue
 			}
 
-			backends, err := c.getInitialBackends(ingress.Namespace, svc, svcName, targetPort)
+			backends, err := c.getInitialBackends(ingress.Namespace, svc, svcName, backendSetName, targetPort)
 			if err != nil {
 				klog.InfoS("unable to determine initial backends, creating backend set without initial backends",
 					"ingress", klog.KObj(ingress), "service", svcName, "backendSet", backendSetName, "err", err)
@@ -986,9 +988,9 @@ func (c *Controller) getInitialBackendsByBackendSet(ingress *networkingv1.Ingres
 	return backendsByBackendSet, nil
 }
 
-func (c *Controller) getInitialBackends(namespace string, svc *corev1.Service, svcName string, targetPort int32) ([]ociloadbalancer.BackendDetails, error) {
+func (c *Controller) getInitialBackends(namespace string, svc *corev1.Service, svcName string, backendSetName string, targetPort int32) ([]ociloadbalancer.BackendDetails, error) {
 	if c.useNodeBackends {
-		return c.getInitialNodeBackends(namespace, svc, svcName, targetPort)
+		return c.getInitialNodeBackends(namespace, svc, svcName, backendSetName, targetPort)
 	}
 
 	epAddrs, err := util.GetEndpoints(c.endpointLister, namespace, svcName)
@@ -1003,7 +1005,7 @@ func (c *Controller) getInitialBackends(namespace string, svc *corev1.Service, s
 	return backends, nil
 }
 
-func (c *Controller) getInitialNodeBackends(namespace string, svc *corev1.Service, svcName string, nodePort int32) ([]ociloadbalancer.BackendDetails, error) {
+func (c *Controller) getInitialNodeBackends(namespace string, svc *corev1.Service, svcName string, backendSetName string, nodePort int32) ([]ociloadbalancer.BackendDetails, error) {
 	if c.nodeLister == nil || c.podLister == nil || svc == nil || svc.Spec.Ports == nil || nodePort == 0 {
 		return nil, nil
 	}
@@ -1015,8 +1017,9 @@ func (c *Controller) getInitialNodeBackends(namespace string, svc *corev1.Servic
 		if err != nil {
 			return nil, err
 		}
-		for _, node := range nodes {
-			backends = append(backends, util.NewBackend(nodeInternalIP(node), nodePort))
+		backends = util.NodeBackends(nodes, backendSetName, nodePort, c.maxNodeBackendsPerBackendSet)
+		if len(backends) == 0 {
+			return nil, fmt.Errorf("no Node InternalIPs available for backend set %s", backendSetName)
 		}
 		return backends, nil
 	}
