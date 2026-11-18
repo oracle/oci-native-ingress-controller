@@ -213,3 +213,72 @@ func getRawBytes(bytes []byte) runtime.RawExtension {
 	}
 	return runtime.RawExtension{Raw: bytes}
 }
+
+// The webhook must only add readiness gates. Fields that the vendored
+// corev1.Pod type does not know about, such as restartPolicy on a native
+// sidecar init container, must not be removed by the patch.
+func TestHandleOnlyPatchesReadinessGates(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ingressList := util.ReadResourceAsIngressList(podReadinessPath)
+	testService := util.GetServiceListResource("default", "testecho1", 80)
+	ingressLister, serviceLister, client := setUp(ctx, ingressList, testService)
+	wb := NewWebhook(ingressLister, serviceLister, client)
+
+	gate := string(util.GetPodReadinessGates("ingress-readiness", "foo.bar.com")[0].ConditionType)
+
+	tests := []struct {
+		name         string
+		readiness    string
+		expectedPath string
+	}{
+		{
+			name:         "no existing readiness gates",
+			readiness:    "",
+			expectedPath: "/spec/readinessGates",
+		},
+		{
+			name:         "existing readiness gates",
+			readiness:    `,"readinessGates":[{"conditionType":"example.com/other"}]`,
+			expectedPath: "/spec/readinessGates/-",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := []byte(`{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {"namespace": "default", "labels": {"app": "testecho1"}},
+  "spec": {
+    "initContainers": [{
+      "name": "sidecar",
+      "image": "proxy",
+      "restartPolicy": "Always",
+      "readinessProbe": {"tcpSocket": {"port": 4191}},
+      "livenessProbe": {"tcpSocket": {"port": 4191}}
+    }],
+    "containers": [{"name": "test", "image": "echoserver"}]` + tt.readiness + `
+  }
+}`)
+			req := admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Kind:      gvk("", "v1", "Pod"),
+					Object:    runtime.RawExtension{Raw: raw},
+					Operation: admissionv1.Create,
+				},
+			}
+			resp := wb.Handle(context.Background(), req)
+			Expect(resp.Allowed).To(BeTrue())
+			Expect(resp.Patches).To(HaveLen(1))
+			patch := resp.Patches[0]
+			Expect(patch.Operation).To(Equal("add"))
+			Expect(patch.Path).To(Equal(tt.expectedPath))
+
+			value, err := json.Marshal(patch.Value)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(value)).To(ContainSubstring(gate))
+		})
+	}
+}
