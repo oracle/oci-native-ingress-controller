@@ -5,7 +5,7 @@
 //
 module github.com/oracle/oci-native-ingress-controller
 
-go 1.27.3
+go 1.27
 
 require (
 	github.com/google/uuid v1.3.0
