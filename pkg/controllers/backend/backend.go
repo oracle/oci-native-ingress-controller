@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -63,8 +64,8 @@ func NewController(
 	ingressInformer networkinginformers.IngressInformer,
 	saInformer coreinformers.ServiceAccountInformer,
 	serviceLister corelisters.ServiceLister,
-	endpointLister corelisters.EndpointsLister,
-	podLister corelisters.PodLister,
+	endpointInformer coreinformers.EndpointsInformer,
+	podInformer coreinformers.PodInformer,
 	client *client.ClientProvider,
 	metricsCollector *metric.IngressCollector,
 	eventRecorder events.EventRecorder,
@@ -75,8 +76,8 @@ func NewController(
 		ingressClassLister: ingressClassInformer.Lister(),
 		ingressLister:      ingressInformer.Lister(),
 		serviceLister:      serviceLister,
-		endpointLister:     endpointLister,
-		podLister:          podLister,
+		endpointLister:     endpointInformer.Lister(),
+		podLister:          podInformer.Lister(),
 		saLister:           saInformer.Lister(),
 		client:             client,
 		eventRecorder:      eventRecorder,
@@ -84,7 +85,144 @@ func NewController(
 		metricsCollector:   metricsCollector,
 	}
 
+	endpointInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: c.endpointUpdate,
+		DeleteFunc: c.endpointDelete,
+	})
+	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: c.podUpdate,
+	})
+
 	return c
+}
+
+func (c *Controller) endpointUpdate(oldObj, newObj interface{}) {
+	oldEndpoints, oldOK := oldObj.(*corev1.Endpoints)
+	newEndpoints, newOK := newObj.(*corev1.Endpoints)
+	if !oldOK || !newOK || reflect.DeepEqual(oldEndpoints.Subsets, newEndpoints.Subsets) {
+		return
+	}
+	c.enqueueIngressClassesForEndpoint(newEndpoints)
+}
+
+func (c *Controller) endpointDelete(obj interface{}) {
+	c.enqueueIngressClassesForEndpoint(obj)
+}
+
+func (c *Controller) enqueueIngressClassesForEndpoint(obj interface{}) {
+	endpoints, ok := obj.(*corev1.Endpoints)
+	if !ok {
+		tombstone, tombstoneOK := obj.(cache.DeletedFinalStateUnknown)
+		if !tombstoneOK {
+			utilruntime.HandleError(fmt.Errorf("couldn't get Endpoints object from %#v", obj))
+			return
+		}
+		endpoints, ok = tombstone.Obj.(*corev1.Endpoints)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not Endpoints: %#v", tombstone.Obj))
+			return
+		}
+	}
+
+	c.enqueueIngressClassesForService(endpoints.Namespace, endpoints.Name)
+}
+
+func (c *Controller) podUpdate(oldObj, newObj interface{}) {
+	oldPod, oldOK := oldObj.(*corev1.Pod)
+	newPod, newOK := newObj.(*corev1.Pod)
+	if !oldOK || !newOK || oldPod.DeletionTimestamp != nil || newPod.DeletionTimestamp == nil {
+		return
+	}
+
+	endpoints, err := c.endpointLister.Endpoints(newPod.Namespace).List(labels.Everything())
+	if err == nil {
+		for _, endpoint := range endpoints {
+			if !endpointReferencesPod(endpoint, newPod) {
+				continue
+			}
+			service, serviceErr := c.serviceLister.Services(endpoint.Namespace).Get(endpoint.Name)
+			if serviceErr != nil {
+				klog.ErrorS(serviceErr, "Unable to get service for terminating pod endpoint", "pod", klog.KObj(newPod), "service", klog.KRef(endpoint.Namespace, endpoint.Name))
+				continue
+			}
+			if util.GetServiceBackendDrainingEnabled(service) {
+				c.enqueueIngressClassesForService(endpoint.Namespace, endpoint.Name)
+			}
+		}
+	} else {
+		klog.ErrorS(err, "Unable to list endpoints for terminating pod", "pod", klog.KObj(newPod))
+	}
+}
+
+func endpointReferencesPod(endpoints *corev1.Endpoints, pod *corev1.Pod) bool {
+	for _, subset := range endpoints.Subsets {
+		addresses := append(append([]corev1.EndpointAddress{}, subset.Addresses...), subset.NotReadyAddresses...)
+		for _, address := range addresses {
+			if address.TargetRef == nil || address.TargetRef.Name != pod.Name ||
+				address.TargetRef.Kind != "Pod" ||
+				(address.TargetRef.Namespace != "" && address.TargetRef.Namespace != pod.Namespace) {
+				continue
+			}
+			if address.TargetRef.UID != "" && pod.UID != "" && address.TargetRef.UID == pod.UID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *Controller) enqueueIngressClassesForService(namespace, serviceName string) {
+	ingressClasses, err := c.ingressClassLister.List(labels.Everything())
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("unable to list ingress classes for backend event: %w", err))
+		return
+	}
+
+	for _, ingressClass := range ingressClasses {
+		if ingressClass.Spec.Controller != c.controllerClass {
+			continue
+		}
+		ingresses, err := util.GetIngressesForClass(c.ingressLister, ingressClass)
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("unable to list ingresses for class %s: %w", ingressClass.Name, err))
+			continue
+		}
+		for _, ingress := range ingresses {
+			if ingressReferencesService(ingress, namespace, serviceName) {
+				c.enqueueIngressClass(ingressClass)
+				break
+			}
+		}
+	}
+}
+
+func ingressReferencesService(ingress *networkingv1.Ingress, namespace, serviceName string) bool {
+	if ingress.Namespace != namespace {
+		return false
+	}
+	if ingress.Spec.DefaultBackend != nil && ingress.Spec.DefaultBackend.Service != nil && ingress.Spec.DefaultBackend.Service.Name == serviceName {
+		return true
+	}
+	for _, rule := range ingress.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			if path.Backend.Service != nil && path.Backend.Service.Name == serviceName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *Controller) enqueueIngressClass(ingressClass *networkingv1.IngressClass) {
+	key, err := cache.MetaNamespaceKeyFunc(ingressClass)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", ingressClass, err))
+		return
+	}
+	c.queue.Add(key)
 }
 
 func (c *Controller) processNextItem() bool {
@@ -184,8 +322,7 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 	}
 
 	// Sync default backends
-	c.syncDefaultBackend(ctx, lbID, ingresses)
-	return nil
+	return c.syncDefaultBackend(ctx, lbID, ingresses)
 }
 
 func (c *Controller) ensureBackendsForIngress(ctx context.Context, ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass,
@@ -216,9 +353,9 @@ func (c *Controller) ensureBackendsForIngress(ctx context.Context, ingress *netw
 				return fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", ingress.Namespace, svcName, targetPort, err)
 			}
 
-			backends := []ociloadbalancer.BackendDetails{}
-			for _, epAddr := range epAddrs {
-				backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
+			backends, err := c.getBackendDetails(ingress.Namespace, epAddrs, targetPort, util.GetServiceBackendDrainingEnabled(svc))
+			if err != nil {
+				return err
 			}
 
 			backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
@@ -233,9 +370,12 @@ func (c *Controller) ensureBackendsForIngress(ctx context.Context, ingress *netw
 			}
 
 			for _, epAddr := range epAddrs {
-				pod, err := c.podLister.Pods(ingress.Namespace).Get(epAddr.TargetRef.Name)
+				pod, resolved, err := c.resolveEndpointPod(ingress.Namespace, epAddr)
 				if err != nil {
-					return fmt.Errorf("failed to fetch pod %s/%s: %w", ingress.Namespace, epAddr.TargetRef.Name, err)
+					return err
+				}
+				if !resolved {
+					continue
 				}
 
 				backendName := fmt.Sprintf("%s:%d", epAddr.IP, targetPort)
@@ -259,7 +399,7 @@ func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingres
 	backends, err := c.getDefaultBackends(ingresses)
 	if err != nil {
 		klog.ErrorS(err, "Error processing default backend sync")
-		return nil
+		return err
 	}
 
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
@@ -317,10 +457,67 @@ func (c *Controller) getDefaultBackends(ingresses []*networkingv1.Ingress) ([]oc
 		return nil, fmt.Errorf("unable to fetch endpoints for %s/%s/%d: %w", namespace, svcName, targetPort, err)
 	}
 
-	for _, epAddr := range epAdrress {
-		backends = append(backends, util.NewBackend(epAddr.IP, targetPort))
+	backends, err = c.getBackendDetails(namespace, epAdrress, targetPort, util.GetServiceBackendDrainingEnabled(svc))
+	if err != nil {
+		return nil, err
 	}
 	return backends, err
+}
+
+func (c *Controller) getBackendDetails(namespace string, endpointAddresses []corev1.EndpointAddress, targetPort int32, backendDrainingEnabled bool) ([]ociloadbalancer.BackendDetails, error) {
+	backends := make([]ociloadbalancer.BackendDetails, 0, len(endpointAddresses))
+	for _, endpointAddress := range endpointAddresses {
+		if !backendDrainingEnabled {
+			backends = append(backends, util.NewBackend(endpointAddress.IP, targetPort, false))
+			continue
+		}
+
+		pod, resolved, err := c.resolveEndpointPod(namespace, endpointAddress)
+		if err != nil {
+			return nil, err
+		}
+
+		// Backend draining is opt-in and requires an exact Pod identity match.
+		// Unresolved references retain the existing undrained behavior.
+		drain := resolved && pod.DeletionTimestamp != nil
+		backends = append(backends, util.NewBackend(endpointAddress.IP, targetPort, drain))
+	}
+	return backends, nil
+}
+
+func (c *Controller) resolveEndpointPod(serviceNamespace string, endpointAddress corev1.EndpointAddress) (*corev1.Pod, bool, error) {
+	targetRef := endpointAddress.TargetRef
+	if targetRef == nil || targetRef.Name == "" {
+		klog.Warningf("leaving backend %s undrained because endpoint in namespace %s has no Pod reference", endpointAddress.IP, serviceNamespace)
+		return nil, false, nil
+	}
+	if targetRef.Kind != "Pod" {
+		klog.Warningf("leaving backend %s undrained because endpoint target %s/%s is not a Pod", endpointAddress.IP, targetRef.Kind, targetRef.Name)
+		return nil, false, nil
+	}
+	if targetRef.UID == "" {
+		klog.Warningf("leaving backend %s undrained because endpoint Pod %s has no UID", endpointAddress.IP, targetRef.Name)
+		return nil, false, nil
+	}
+
+	podNamespace := targetRef.Namespace
+	if podNamespace == "" {
+		podNamespace = serviceNamespace
+	}
+	pod, err := c.podLister.Pods(podNamespace).Get(targetRef.Name)
+	if apierrors.IsNotFound(err) {
+		klog.Warningf("leaving backend %s undrained because endpoint Pod %s/%s is not in the informer cache", endpointAddress.IP, podNamespace, targetRef.Name)
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to fetch pod %s/%s: %w", podNamespace, targetRef.Name, err)
+	}
+	if pod.UID != targetRef.UID {
+		klog.Warningf("leaving backend %s undrained because endpoint Pod %s/%s references UID %s but the informer contains UID %s", endpointAddress.IP, podNamespace, targetRef.Name, targetRef.UID, pod.UID)
+		return nil, false, nil
+	}
+
+	return pod, true, nil
 }
 
 func hasReadinessGate(pod *corev1.Pod, readinessGate corev1.PodConditionType) bool {
@@ -463,19 +660,20 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) {
 }
 
 func (c *Controller) runPusher() {
+	c.enqueueAllIngressClasses()
+}
+
+func (c *Controller) enqueueAllIngressClasses() {
 	ingressClasses, err := c.ingressClassLister.List(labels.Everything())
 	if err != nil {
 		klog.Errorf("unable to list ingress classes for syncing backends: %v", err)
 		return
 	}
 
-	for _, ic := range ingressClasses {
-		key, err := cache.MetaNamespaceKeyFunc(ic)
-		if err != nil {
-			utilruntime.HandleError(fmt.Errorf("couldn't get key for object %#v: %v", ic, err))
-			return
+	for _, ingressClass := range ingressClasses {
+		if ingressClass.Spec.Controller == c.controllerClass {
+			c.enqueueIngressClass(ingressClass)
 		}
-		c.queue.Add(key)
 	}
 }
 

@@ -201,6 +201,54 @@ func TestGetEndpoints(t *testing.T) {
 	Expect(len(endpoints)).Should(Equal(2))
 }
 
+func TestClusterNodeBackendsAreNeverDrained(t *testing.T) {
+	RegisterTestingT(t)
+	nodeList := util.GetNodesList()
+	nodes := make([]*corev1.Node, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		nodes = append(nodes, &nodeList.Items[i])
+	}
+
+	backends := getBackendsFromNodes(nodes, 30080)
+
+	Expect(backends).To(HaveLen(len(nodes)))
+	for _, backend := range backends {
+		Expect(backend.Drain).NotTo(BeNil())
+		Expect(*backend.Drain).To(BeFalse())
+	}
+}
+
+func TestLocalNodeBackendsIgnoreTerminatingPodState(t *testing.T) {
+	RegisterTestingT(t)
+	deletionTimestamp := v1.Now()
+	endpoint := util.GetEndpointsResourceList("testecho1", namespace, false).Items[0]
+	pod := util.GetPodResourceList("testpod", "echoserver").Items[0]
+	pod.DeletionTimestamp = &deletionTimestamp
+	node := util.GetNodesList().Items[0]
+
+	endpointIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	podIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	Expect(endpointIndexer.Add(&endpoint)).To(Succeed())
+	Expect(podIndexer.Add(&pod)).To(Succeed())
+	Expect(nodeIndexer.Add(&node)).To(Succeed())
+
+	backends, err := getBackendsFromPods(
+		corelisters.NewEndpointsLister(endpointIndexer),
+		corelisters.NewPodLister(podIndexer),
+		corelisters.NewNodeLister(nodeIndexer),
+		namespace,
+		"testecho1",
+		nil,
+		30080,
+	)
+
+	Expect(err).NotTo(HaveOccurred())
+	Expect(backends).To(HaveLen(1))
+	Expect(backends[0].Drain).NotTo(BeNil())
+	Expect(*backends[0].Drain).To(BeFalse())
+}
+
 func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList, yamlPath string, allCase bool) *Controller {
 
 	ingressList := util.ReadResourceAsIngressList(yamlPath)
