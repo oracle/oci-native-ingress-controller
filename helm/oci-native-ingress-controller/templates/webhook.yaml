@@ -7,22 +7,22 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: oci-native-ingress-controller-webhook-serving-cert
+  name: {{ include "oci-native-ingress-controller.fullname" . }}-webhook-serving-cert
   namespace: {{ .Values.deploymentNamespace }}
 spec:
   dnsNames:
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc
-  - oci-native-ingress-controller.{{ .Values.deploymentNamespace }}.svc.cluster.local
+  - {{ include "oci-native-ingress-controller.fullname" . }}.{{ .Values.deploymentNamespace }}
+  - {{ include "oci-native-ingress-controller.fullname" . }}.{{ .Values.deploymentNamespace }}.svc
+  - {{ include "oci-native-ingress-controller.fullname" . }}.{{ .Values.deploymentNamespace }}.svc.cluster.local
   issuerRef:
     kind: Issuer
-    name: oci-native-ingress-controller-ca
-  secretName: oci-native-ingress-controller-tls
+    name: {{ include "oci-native-ingress-controller.fullname" . }}-ca
+  secretName: {{ template "oci-native-ingress-controller.webhookCertSecret" . }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: oci-native-ingress-controller-ca
+  name: {{ include "oci-native-ingress-controller.fullname" . }}-ca
   namespace: {{ .Values.deploymentNamespace }}
 spec:
   selfSigned: {}
@@ -34,7 +34,7 @@ metadata:
   labels:
     {{- include "oci-native-ingress-controller.labels" . | nindent 4 }}
   annotations:
-    cert-manager.io/inject-ca-from: {{ .Values.deploymentNamespace }}/oci-native-ingress-controller-webhook-serving-cert
+    cert-manager.io/inject-ca-from: {{ .Values.deploymentNamespace }}/{{ include "oci-native-ingress-controller.fullname" . }}-webhook-serving-cert
 webhooks:
 - clientConfig:
     service:
