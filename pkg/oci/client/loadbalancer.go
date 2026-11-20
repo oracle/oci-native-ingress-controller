@@ -18,6 +18,7 @@ type LoadBalancerInterface interface {
 
 	CreateBackendSet(ctx context.Context, request loadbalancer.CreateBackendSetRequest) (loadbalancer.CreateBackendSetResponse, error)
 	UpdateBackendSet(ctx context.Context, request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error)
+	DeleteBackend(ctx context.Context, request loadbalancer.DeleteBackendRequest) (loadbalancer.DeleteBackendResponse, error)
 	DeleteBackendSet(ctx context.Context, request loadbalancer.DeleteBackendSetRequest) (loadbalancer.DeleteBackendSetResponse, error)
 
 	GetBackendSetHealth(ctx context.Context, request loadbalancer.GetBackendSetHealthRequest) (loadbalancer.GetBackendSetHealthResponse, error)
@@ -81,6 +82,11 @@ func (client LBClient) CreateBackendSet(ctx context.Context,
 func (client LBClient) UpdateBackendSet(ctx context.Context,
 	request loadbalancer.UpdateBackendSetRequest) (loadbalancer.UpdateBackendSetResponse, error) {
 	return client.lbClient.UpdateBackendSet(ctx, request)
+}
+
+func (client LBClient) DeleteBackend(ctx context.Context,
+	request loadbalancer.DeleteBackendRequest) (loadbalancer.DeleteBackendResponse, error) {
+	return client.lbClient.DeleteBackend(ctx, request)
 }
 
 func (client LBClient) DeleteBackendSet(ctx context.Context,
