@@ -102,6 +102,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			c,
 			opts.UseLbCompartmentForCertificates,
 			eventRecorder,
+			opts.MaxNodeBackendsPerBackendSet,
 		)
 
 		routingPolicyController := routingpolicy.NewController(
@@ -144,6 +145,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 				client,
 				metricsCollector,
 				eventRecorder,
+				opts.MaxNodeBackendsPerBackendSet,
 			)
 			go backendController.Run(3, ctx.Done())
 		} else {

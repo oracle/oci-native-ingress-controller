@@ -139,3 +139,6 @@ emitEvents: false
 # This cleanup is done periodically by NIC
 # If less than or equal to 0, certificate resource cleanup is disabled
 certDeletionGracePeriodInDays: 0
+
+# Maximum node backends per Cluster traffic policy backend set; 0 means unlimited.
+maxNodeBackendsPerBackendSet: 0

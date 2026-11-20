@@ -112,7 +112,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder, 0)
 	return c
 }
 
@@ -155,7 +155,7 @@ func initsWithCustomLBAndServicesSecretsAndCertManager(ctx context.Context, ingr
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	return NewController("oci.oraclecloud.com/native-ingress-controller", "", ingressClassInformer,
-		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder)
+		ingressInformer, saInformer, serviceLister, nil, nil, nil, secretInformer, fakeClient, nil, nil, false, fakeRecorder, 0)
 }
 
 func TestGetInitialBackendsByBackendSetUsesEndpointBackends(t *testing.T) {
@@ -175,6 +175,38 @@ func TestGetInitialBackendsByBackendSetUsesEndpointBackends(t *testing.T) {
 	backendSetName := util.GenerateBackendSetName("default", "testecho1", 80)
 	Expect(backendsByBackendSet[backendSetName]).To(HaveLen(1))
 	Expect(*backendsByBackendSet[backendSetName][0].IpAddress).To(Equal("6.7.8.9"))
+}
+
+func TestGetInitialNodeBackendsHonorsLimit(t *testing.T) {
+	nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	for i, ip := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		node := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("node-%d", i)},
+			Status: v1.NodeStatus{
+				Addresses:  []v1.NodeAddress{{Type: v1.NodeInternalIP, Address: ip}},
+				Conditions: []v1.NodeCondition{{Type: v1.NodeReady, Status: v1.ConditionTrue}},
+			},
+		}
+		if err := nodeIndexer.Add(node); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := &Controller{
+		nodeLister:                   corelisters.NewNodeLister(nodeIndexer),
+		podLister:                    corelisters.NewPodLister(cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})),
+		maxNodeBackendsPerBackendSet: 2,
+	}
+	svc := &v1.Service{Spec: v1.ServiceSpec{
+		ExternalTrafficPolicy: v1.ServiceExternalTrafficPolicyTypeCluster,
+		Ports:                 []v1.ServicePort{{NodePort: 30000}},
+	}}
+	backends, err := c.getInitialNodeBackends("default", svc, "svc", "backend-set", 30000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backends) != 2 {
+		t.Fatalf("got %d initial backends, want 2", len(backends))
+	}
 }
 
 func TestGetInitialBackendsByBackendSetSkipsMissingService(t *testing.T) {

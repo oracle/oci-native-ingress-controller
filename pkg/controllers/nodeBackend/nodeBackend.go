@@ -48,26 +48,28 @@ type Controller struct {
 
 	queue workqueue.RateLimitingInterface
 
-	client           *client.ClientProvider
-	metricsCollector *metric.IngressCollector
+	client                       *client.ClientProvider
+	metricsCollector             *metric.IngressCollector
+	maxNodeBackendsPerBackendSet int
 }
 
 func NewController(controllerClass string, ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer, saInformer coreinformers.ServiceAccountInformer, serviceLister corelisters.ServiceLister, endpointLister corelisters.EndpointsLister, podLister corelisters.PodLister, nodeLister corelisters.NodeLister,
-	client *client.ClientProvider, metricsCollector *metric.IngressCollector, eventRecorder events.EventRecorder) *Controller {
+	client *client.ClientProvider, metricsCollector *metric.IngressCollector, eventRecorder events.EventRecorder, maxNodeBackendsPerBackendSet int) *Controller {
 
 	c := &Controller{
-		controllerClass:    controllerClass,
-		ingressClassLister: ingressClassInformer.Lister(),
-		ingressLister:      ingressInformer.Lister(),
-		serviceLister:      serviceLister,
-		endpointLister:     endpointLister,
-		podLister:          podLister,
-		nodeLister:         nodeLister,
-		saLister:           saInformer.Lister(),
-		client:             client,
-		eventRecorder:      eventRecorder,
-		queue:              workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
-		metricsCollector:   metricsCollector,
+		controllerClass:              controllerClass,
+		ingressClassLister:           ingressClassInformer.Lister(),
+		ingressLister:                ingressInformer.Lister(),
+		serviceLister:                serviceLister,
+		endpointLister:               endpointLister,
+		podLister:                    podLister,
+		nodeLister:                   nodeLister,
+		saLister:                     saInformer.Lister(),
+		client:                       client,
+		eventRecorder:                eventRecorder,
+		queue:                        workqueue.NewRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(10*time.Second, 5*time.Minute)),
+		metricsCollector:             metricsCollector,
+		maxNodeBackendsPerBackendSet: maxNodeBackendsPerBackendSet,
 	}
 
 	return c
@@ -234,9 +236,11 @@ func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ing
 
 			var backends []ociloadbalancer.BackendDetails
 			trafficPolicy := svc.Spec.ExternalTrafficPolicy
+			backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
 			if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
-				for _, node := range nodes {
-					backends = append(backends, util.NewBackend(NodeInternalIP(node), nodePort))
+				backends = util.NodeBackends(nodes, backendSetName, nodePort, c.maxNodeBackendsPerBackendSet)
+				if len(backends) == 0 {
+					return fmt.Errorf("no Node InternalIPs available for backend set %s", backendSetName)
 				}
 			} else {
 				backends, err = getBackendsFromPods(c.endpointLister, c.podLister, c.nodeLister, ingress.Namespace, svcName, backends, nodePort)
@@ -244,7 +248,6 @@ func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ing
 					return err
 				}
 			}
-			backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
 			err = wrapperClient.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
 			if err != nil {
 				return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)

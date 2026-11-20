@@ -39,6 +39,7 @@ type IngressOpts struct {
 	UseLbCompartmentForCertificates bool
 	EmitEvents                      bool
 	CertDeletionGracePeriodInDays   int64
+	MaxNodeBackendsPerBackendSet    int
 }
 
 func MapToPrincipalType(authType string) (OCIPrincipalType, error) {
