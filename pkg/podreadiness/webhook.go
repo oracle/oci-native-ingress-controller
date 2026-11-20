@@ -11,8 +11,9 @@ package podreadiness
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
+
+	"gomodules.xyz/jsonpatch/v2"
 
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -103,6 +104,7 @@ func (prg *PodReadinessGate) handleCreate(ctx context.Context, req admission.Req
 		return admission.Allowed("no pod readiness gates required")
 	}
 
+	var missing []corev1.PodReadinessGate
 	for _, cond := range targetHealthCondTypes {
 		found := false
 		for _, c := range pod.Spec.ReadinessGates {
@@ -111,19 +113,37 @@ func (prg *PodReadinessGate) handleCreate(ctx context.Context, req admission.Req
 				break
 			}
 		}
+		for _, c := range missing {
+			if c.ConditionType == cond {
+				found = true
+				break
+			}
+		}
 
 		if !found {
-			pod.Spec.ReadinessGates = append(pod.Spec.ReadinessGates, corev1.PodReadinessGate{
+			missing = append(missing, corev1.PodReadinessGate{
 				ConditionType: cond,
 			})
 		}
 	}
-	marshaledPod, err := json.Marshal(pod)
-	if err != nil {
-		return admission.Errored(http.StatusInternalServerError, err)
+
+	if len(missing) == 0 {
+		return admission.Allowed("pod readiness gates already present")
 	}
 
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+	// Patch only spec.readinessGates. Marshaling the decoded Pod and diffing it
+	// against the request would drop every field the vendored corev1.Pod type
+	// does not know about, e.g. restartPolicy on native sidecar init containers.
+	var patches []jsonpatch.JsonPatchOperation
+	if len(pod.Spec.ReadinessGates) == 0 {
+		patches = append(patches, jsonpatch.NewOperation("add", "/spec/readinessGates", missing))
+	} else {
+		for _, gate := range missing {
+			patches = append(patches, jsonpatch.NewOperation("add", "/spec/readinessGates/-", gate))
+		}
+	}
+
+	return admission.Patched("", patches...)
 }
 
 // PodReadinessGate adds an annotation to every incoming pods.
