@@ -2,6 +2,7 @@ package nodeBackend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -195,15 +196,15 @@ func (c *Controller) ensureBackends(ctx context.Context, ingressClass *networkin
 		return fmt.Errorf(util.OciClientNotFoundInContextError)
 	}
 
+	// Update the catchall set first so a failing regular set cannot prevent it.
+	result := c.syncDefaultBackend(ctx, lbID, ingresses)
 	for _, ingress := range ingresses {
 		err := c.ensureBackendsForIngress(ingress, ingressClass, nodes, lbID, wrapperClient)
 		if err != nil {
-			return fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err)
+			result = errors.Join(result, fmt.Errorf("for ingress %s, encountered error: %w", klog.KObj(ingress), err))
 		}
 	}
-	// Sync default backends
-	c.syncDefaultBackend(ctx, lbID, ingresses)
-	return nil
+	return result
 }
 
 func (c *Controller) ensureBackendsForIngress(ingress *networkingv1.Ingress, ingressClass *networkingv1.IngressClass,
@@ -310,8 +311,7 @@ func (c *Controller) syncDefaultBackend(ctx context.Context, lbID string, ingres
 	// if no backend then update
 	backends, err := c.getDefaultBackends(ingresses)
 	if err != nil {
-		klog.ErrorS(err, "Error processing default backend sync")
-		return nil
+		return fmt.Errorf("error processing default backend sync: %w", err)
 	}
 	wrapperClient, ok := ctx.Value(util.WrapperClient).(*client.WrapperClient)
 	if !ok {
