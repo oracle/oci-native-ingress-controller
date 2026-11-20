@@ -6,7 +6,7 @@
 #
 
 # For open source
-FROM golang:1.26.5-alpine as builder
+FROM golang:1.27.3-alpine as builder
 
 WORKDIR /workspace
 
@@ -22,6 +22,9 @@ RUN GODEBUG=fips140=off CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GO111MODUL
 
 # For Open source
 FROM oraclelinux:8-slim
+
+RUN microdnf --refresh update -y ca-certificates brotli curl libcurl libgcc libstdc++ \
+    && microdnf clean all
 
 LABEL author="OKE Foundations Team"
 
