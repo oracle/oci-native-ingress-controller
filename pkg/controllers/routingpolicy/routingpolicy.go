@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -43,7 +44,8 @@ var errIngressClassNotReady = errors.New("ingress class not ready")
 
 // Controller demonstrates how to implement a controller with client-go.
 type Controller struct {
-	controllerClass string
+	metricsCollector *metric.IngressCollector
+	controllerClass  string
 
 	ingressClassLister networkinglisters.IngressClassLister
 	ingressLister      networkinglisters.IngressLister
@@ -64,9 +66,11 @@ func NewController(
 	serviceLister corelisters.ServiceLister,
 	client *client.ClientProvider,
 	eventRecorder events.EventRecorder,
+	metricsCollector *metric.IngressCollector,
 ) *Controller {
 
 	c := &Controller{
+		metricsCollector:   metricsCollector,
 		controllerClass:    controllerClass,
 		ingressClassLister: ingressClassInformer.Lister(),
 		ingressLister:      ingressInformer.Lister(),
@@ -95,6 +99,9 @@ func (c *Controller) processNextItem() bool {
 
 	// Invoke the method containing the business logic
 	err := c.sync(key.(string))
+	if err != nil && !errors.Is(err, errIngressClassNotReady) {
+		c.metricsCollector.IncrementSyncErrors(metric.ControllerRoutingPolicy)
+	}
 
 	// Handle the error if something went wrong during the execution of the business logic
 	c.handleErr(err, key)

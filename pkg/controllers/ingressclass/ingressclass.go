@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/events"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/client"
+	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"k8s.io/klog/v2"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -54,6 +55,7 @@ const (
 
 // Controller demonstrates how to implement a controller with client-go.
 type Controller struct {
+	metricsCollector     *metric.IngressCollector
 	defaultCompartmentId string
 	defaultSubnetId      string
 	controllerClass      string
@@ -74,9 +76,10 @@ func NewController(
 	controllerClass string,
 	informer networkinginformers.IngressClassInformer,
 	saInformer coreinformers.ServiceAccountInformer,
-	client *client.ClientProvider, ctrcache ctrcache.Cache, eventRecorder events.EventRecorder) *Controller {
+	client *client.ClientProvider, ctrcache ctrcache.Cache, eventRecorder events.EventRecorder, metricsCollector *metric.IngressCollector) *Controller {
 
 	c := &Controller{
+		metricsCollector:     metricsCollector,
 		defaultCompartmentId: defaultCompartmentId,
 		defaultSubnetId:      defaultSubnetId,
 		controllerClass:      controllerClass,
@@ -156,6 +159,9 @@ func (c *Controller) processNextItem() bool {
 
 	// Invoke the method containing the business logic
 	err := c.sync(key.(string))
+	if err != nil {
+		c.metricsCollector.IncrementSyncErrors(metric.ControllerIngressClass)
+	}
 
 	// Handle the error if something went wrong during the execution of the business logic
 	c.handleErr(err, key)

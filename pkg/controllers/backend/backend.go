@@ -12,6 +12,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -100,6 +101,9 @@ func (c *Controller) processNextItem() bool {
 
 	// Invoke the method containing the business logic
 	err := c.sync(key.(string))
+	if err != nil && !errors.Is(err, util.ErrIngressClassNotReady) {
+		c.metricsCollector.IncrementSyncErrors(metric.ControllerBackend)
+	}
 
 	// Handle the error if something went wrong during the execution of the business logic
 	util.HandleErrForBackendController(c.eventRecorder, c.ingressClassLister, c.queue, err, "Error syncing backends for ingress class", key)

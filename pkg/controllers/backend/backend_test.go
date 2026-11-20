@@ -3,11 +3,15 @@ package backend
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/events"
 
@@ -493,4 +497,37 @@ func NewMockCacheStore(client *client.WrapperClient) *MockCacheStore {
 
 func (m *MockCacheStore) GetByKey(key string) (item interface{}, exists bool, err error) {
 	return m.client, true, nil
+}
+
+// Override only the OCI update operation; preserve the existing LB fixture and reads.
+type limitRejectingLoadBalancerClient struct {
+	MockLoadBalancerClient
+	err error
+}
+
+func (c limitRejectingLoadBalancerClient) UpdateBackendSet(context.Context, ociloadbalancer.UpdateBackendSetRequest) (ociloadbalancer.UpdateBackendSetResponse, error) {
+	return ociloadbalancer.UpdateBackendSetResponse{}, c.err
+}
+
+func TestBackendUpdateLimitFailureIsCounted(t *testing.T) {
+	RegisterTestingT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	classes := util.GetIngressClassListWithLBSet("id")
+	c := inits(ctx, classes, backendPath)
+	reg := prometheus.NewRegistry()
+	c.metricsCollector = metric.NewIngressCollector("test", reg)
+	wrapper, err := c.client.GetClient(&MockConfigGetter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapper.GetLbClient().LbClient = limitRejectingLoadBalancerClient{err: errors.New("load balancer limit of 512 backend servers exceeded")}
+	c.queue.Add(classes.Items[0].Name)
+	c.processNextItem()
+	response := httptest.NewRecorder()
+	promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(response, httptest.NewRequest("GET", "/metrics", nil))
+	want := "oci_ingress_sync_errors_total{controller=\"backend\",controller_class=\"test\"} 1\n"
+	if response.Code != 200 || !strings.Contains(response.Body.String(), want) {
+		t.Fatalf("missing backend failure counter %q in metrics:\n%s", want, response.Body.String())
+	}
 }

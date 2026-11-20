@@ -16,6 +16,7 @@ import (
 type IngressCollector struct {
 	prometheus.Collector
 
+	ingressSyncErrors          *prometheus.CounterVec
 	ingressSyncCount           prometheus.Gauge
 	ingressSyncTime            prometheus.Gauge
 	ingressStateBuildTime      prometheus.Gauge
@@ -31,6 +32,21 @@ type IngressCollector struct {
 	labels      prometheus.Labels
 }
 
+const (
+	ControllerIngress       = "ingress"
+	ControllerIngressClass  = "ingressclass"
+	ControllerRoutingPolicy = "routingpolicy"
+	ControllerBackend       = "backend"
+)
+
+// IncrementSyncErrors records one failed sync attempt. Both backend implementations
+// use ControllerBackend because only one runs in a controller process.
+func (ic *IngressCollector) IncrementSyncErrors(controller string) {
+	if ic != nil {
+		ic.ingressSyncErrors.WithLabelValues(controller).Inc()
+	}
+}
+
 func NewIngressCollector(controllerClass string, reg *prometheus.Registry) *IngressCollector {
 	if reg == nil {
 		return nil
@@ -40,6 +56,11 @@ func NewIngressCollector(controllerClass string, reg *prometheus.Registry) *Ingr
 	}
 
 	ic := &IngressCollector{
+		ingressSyncErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:        "oci_ingress_sync_errors_total",
+			Help:        "Number of failed controller sync attempts, including retries, excluding waits for an IngressClass load balancer.",
+			ConstLabels: constLabels,
+		}, []string{"controller"}),
 		constLabels: constLabels,
 		labels: prometheus.Labels{
 			"class": controllerClass,
@@ -99,6 +120,9 @@ func NewIngressCollector(controllerClass string, reg *prometheus.Registry) *Ingr
 				ConstLabels: constLabels,
 			}),
 	}
+	for _, controller := range []string{ControllerIngress, ControllerIngressClass, ControllerRoutingPolicy, ControllerBackend} {
+		ic.ingressSyncErrors.WithLabelValues(controller)
+	}
 	reg.MustRegister(ic)
 	return ic
 }
@@ -141,6 +165,7 @@ func (ic *IngressCollector) IncrementIngressDeleteOperation() {
 
 // Describe implements prometheus.Collector
 func (ic IngressCollector) Describe(ch chan<- *prometheus.Desc) {
+	ic.ingressSyncErrors.Describe(ch)
 	ic.ingressSyncCount.Describe(ch)
 	ic.ingressSyncTime.Describe(ch)
 	ic.ingressStateBuildTime.Describe(ch)
@@ -154,6 +179,7 @@ func (ic IngressCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect implements the prometheus.Collector interface.
 func (ic IngressCollector) Collect(ch chan<- prometheus.Metric) {
+	ic.ingressSyncErrors.Collect(ch)
 	ic.ingressSyncCount.Collect(ch)
 	ic.ingressSyncTime.Collect(ch)
 	ic.ingressStateBuildTime.Collect(ch)

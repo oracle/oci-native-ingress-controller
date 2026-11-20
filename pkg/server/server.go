@@ -67,6 +67,8 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 	ingressInformer networkinginformers.IngressInformer, k8client kubernetes.Interface, serviceInformer v1.ServiceInformer, secretInformer v1.SecretInformer,
 	endpointInformer v1.EndpointsInformer, podInformer v1.PodInformer, nodeInformer v1.NodeInformer, serviceAccountInformer v1.ServiceAccountInformer,
 	c ctrcache.Cache, reg *prometheus.Registry, eventRecorder events.EventRecorder) func(ctx context.Context) {
+	// Register metrics before leader election so standby replicas expose zero counters.
+	metricsCollector := metric.NewIngressCollector(opts.ControllerClass, reg)
 	return func(ctx context.Context) {
 		klog.Info("Controller loop...")
 
@@ -81,7 +83,6 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		if err != nil {
 			klog.Fatalf("failed to get cluster details: %v", err)
 		}
-		metricsCollector := metric.NewIngressCollector(opts.ControllerClass, reg)
 		var initialBackendNodeLister corelisters.NodeLister
 		if cni == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay) {
 			initialBackendNodeLister = nodeInformer.Lister()
@@ -112,6 +113,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			serviceInformer.Lister(),
 			client,
 			eventRecorder,
+			metricsCollector,
 		)
 
 		ingressClassController := ingressclass.NewController(
@@ -123,6 +125,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 			client,
 			c,
 			eventRecorder,
+			metricsCollector,
 		)
 
 		go ingressClassController.Run(3, ctx.Done())

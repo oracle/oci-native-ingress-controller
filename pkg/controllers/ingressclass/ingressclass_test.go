@@ -631,7 +631,7 @@ func initsWithCustomClients(ctx context.Context, ingressClassList *networkingv1.
 		Cache:               NewMockCacheStore(wrapperClient),
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
-	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, saInformer, mockClient, nil, fakeRecorder)
+	c := NewController("", "", "oci.oraclecloud.com/native-ingress-controller", ingressClassInformer, saInformer, mockClient, nil, fakeRecorder, nil)
 	return c
 }
 

@@ -229,6 +229,9 @@ func (c *Controller) processNextItem() bool {
 
 	// Invoke the method containing the business logic
 	err := c.sync(key.(string))
+	if err != nil && !errors.Is(err, errIngressClassNotReady) {
+		c.metricsCollector.IncrementSyncErrors(metric.ControllerIngress)
+	}
 
 	endBuildTime := util.GetCurrentTimeInUnixMillis()
 	if c.metricsCollector != nil {

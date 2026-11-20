@@ -164,7 +164,7 @@ func inits(ctx context.Context, ingressClassList *networkingv1.IngressClassList,
 	}
 	fakeRecorder := events.NewFakeRecorder(10)
 	c := NewController("oci.oraclecloud.com/native-ingress-controller",
-		ingressClassInformer, ingressInformer, saInformer, serviceLister, mockClient, fakeRecorder)
+		ingressClassInformer, ingressInformer, saInformer, serviceLister, mockClient, fakeRecorder, nil)
 	return c
 }
 
